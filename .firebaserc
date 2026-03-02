@@ -1,5 +1,14 @@
 {
   "projects": {
     "default": "school-experiments-5bc99"
+  },
+  "targets": {
+    "school-experiments-5bc99": {
+      "hosting": {
+        "rrdtickettracker": [
+          "rrdtickettracker"
+        ]
+      }
+    }
   }
 }
