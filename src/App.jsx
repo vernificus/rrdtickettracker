@@ -4,6 +4,7 @@ import {
   Award, PieChart, ChevronLeft, CheckCircle2, X
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
+import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore, collection, doc, setDoc, onSnapshot,
@@ -12,16 +13,18 @@ import {
 
 // --- Firebase Setup ---
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyDFaghCP9SYQcUwRAYmzFWQfRNr14KNacQ",
+  authDomain: "school-experiments-5bc99.firebaseapp.com",
+  projectId: "school-experiments-5bc99",
+  storageBucket: "school-experiments-5bc99.firebasestorage.app",
+  messagingSenderId: "413467320532",
+  appId: "1:413467320532:web:bb4c813435161776b49b41",
+  measurementId: "G-6VT532QW0M"
 };
 
-const appId = import.meta.env.VITE_APP_ID || 'school-green-ticket-react';
+const appId = 'school-green-ticket-react';
 const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
