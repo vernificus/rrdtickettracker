@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "rrdtickettracker",
+    "target": "rrdtickettracker",
     "public": "dist",
     "ignore": [
       "firebase.json",
