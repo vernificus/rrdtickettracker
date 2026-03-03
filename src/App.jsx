@@ -8,7 +8,7 @@ import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore, collection, doc, setDoc, onSnapshot,
-  addDoc, serverTimestamp, writeBatch
+  addDoc, serverTimestamp, writeBatch, deleteDoc
 } from 'firebase/firestore';
 
 // --- Firebase Setup ---
@@ -406,6 +406,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
   const [isProcessing, setIsProcessing] = useState(false);
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
 
   const reasons = { Respectful: 0, Responsible: 0, Determined: 0 };
   tickets.forEach(t => { if (reasons[t.reason] !== undefined) reasons[t.reason]++; });
@@ -462,6 +464,24 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
       showToast("Error processing CSV.");
     }
     setIsProcessing(false);
+  };
+
+  const clearRoster = async () => {
+    setIsClearing(true);
+    try {
+      const batch = writeBatch(db);
+      students.forEach(s => {
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'students', s.id);
+        batch.delete(ref);
+      });
+      await batch.commit();
+      showToast(`Cleared ${students.length} students from the roster.`);
+      setConfirmClear(false);
+    } catch (e) {
+      console.error(e);
+      showToast("Error clearing roster.");
+    }
+    setIsClearing(false);
   };
 
   return (
@@ -601,7 +621,27 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
 
           <div className="mt-8 pt-6 border-t">
             <h3 className="font-bold text-gray-800 mb-2">Current Database Status</h3>
-            <p className="text-gray-600">Total Students in Database: <strong>{students.length}</strong></p>
+            <p className="text-gray-600 mb-4">Total Students in Database: <strong>{students.length}</strong></p>
+
+            {students.length > 0 && (
+              !confirmClear ? (
+                <button onClick={() => setConfirmClear(true)} className="bg-red-50 hover:bg-red-100 text-red-700 font-bold py-2.5 px-5 rounded-xl transition border border-red-200 hover:border-red-400 text-sm">
+                  Clear Entire Roster
+                </button>
+              ) : (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                  <p className="text-red-800 font-medium mb-3">Are you sure? This will permanently delete all {students.length} students from the roster.</p>
+                  <div className="flex gap-3">
+                    <button onClick={clearRoster} disabled={isClearing} className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold py-2 px-5 rounded-lg transition text-sm">
+                      {isClearing ? 'Clearing...' : 'Yes, Clear All'}
+                    </button>
+                    <button onClick={() => setConfirmClear(false)} className="bg-white hover:bg-gray-50 text-gray-700 font-bold py-2 px-5 rounded-lg transition border text-sm">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
           </div>
         </div>
       )}
