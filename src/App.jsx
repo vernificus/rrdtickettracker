@@ -644,6 +644,13 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
     } catch (e) { showToast("Error awarding Golden Ticket."); }
   };
 
+  const handleRemoveGoldenTicket = async (ticketId, className) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goldenTickets', ticketId));
+      showToast(`Removed Golden Ticket from ${className}'s class.`);
+    } catch (e) { showToast("Error removing Golden Ticket."); }
+  };
+
   const processCSV = async () => {
     if (!csvText.trim()) return;
     setIsProcessing(true);
@@ -750,6 +757,28 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
                   Award Golden Ticket
                 </button>
               </div>
+              {goldenTickets.filter(g => g.className === selectedClass).length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-4">
+                  <div className="px-5 py-3 border-b bg-yellow-50 flex items-center justify-between">
+                    <h3 className="font-bold text-yellow-800 text-sm flex items-center gap-2"><Star className="w-4 h-4" /> Golden Tickets for {selectedClass}</h3>
+                    <span className="text-xs text-gray-400">Tap trash to remove</span>
+                  </div>
+                  <div className="divide-y">
+                    {[...goldenTickets].filter(g => g.className === selectedClass).sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).map(g => (
+                      <div key={g.id} className="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition">
+                        <div className="flex items-center gap-3">
+                          <span className="w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0" />
+                          <span className="font-medium text-gray-800 text-sm">Awarded by {g.teacherName}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">{g.timestamp ? g.timestamp.toDate().toLocaleDateString() : 'Now'}</span>
+                        </div>
+                        <button onClick={() => handleRemoveGoldenTicket(g.id, g.className)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-bold">Class-Wide Recognition</h3>
@@ -809,16 +838,22 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
                   <tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Teacher</th><th className="px-6 py-3">Recipient</th><th className="px-6 py-3">Reason</th><th className="px-6 py-3 w-12"></th></tr>
                 </thead>
                 <tbody className="divide-y">
-                  {[...tickets].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).slice(0, 10).map(t => (
+                  {[
+                    ...tickets.map(t => ({ ...t, _type: 'ticket' })),
+                    ...goldenTickets.map(g => ({ ...g, _type: 'golden' }))
+                  ].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).slice(0, 10).map(t => (
                     <tr key={t.id}>
                       <td className="px-6 py-3">{t.timestamp ? t.timestamp.toDate().toLocaleString() : 'Now'}</td>
                       <td className="px-6 py-3 font-medium text-gray-900">{t.teacherName}</td>
-                      <td className="px-6 py-3">{t.recipient} {t.recipientType === 'class' && '(Class)'}</td>
+                      <td className="px-6 py-3">{t._type === 'golden' ? `${t.className} (Class)` : <>{t.recipient} {t.recipientType === 'class' && '(Class)'}</>}</td>
                       <td className="px-6 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
+                        {t._type === 'golden'
+                          ? <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 inline-flex items-center gap-1"><Star className="w-3 h-3" />Golden</span>
+                          : <span className={`px-2 py-1 rounded-full text-xs font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
+                        }
                       </td>
                       <td className="px-6 py-3">
-                        <button onClick={() => handleRemoveTicket(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
+                        <button onClick={() => t._type === 'golden' ? handleRemoveGoldenTicket(t.id, t.className) : handleRemoveTicket(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
