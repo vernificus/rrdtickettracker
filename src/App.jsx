@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download,
-  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2
+  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
@@ -38,6 +38,7 @@ export default function App() {
   const [tickets, setTickets] = useState([]);
   const [students, setStudents] = useState([]);
   const [profiles, setProfiles] = useState([]);
+  const [goldenTickets, setGoldenTickets] = useState([]);
 
   // UI State
   const [toast, setToast] = useState({ visible: false, message: '' });
@@ -65,6 +66,7 @@ export default function App() {
     const profilesRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
     const ticketsRef = collection(db, 'artifacts', appId, 'public', 'data', 'tickets');
     const studentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'students');
+    const goldenRef = collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets');
 
     const unsubProfiles = onSnapshot(profilesRef, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -82,7 +84,11 @@ export default function App() {
       setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    return () => { unsubProfiles(); unsubTickets(); unsubStudents(); };
+    const unsubGolden = onSnapshot(goldenRef, (snap) => {
+      setGoldenTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    });
+
+    return () => { unsubProfiles(); unsubTickets(); unsubStudents(); unsubGolden(); };
   }, [user]);
 
   const showToast = (message) => {
@@ -109,13 +115,13 @@ export default function App() {
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {profile.role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} profile={profile} />
+          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} profile={profile} goldenTickets={goldenTickets} />
         )}
         {profile.role === 'homeroom' && (
-          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} />
+          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} goldenTickets={goldenTickets} />
         )}
         {profile.role === 'specialist' && (
-          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} />
+          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} goldenTickets={goldenTickets} />
         )}
       </main>
 
@@ -313,7 +319,7 @@ function SetupProfile({ user, onComplete }) {
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, goldenTickets }) {
   const [modalData, setModalData] = useState(null);
 
   const myStudents = useMemo(() => {
@@ -349,6 +355,18 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user }) {
     } catch (e) { showToast("Error removing ticket."); }
   };
 
+  const handleGoldenTicket = async () => {
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
+        teacherId: user.uid, teacherName: profile.name,
+        className: profile.name, timestamp: serverTimestamp()
+      });
+      showToast(`Golden Ticket awarded to ${profile.name}'s class!`);
+    } catch (e) { showToast("Error awarding Golden Ticket."); }
+  };
+
+  const myClassGolden = goldenTickets.filter(g => g.className === profile.name).length;
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
@@ -360,6 +378,19 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user }) {
           <div className="text-sm text-gray-500 font-medium">Tickets Given</div>
           <div className="text-3xl font-black text-green-600">{myTickets.length}</div>
         </div>
+      </div>
+
+      <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Star className="w-8 h-8 text-yellow-100" />
+          <div>
+            <h3 className="text-lg font-bold">Golden Ticket</h3>
+            <p className="text-yellow-100 text-sm">Award your class for awesome behavior! <span className="font-bold text-white">({myClassGolden} earned)</span></p>
+          </div>
+        </div>
+        <button onClick={handleGoldenTicket} className="bg-white text-amber-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
+          Award Golden Ticket
+        </button>
       </div>
 
       {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
@@ -406,7 +437,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user }) {
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, goldenTickets }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
 
@@ -442,6 +473,16 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
     } catch (e) { showToast("Error removing ticket."); }
   };
 
+  const handleGoldenTicket = async (cls) => {
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
+        teacherId: user.uid, teacherName: profile.name,
+        className: cls, timestamp: serverTimestamp()
+      });
+      showToast(`Golden Ticket awarded to ${cls}'s class!`);
+    } catch (e) { showToast("Error awarding Golden Ticket."); }
+  };
+
   const myTickets = tickets.filter(t => t.teacherId === user.uid);
 
   return (
@@ -458,14 +499,21 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
             <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found in the central roster. Admin needs to upload CSV.</div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {classes.map(cls => (
-                <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group">
-                  <div className="flex items-center gap-4">
-                    <div className="bg-blue-50 p-3 rounded-lg text-blue-600 group-hover:bg-blue-100"><Users className="w-6 h-6" /></div>
-                    <div className="text-left"><div className="font-bold text-lg text-gray-800">{cls}</div><div className="text-sm text-gray-500">View Roster</div></div>
-                  </div>
-                </button>
-              ))}
+              {classes.map(cls => {
+                const gc = goldenTickets.filter(g => g.className === cls).length;
+                return (
+                  <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group">
+                    <div className="flex items-center gap-4">
+                      <div className="bg-blue-50 p-3 rounded-lg text-blue-600 group-hover:bg-blue-100"><Users className="w-6 h-6" /></div>
+                      <div className="text-left">
+                        <div className="font-bold text-lg text-gray-800">{cls}</div>
+                        <div className="text-sm text-gray-500">View Roster</div>
+                      </div>
+                    </div>
+                    {gc > 0 && <div className="flex items-center gap-1 bg-yellow-100 text-yellow-700 px-2.5 py-1 rounded-full text-xs font-bold"><Star className="w-3.5 h-3.5" />{gc}</div>}
+                  </button>
+                );
+              })}
             </div>
           )}
         </>
@@ -478,10 +526,22 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
               <p className="text-gray-500">Award the whole class, or pick a student.</p>
             </div>
           </div>
-          <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-2xl shadow-sm mb-8 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Star className="w-7 h-7 text-yellow-100" />
+              <div>
+                <h3 className="text-lg font-bold">Golden Ticket</h3>
+                <p className="text-yellow-100 text-sm">Reward the class for awesome behavior! <span className="font-bold text-white">({goldenTickets.filter(g => g.className === selectedClass).length} earned)</span></p>
+              </div>
+            </div>
+            <button onClick={() => handleGoldenTicket(selectedClass)} className="bg-white text-amber-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
+              Award Golden Ticket
+            </button>
+          </div>
+          <div className="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-2xl shadow-sm mb-8 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
             <div>
-              <h3 className="text-xl font-bold">Class-Wide Recognition</h3>
-              <p className="text-green-100 text-sm">Award a ticket to the entire class as a unit.</p>
+              <h3 className="text-lg font-bold">Class-Wide Recognition</h3>
+              <p className="text-green-100 text-sm">Award a regular ticket to the entire class.</p>
             </div>
             <button onClick={() => setModalData({ recipient: `${selectedClass} (Whole Class)`, type: 'class' })} className="bg-white text-green-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
               Award Whole Class
@@ -530,7 +590,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, profile }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, profile, goldenTickets }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -572,6 +632,16 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
       showToast(`Removed ticket from ${recipient}.`);
     } catch (e) { showToast("Error removing ticket."); }
+  };
+
+  const handleGoldenTicket = async (cls) => {
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
+        teacherId: user.uid, teacherName: profile.name,
+        className: cls, timestamp: serverTimestamp()
+      });
+      showToast(`Golden Ticket awarded to ${cls}'s class!`);
+    } catch (e) { showToast("Error awarding Golden Ticket."); }
   };
 
   const processCSV = async () => {
@@ -644,14 +714,18 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
                 <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found. Import a roster first.</div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {classes.map(cls => (
-                    <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group">
-                      <div className="flex items-center gap-4">
-                        <div className="bg-green-50 p-3 rounded-lg text-green-600 group-hover:bg-green-100"><Users className="w-6 h-6" /></div>
-                        <div className="text-left"><div className="font-bold text-lg text-gray-800">{cls}</div><div className="text-sm text-gray-500">{students.filter(s => s.homeroom === cls).length} students</div></div>
-                      </div>
-                    </button>
-                  ))}
+                  {classes.map(cls => {
+                    const gc = goldenTickets.filter(g => g.className === cls).length;
+                    return (
+                      <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group">
+                        <div className="flex items-center gap-4">
+                          <div className="bg-green-50 p-3 rounded-lg text-green-600 group-hover:bg-green-100"><Users className="w-6 h-6" /></div>
+                          <div className="text-left"><div className="font-bold text-lg text-gray-800">{cls}</div><div className="text-sm text-gray-500">{students.filter(s => s.homeroom === cls).length} students</div></div>
+                        </div>
+                        {gc > 0 && <div className="flex items-center gap-1 bg-yellow-100 text-yellow-700 px-2.5 py-1 rounded-full text-xs font-bold"><Star className="w-3.5 h-3.5" />{gc}</div>}
+                      </button>
+                    );
+                  })}
                 </div>
               )}
             </>
@@ -664,10 +738,22 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
                   <p className="text-gray-500 text-sm">Award the whole class or pick a student.</p>
                 </div>
               </div>
-              <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <Star className="w-7 h-7 text-yellow-100" />
+                  <div>
+                    <h3 className="text-lg font-bold">Golden Ticket</h3>
+                    <p className="text-yellow-100 text-sm">Reward the class for awesome behavior! <span className="font-bold text-white">({goldenTickets.filter(g => g.className === selectedClass).length} earned)</span></p>
+                  </div>
+                </div>
+                <button onClick={() => handleGoldenTicket(selectedClass)} className="bg-white text-amber-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
+                  Award Golden Ticket
+                </button>
+              </div>
+              <div className="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-xl font-bold">Class-Wide Recognition</h3>
-                  <p className="text-green-100 text-sm">Award a ticket to the entire class as a unit.</p>
+                  <h3 className="text-lg font-bold">Class-Wide Recognition</h3>
+                  <p className="text-green-100 text-sm">Award a regular ticket to the entire class.</p>
                 </div>
                 <button onClick={() => setModalData({ recipient: `${selectedClass} (Whole Class)`, type: 'class' })} className="bg-white text-green-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
                   Award Whole Class
@@ -691,10 +777,14 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
         </div>
       ) : activeTab === 'overview' ? (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
               <div className="p-4 bg-green-100 rounded-full text-green-600"><Award className="w-8 h-8" /></div>
               <div><div className="text-sm text-gray-500 font-medium">Total Tickets</div><div className="text-3xl font-bold">{tickets.length}</div></div>
+            </div>
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+              <div className="p-4 bg-yellow-100 rounded-full text-yellow-600"><Star className="w-8 h-8" /></div>
+              <div><div className="text-sm text-gray-500 font-medium">Golden Tickets</div><div className="text-3xl font-bold">{goldenTickets.length}</div></div>
             </div>
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
               <div className="p-4 bg-blue-100 rounded-full text-blue-600"><Users className="w-8 h-8" /></div>
