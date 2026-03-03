@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download,
-  Award, PieChart, ChevronLeft, CheckCircle2, X
+  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
@@ -126,6 +126,51 @@ export default function App() {
       </div>
     </div>
   );
+}
+
+// --- Shared Helpers ---
+const ONE_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+function TicketBreakdownBar({ tickets: ticketList }) {
+  const counts = { Respectful: 0, Responsible: 0, Determined: 0 };
+  ticketList.forEach(t => { if (counts[t.reason] !== undefined) counts[t.reason]++; });
+  const total = ticketList.length;
+  if (total === 0) return null;
+  const segments = [
+    { key: 'Respectful', count: counts.Respectful, color: 'bg-blue-500', label: 'Respectful' },
+    { key: 'Responsible', count: counts.Responsible, color: 'bg-amber-500', label: 'Responsible' },
+    { key: 'Determined', count: counts.Determined, color: 'bg-purple-500', label: 'Determined' },
+  ];
+  return (
+    <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100">
+      <h3 className="text-sm font-bold text-gray-700 mb-3">My Ticket Breakdown</h3>
+      <div className="flex rounded-full overflow-hidden h-5 bg-gray-100 mb-3">
+        {segments.map(s => s.count > 0 && (
+          <div key={s.key} className={`${s.color} transition-all duration-500`} style={{ width: `${(s.count / total) * 100}%` }} title={`${s.label}: ${s.count}`} />
+        ))}
+      </div>
+      <div className="flex justify-between text-xs font-semibold">
+        {segments.map(s => (
+          <div key={s.key} className="flex items-center gap-1.5">
+            <span className={`inline-block w-2.5 h-2.5 rounded-full ${s.color}`} />
+            <span className="text-gray-600">{s.label}</span>
+            <span className="text-gray-900">{s.count}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function getStudentReasonCounts(studentName, ticketList) {
+  const counts = { Respectful: 0, Responsible: 0, Determined: 0 };
+  ticketList.forEach(t => { if (t.recipient === studentName && counts[t.reason] !== undefined) counts[t.reason]++; });
+  return counts;
+}
+
+function hasRecentTicket(studentName, ticketList) {
+  const cutoff = Date.now() - ONE_WEEK_MS;
+  return ticketList.some(t => t.recipient === studentName && t.timestamp && t.timestamp.toMillis() > cutoff);
 }
 
 // --- Components ---
@@ -282,6 +327,8 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user }) {
         </div>
       </div>
 
+      {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
+
       {myStudents.length === 0 ? (
         <div className="bg-white p-8 rounded-xl border text-center text-gray-500">
           <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
@@ -290,16 +337,30 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user }) {
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {myStudents.map(student => (
-            <button key={student} onClick={() => setModalData({ recipient: student, type: 'student' })}
-              className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 hover:shadow-md transition text-left flex flex-col justify-between h-28 group">
-              <span className="font-bold text-gray-800 leading-tight group-hover:text-green-700">{student}</span>
-              <div className="flex items-center justify-between w-full mt-2">
-                <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Tickets</span>
-                <span className="bg-green-50 text-green-700 py-1 px-3 rounded-full font-black text-sm">{ticketCounts[student]}</span>
-              </div>
-            </button>
-          ))}
+          {myStudents.map(student => {
+            const rc = getStudentReasonCounts(student, myTickets);
+            const noRecent = !hasRecentTicket(student, myTickets);
+            return (
+              <button key={student} onClick={() => setModalData({ recipient: student, type: 'student' })}
+                className={`p-4 rounded-xl shadow-sm border hover:shadow-md transition text-left flex flex-col justify-between h-32 group ${noRecent ? 'bg-red-50 border-red-300 hover:border-red-500' : 'bg-white border-gray-200 hover:border-green-500'}`}>
+                <div className="flex items-start justify-between w-full">
+                  <span className={`font-bold leading-tight text-sm ${noRecent ? 'text-red-800' : 'text-gray-800 group-hover:text-green-700'}`}>{student}</span>
+                  {noRecent && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 ml-1" />}
+                </div>
+                <div className="w-full mt-auto">
+                  <div className="flex gap-1.5 mb-1.5">
+                    {rc.Respectful > 0 && <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded">R {rc.Respectful}</span>}
+                    {rc.Responsible > 0 && <span className="bg-amber-100 text-amber-700 text-xs font-bold px-1.5 py-0.5 rounded">S {rc.Responsible}</span>}
+                    {rc.Determined > 0 && <span className="bg-purple-100 text-purple-700 text-xs font-bold px-1.5 py-0.5 rounded">D {rc.Determined}</span>}
+                  </div>
+                  <div className="flex items-center justify-between w-full">
+                    <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Total</span>
+                    <span className={`py-0.5 px-2.5 rounded-full font-black text-sm ${noRecent ? 'bg-red-100 text-red-700' : 'bg-green-50 text-green-700'}`}>{ticketCounts[student]}</span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -338,6 +399,8 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
     } catch (e) { showToast("Error saving ticket."); }
   };
 
+  const myTickets = tickets.filter(t => t.teacherId === user.uid);
+
   return (
     <div className="space-y-6">
       {!selectedClass ? (
@@ -346,6 +409,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
             <h1 className="text-3xl font-bold text-gray-900">School Classes</h1>
             <p className="text-gray-500">Select a class to award a whole-class ticket or individual students.</p>
           </div>
+          {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
           {classes.length === 0 ? (
             <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found in the central roster. Admin needs to upload CSV.</div>
           ) : (
@@ -384,11 +448,33 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
             <p className="text-gray-500 italic">No students found in this homeroom.</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {studentsInClass.map(student => (
-                <button key={student} onClick={() => setModalData({ recipient: student, type: 'student' })} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:border-blue-500 hover:shadow-md transition text-left h-24 flex items-center">
-                  <span className="font-bold text-gray-800 leading-tight">{student}</span>
-                </button>
-              ))}
+              {studentsInClass.map(student => {
+                const rc = getStudentReasonCounts(student, myTickets);
+                const noRecent = !hasRecentTicket(student, myTickets);
+                const total = rc.Respectful + rc.Responsible + rc.Determined;
+                return (
+                  <button key={student} onClick={() => setModalData({ recipient: student, type: 'student' })}
+                    className={`p-4 rounded-xl shadow-sm border hover:shadow-md transition text-left flex flex-col justify-between h-32 group ${noRecent ? 'bg-red-50 border-red-300 hover:border-red-500' : 'bg-white border-gray-200 hover:border-blue-500'}`}>
+                    <div className="flex items-start justify-between w-full">
+                      <span className={`font-bold leading-tight text-sm ${noRecent ? 'text-red-800' : 'text-gray-800'}`}>{student}</span>
+                      {noRecent && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 ml-1" />}
+                    </div>
+                    <div className="w-full mt-auto">
+                      <div className="flex gap-1.5 mb-1.5">
+                        {rc.Respectful > 0 && <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded">R {rc.Respectful}</span>}
+                        {rc.Responsible > 0 && <span className="bg-amber-100 text-amber-700 text-xs font-bold px-1.5 py-0.5 rounded">S {rc.Responsible}</span>}
+                        {rc.Determined > 0 && <span className="bg-purple-100 text-purple-700 text-xs font-bold px-1.5 py-0.5 rounded">D {rc.Determined}</span>}
+                      </div>
+                      {total > 0 && (
+                        <div className="flex items-center justify-between w-full">
+                          <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Total</span>
+                          <span className={`py-0.5 px-2.5 rounded-full font-black text-sm ${noRecent ? 'bg-red-100 text-red-700' : 'bg-green-50 text-green-700'}`}>{total}</span>
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
           )}
         </>
