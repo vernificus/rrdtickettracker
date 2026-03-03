@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download,
-  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle
+  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
@@ -173,6 +173,34 @@ function hasRecentTicket(studentName, ticketList) {
   return ticketList.some(t => t.recipient === studentName && t.timestamp && t.timestamp.toMillis() > cutoff);
 }
 
+function RecentTicketsList({ ticketList, onRemove, label }) {
+  const sorted = [...ticketList].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).slice(0, 10);
+  if (sorted.length === 0) return null;
+  return (
+    <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+      <div className="px-5 py-3 border-b bg-gray-50 flex items-center justify-between">
+        <h3 className="font-bold text-gray-800 text-sm">{label || 'My Recent Tickets'}</h3>
+        <span className="text-xs text-gray-400">Tap trash to undo</span>
+      </div>
+      <div className="divide-y">
+        {sorted.map(t => (
+          <div key={t.id} className="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.reason === 'Respectful' ? 'bg-blue-500' : t.reason === 'Responsible' ? 'bg-amber-500' : 'bg-purple-500'}`} />
+              <span className="font-medium text-gray-800 text-sm truncate">{t.recipient}</span>
+              <span className={`px-2 py-0.5 rounded-full text-xs font-bold flex-shrink-0 ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-700' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-700' : 'bg-purple-100 text-purple-700'}`}>{t.reason}</span>
+              <span className="text-xs text-gray-400 flex-shrink-0">{t.timestamp ? t.timestamp.toDate().toLocaleDateString() : 'Now'}</span>
+            </div>
+            <button onClick={() => onRemove(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2">
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // --- Components ---
 function Navbar({ profile, tickets }) {
   const handleExport = () => {
@@ -314,6 +342,13 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user }) {
     } catch (e) { showToast("Error saving ticket."); }
   };
 
+  const handleRemoveTicket = async (ticketId, recipient) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
+      showToast(`Removed ticket from ${recipient}.`);
+    } catch (e) { showToast("Error removing ticket."); }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-end">
@@ -328,6 +363,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user }) {
       </div>
 
       {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
+      <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
 
       {myStudents.length === 0 ? (
         <div className="bg-white p-8 rounded-xl border text-center text-gray-500">
@@ -399,6 +435,13 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
     } catch (e) { showToast("Error saving ticket."); }
   };
 
+  const handleRemoveTicket = async (ticketId, recipient) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
+      showToast(`Removed ticket from ${recipient}.`);
+    } catch (e) { showToast("Error removing ticket."); }
+  };
+
   const myTickets = tickets.filter(t => t.teacherId === user.uid);
 
   return (
@@ -410,6 +453,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
             <p className="text-gray-500">Select a class to award a whole-class ticket or individual students.</p>
           </div>
           {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
+          <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
           {classes.length === 0 ? (
             <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found in the central roster. Admin needs to upload CSV.</div>
           ) : (
@@ -521,6 +565,13 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
       showToast(`Ticket awarded to ${modalData.recipient}!`);
       setModalData(null);
     } catch (e) { showToast("Error saving ticket."); }
+  };
+
+  const handleRemoveTicket = async (ticketId, recipient) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
+      showToast(`Removed ticket from ${recipient}.`);
+    } catch (e) { showToast("Error removing ticket."); }
   };
 
   const processCSV = async () => {
@@ -665,7 +716,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm text-gray-600">
                 <thead className="bg-gray-50 border-b">
-                  <tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Teacher</th><th className="px-6 py-3">Recipient</th><th className="px-6 py-3">Reason</th></tr>
+                  <tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Teacher</th><th className="px-6 py-3">Recipient</th><th className="px-6 py-3">Reason</th><th className="px-6 py-3 w-12"></th></tr>
                 </thead>
                 <tbody className="divide-y">
                   {[...tickets].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).slice(0, 10).map(t => (
@@ -675,6 +726,11 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile 
                       <td className="px-6 py-3">{t.recipient} {t.recipientType === 'class' && '(Class)'}</td>
                       <td className="px-6 py-3">
                         <span className={`px-2 py-1 rounded-full text-xs font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
+                      </td>
+                      <td className="px-6 py-3">
+                        <button onClick={() => handleRemoveTicket(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </td>
                     </tr>
                   ))}
