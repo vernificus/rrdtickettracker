@@ -109,7 +109,7 @@ export default function App() {
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {profile.role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} />
+          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} profile={profile} />
         )}
         {profile.role === 'homeroom' && (
           <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} />
@@ -169,9 +169,16 @@ function Navbar({ profile, tickets }) {
 function SetupProfile({ user, onComplete }) {
   const [name, setName] = useState('');
   const [role, setRole] = useState('homeroom');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [passwordError, setPasswordError] = useState('');
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (role === 'admin' && adminPassword !== 'data4life') {
+      setPasswordError('Incorrect admin password.');
+      return;
+    }
+    setPasswordError('');
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
         name, role, customStudents: [], createdAt: serverTimestamp()
@@ -192,8 +199,10 @@ function SetupProfile({ user, onComplete }) {
         </div>
         <form onSubmit={handleSubmit} className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Your Full Name (e.g. Mr. Smith)</label>
-            <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full border-gray-300 rounded-lg p-3 border focus:ring-green-500 focus:border-green-500" placeholder="Mr. Smith" />
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              {role === 'admin' ? 'Your Name' : 'Your Last Name (e.g. Smith)'}
+            </label>
+            <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full border-gray-300 rounded-lg p-3 border focus:ring-green-500 focus:border-green-500" placeholder={role === 'admin' ? 'Admin' : 'Smith'} />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Select Your Role</label>
@@ -214,6 +223,13 @@ function SetupProfile({ user, onComplete }) {
               ))}
             </div>
           </div>
+          {role === 'admin' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Admin Password</label>
+              <input type="password" required value={adminPassword} onChange={e => { setAdminPassword(e.target.value); setPasswordError(''); }} className={`w-full border-gray-300 rounded-lg p-3 border focus:ring-green-500 focus:border-green-500 ${passwordError ? 'border-red-500' : ''}`} placeholder="Enter admin password" />
+              {passwordError && <p className="text-red-500 text-sm mt-1">{passwordError}</p>}
+            </div>
+          )}
           <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition">
             Save & Continue
           </button>
@@ -383,14 +399,41 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user }) {
   );
 }
 
-// --- Admin Dashboard (Includes CSV Upload) ---
-function AdminDashboard({ tickets, students, profiles, showToast }) {
+// --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
+function AdminDashboard({ tickets, students, profiles, showToast, user, profile }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [selectedClass, setSelectedClass] = useState(null);
+  const [modalData, setModalData] = useState(null);
 
   const reasons = { Respectful: 0, Responsible: 0, Determined: 0 };
   tickets.forEach(t => { if (reasons[t.reason] !== undefined) reasons[t.reason]++; });
+
+  const classes = useMemo(() => {
+    const homerooms = students.map(s => s.homeroom).filter(Boolean);
+    return [...new Set(homerooms)].sort();
+  }, [students]);
+
+  const studentsInClass = useMemo(() => {
+    if (!selectedClass) return [];
+    return students.filter(s => s.homeroom === selectedClass).map(s => s.name).sort();
+  }, [selectedClass, students]);
+
+  const handleGiveTicket = async (reason) => {
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+        teacherId: user.uid,
+        teacherName: profile.name,
+        recipient: modalData.recipient,
+        recipientType: modalData.type,
+        reason,
+        timestamp: serverTimestamp()
+      });
+      showToast(`Ticket awarded to ${modalData.recipient}!`);
+      setModalData(null);
+    } catch (e) { showToast("Error saving ticket."); }
+  };
 
   const processCSV = async () => {
     if (!csvText.trim()) return;
@@ -427,11 +470,69 @@ function AdminDashboard({ tickets, students, profiles, showToast }) {
         <h1 className="text-3xl font-bold text-gray-900">Admin Controls</h1>
         <div className="flex bg-gray-200 p-1 rounded-lg">
           <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'overview' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Overview</button>
+          <button onClick={() => setActiveTab('tickets')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'tickets' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Give Tickets</button>
           <button onClick={() => setActiveTab('roster')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'roster' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Roster Sync (CSV)</button>
         </div>
       </div>
 
-      {activeTab === 'overview' ? (
+      {activeTab === 'tickets' ? (
+        <div className="space-y-6">
+          {!selectedClass ? (
+            <>
+              <div className="mb-2">
+                <h2 className="text-xl font-bold text-gray-900">Select a Class</h2>
+                <p className="text-gray-500 text-sm">Choose a class to award tickets to the whole class or individual students.</p>
+              </div>
+              {classes.length === 0 ? (
+                <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found. Import a roster first.</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {classes.map(cls => (
+                    <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group">
+                      <div className="flex items-center gap-4">
+                        <div className="bg-green-50 p-3 rounded-lg text-green-600 group-hover:bg-green-100"><Users className="w-6 h-6" /></div>
+                        <div className="text-left"><div className="font-bold text-lg text-gray-800">{cls}</div><div className="text-sm text-gray-500">{students.filter(s => s.homeroom === cls).length} students</div></div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-4 mb-2">
+                <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600"><ChevronLeft className="w-6 h-6" /></button>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">{selectedClass}&apos;s Class</h2>
+                  <p className="text-gray-500 text-sm">Award the whole class or pick a student.</p>
+                </div>
+              </div>
+              <div className="bg-gradient-to-r from-green-500 to-green-600 p-6 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-bold">Class-Wide Recognition</h3>
+                  <p className="text-green-100 text-sm">Award a ticket to the entire class as a unit.</p>
+                </div>
+                <button onClick={() => setModalData({ recipient: `${selectedClass} (Whole Class)`, type: 'class' })} className="bg-white text-green-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
+                  Award Whole Class
+                </button>
+              </div>
+              <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">Individual Students</h3>
+              {studentsInClass.length === 0 ? (
+                <p className="text-gray-500 italic">No students found in this homeroom.</p>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                  {studentsInClass.map(student => (
+                    <button key={student} onClick={() => setModalData({ recipient: student, type: 'student' })} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 hover:shadow-md transition text-left h-24 flex items-center">
+                      <span className="font-bold text-gray-800 leading-tight">{student}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} />}
+        </div>
+      ) : activeTab === 'overview' ? (
         <>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
