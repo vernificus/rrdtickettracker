@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download,
-  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star
+  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
@@ -207,6 +207,69 @@ function RecentTicketsList({ ticketList, onRemove, label }) {
   );
 }
 
+function StudentSearch({ students, onSelect }) {
+  const [query, setQuery] = useState('');
+  const [focused, setFocused] = useState(false);
+
+  const allStudents = useMemo(() => {
+    return [...new Set(students.map(s => s.name))].sort();
+  }, [students]);
+
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase();
+    return allStudents.filter(name => name.toLowerCase().includes(q)).slice(0, 8);
+  }, [query, allStudents]);
+
+  const getHomeroom = (name) => {
+    const s = students.find(st => st.name === name);
+    return s?.homeroom || 'Unknown';
+  };
+
+  const handleSelect = (name) => {
+    onSelect({ recipient: name, type: 'student' });
+    setQuery('');
+    setFocused(false);
+  };
+
+  return (
+    <div className="relative">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+          <Search className="w-4 h-4 text-gray-400" />
+          Search Any Student
+        </h3>
+        <div className="relative">
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setTimeout(() => setFocused(false), 200)}
+            placeholder="Start typing a student name..."
+            className="w-full border border-gray-300 rounded-lg p-3 pl-10 text-sm focus:ring-green-500 focus:border-green-500"
+          />
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        </div>
+        {focused && query.trim() && (
+          <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-40 overflow-hidden mx-4">
+            {results.length === 0 ? (
+              <div className="px-4 py-3 text-sm text-gray-400">No students found matching &quot;{query}&quot;</div>
+            ) : (
+              results.map(name => (
+                <button key={name} onMouseDown={() => handleSelect(name)} className="w-full px-4 py-3 text-left hover:bg-green-50 transition flex items-center justify-between border-b last:border-b-0">
+                  <span className="font-medium text-gray-800 text-sm">{name}</span>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{getHomeroom(name)}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Components ---
 function Navbar({ profile, tickets }) {
   const handleExport = () => {
@@ -393,6 +456,8 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
         </button>
       </div>
 
+      <StudentSearch students={students} onSelect={setModalData} />
+
       {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
       <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
 
@@ -493,6 +558,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, gold
             <h1 className="text-3xl font-bold text-gray-900">School Classes</h1>
             <p className="text-gray-500">Select a class to award a whole-class ticket or individual students.</p>
           </div>
+          <StudentSearch students={students} onSelect={setModalData} />
           {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
           <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
           {classes.length === 0 ? (
@@ -717,6 +783,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
                 <h2 className="text-xl font-bold text-gray-900">Select a Class</h2>
                 <p className="text-gray-500 text-sm">Choose a class to award tickets to the whole class or individual students.</p>
               </div>
+              <StudentSearch students={students} onSelect={setModalData} />
               {classes.length === 0 ? (
                 <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found. Import a roster first.</div>
               ) : (
