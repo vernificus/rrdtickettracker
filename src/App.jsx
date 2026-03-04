@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download,
-  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star
+  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
@@ -207,6 +207,69 @@ function RecentTicketsList({ ticketList, onRemove, label }) {
   );
 }
 
+function StudentSearch({ students, onSelect }) {
+  const [query, setQuery] = useState('');
+  const [focused, setFocused] = useState(false);
+
+  const allStudents = useMemo(() => {
+    return [...new Set(students.map(s => s.name))].sort();
+  }, [students]);
+
+  const results = useMemo(() => {
+    if (!query.trim()) return [];
+    const q = query.toLowerCase();
+    return allStudents.filter(name => name.toLowerCase().includes(q)).slice(0, 8);
+  }, [query, allStudents]);
+
+  const getHomeroom = (name) => {
+    const s = students.find(st => st.name === name);
+    return s?.homeroom || 'Unknown';
+  };
+
+  const handleSelect = (name) => {
+    onSelect({ recipient: name, type: 'student' });
+    setQuery('');
+    setFocused(false);
+  };
+
+  return (
+    <div className="relative">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+        <h3 className="text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+          <Search className="w-4 h-4 text-gray-400" />
+          Search Any Student
+        </h3>
+        <div className="relative">
+          <input
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setTimeout(() => setFocused(false), 200)}
+            placeholder="Start typing a student name..."
+            className="w-full border border-gray-300 rounded-lg p-3 pl-10 text-sm focus:ring-green-500 focus:border-green-500"
+          />
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        </div>
+        {focused && query.trim() && (
+          <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg z-40 overflow-hidden mx-4">
+            {results.length === 0 ? (
+              <div className="px-4 py-3 text-sm text-gray-400">No students found matching &quot;{query}&quot;</div>
+            ) : (
+              results.map(name => (
+                <button key={name} onMouseDown={() => handleSelect(name)} className="w-full px-4 py-3 text-left hover:bg-green-50 transition flex items-center justify-between border-b last:border-b-0">
+                  <span className="font-medium text-gray-800 text-sm">{name}</span>
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{getHomeroom(name)}</span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Components ---
 function Navbar({ profile, tickets }) {
   const handleExport = () => {
@@ -393,6 +456,8 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
         </button>
       </div>
 
+      <StudentSearch students={students} onSelect={setModalData} />
+
       {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
       <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
 
@@ -493,6 +558,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, gold
             <h1 className="text-3xl font-bold text-gray-900">School Classes</h1>
             <p className="text-gray-500">Select a class to award a whole-class ticket or individual students.</p>
           </div>
+          <StudentSearch students={students} onSelect={setModalData} />
           {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
           <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
           {classes.length === 0 ? (
@@ -644,6 +710,13 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
     } catch (e) { showToast("Error awarding Golden Ticket."); }
   };
 
+  const handleRemoveGoldenTicket = async (ticketId, className) => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goldenTickets', ticketId));
+      showToast(`Removed Golden Ticket from ${className}'s class.`);
+    } catch (e) { showToast("Error removing Golden Ticket."); }
+  };
+
   const processCSV = async () => {
     if (!csvText.trim()) return;
     setIsProcessing(true);
@@ -710,6 +783,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
                 <h2 className="text-xl font-bold text-gray-900">Select a Class</h2>
                 <p className="text-gray-500 text-sm">Choose a class to award tickets to the whole class or individual students.</p>
               </div>
+              <StudentSearch students={students} onSelect={setModalData} />
               {classes.length === 0 ? (
                 <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found. Import a roster first.</div>
               ) : (
@@ -750,6 +824,28 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
                   Award Golden Ticket
                 </button>
               </div>
+              {goldenTickets.filter(g => g.className === selectedClass).length > 0 && (
+                <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-4">
+                  <div className="px-5 py-3 border-b bg-yellow-50 flex items-center justify-between">
+                    <h3 className="font-bold text-yellow-800 text-sm flex items-center gap-2"><Star className="w-4 h-4" /> Golden Tickets for {selectedClass}</h3>
+                    <span className="text-xs text-gray-400">Tap trash to remove</span>
+                  </div>
+                  <div className="divide-y">
+                    {[...goldenTickets].filter(g => g.className === selectedClass).sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).map(g => (
+                      <div key={g.id} className="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition">
+                        <div className="flex items-center gap-3">
+                          <span className="w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0" />
+                          <span className="font-medium text-gray-800 text-sm">Awarded by {g.teacherName}</span>
+                          <span className="text-xs text-gray-400 flex-shrink-0">{g.timestamp ? g.timestamp.toDate().toLocaleDateString() : 'Now'}</span>
+                        </div>
+                        <button onClick={() => handleRemoveGoldenTicket(g.id, g.className)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-bold">Class-Wide Recognition</h3>
@@ -809,16 +905,22 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
                   <tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Teacher</th><th className="px-6 py-3">Recipient</th><th className="px-6 py-3">Reason</th><th className="px-6 py-3 w-12"></th></tr>
                 </thead>
                 <tbody className="divide-y">
-                  {[...tickets].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).slice(0, 10).map(t => (
+                  {[
+                    ...tickets.map(t => ({ ...t, _type: 'ticket' })),
+                    ...goldenTickets.map(g => ({ ...g, _type: 'golden' }))
+                  ].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).slice(0, 10).map(t => (
                     <tr key={t.id}>
                       <td className="px-6 py-3">{t.timestamp ? t.timestamp.toDate().toLocaleString() : 'Now'}</td>
                       <td className="px-6 py-3 font-medium text-gray-900">{t.teacherName}</td>
-                      <td className="px-6 py-3">{t.recipient} {t.recipientType === 'class' && '(Class)'}</td>
+                      <td className="px-6 py-3">{t._type === 'golden' ? `${t.className} (Class)` : <>{t.recipient} {t.recipientType === 'class' && '(Class)'}</>}</td>
                       <td className="px-6 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
+                        {t._type === 'golden'
+                          ? <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 inline-flex items-center gap-1"><Star className="w-3 h-3" />Golden</span>
+                          : <span className={`px-2 py-1 rounded-full text-xs font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
+                        }
                       </td>
                       <td className="px-6 py-3">
-                        <button onClick={() => handleRemoveTicket(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
+                        <button onClick={() => t._type === 'golden' ? handleRemoveGoldenTicket(t.id, t.className) : handleRemoveTicket(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
