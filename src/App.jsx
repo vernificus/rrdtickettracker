@@ -690,6 +690,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [modalData, setModalData] = useState(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [activityPage, setActivityPage] = useState(0);
+  const ITEMS_PER_PAGE = 25;
 
   const reasons = { Respectful: 0, Responsible: 0, Determined: 0 };
   tickets.forEach(t => { if (reasons[t.reason] !== undefined) reasons[t.reason]++; });
@@ -924,17 +926,25 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           </div>
 
           <div className="bg-white rounded-xl shadow-sm border mt-6 overflow-hidden">
-            <div className="px-6 py-4 border-b bg-gray-50"><h3 className="font-bold text-gray-800">Recent Activity</h3></div>
+            <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
+              <h3 className="font-bold text-gray-800">All Activity</h3>
+              <span className="text-xs text-gray-500">{tickets.length + goldenTickets.length} total entries</span>
+            </div>
             <div className="overflow-x-auto">
+              {(() => {
+                const allActivity = [
+                  ...tickets.map(t => ({ ...t, _type: 'ticket' })),
+                  ...goldenTickets.map(g => ({ ...g, _type: 'golden' }))
+                ].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+                const totalPages = Math.max(1, Math.ceil(allActivity.length / ITEMS_PER_PAGE));
+                const pageItems = allActivity.slice(activityPage * ITEMS_PER_PAGE, (activityPage + 1) * ITEMS_PER_PAGE);
+                return <>
               <table className="w-full text-left text-sm text-gray-600">
                 <thead className="bg-gray-50 border-b">
                   <tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Teacher</th><th className="px-6 py-3">Recipient</th><th className="px-6 py-3">Reason</th><th className="px-6 py-3 w-12"></th></tr>
                 </thead>
                 <tbody className="divide-y">
-                  {[
-                    ...tickets.map(t => ({ ...t, _type: 'ticket' })),
-                    ...goldenTickets.map(g => ({ ...g, _type: 'golden' }))
-                  ].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).slice(0, 10).map(t => (
+                  {pageItems.map(t => (
                     <tr key={t.id}>
                       <td className="px-6 py-3">{t.timestamp ? t.timestamp.toDate().toLocaleString() : 'Now'}</td>
                       <td className="px-6 py-3 font-medium text-gray-900">{t.teacherName}</td>
@@ -954,6 +964,19 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                   ))}
                 </tbody>
               </table>
+              {totalPages > 1 && (
+                <div className="px-6 py-3 border-t bg-gray-50 flex items-center justify-between">
+                  <button onClick={() => setActivityPage(p => Math.max(0, p - 1))} disabled={activityPage === 0} className="px-3 py-1.5 rounded-lg text-sm font-medium bg-white border hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                    Previous
+                  </button>
+                  <span className="text-sm text-gray-600">Page {activityPage + 1} of {totalPages}</span>
+                  <button onClick={() => setActivityPage(p => Math.min(totalPages - 1, p + 1))} disabled={activityPage >= totalPages - 1} className="px-3 py-1.5 rounded-lg text-sm font-medium bg-white border hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                    Next
+                  </button>
+                </div>
+              )}
+                </>;
+              })()}
             </div>
           </div>
         </>
