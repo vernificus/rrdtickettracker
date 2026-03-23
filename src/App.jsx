@@ -8,7 +8,7 @@ import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore, collection, doc, setDoc, onSnapshot,
-  addDoc, serverTimestamp, writeBatch, deleteDoc
+  addDoc, serverTimestamp, writeBatch, deleteDoc, query, where, getDocs
 } from 'firebase/firestore';
 
 // --- Firebase Setup ---
@@ -32,6 +32,7 @@ const db = getFirestore(app);
 export default function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [effectiveUid, setEffectiveUid] = useState(null); // primary UID for linked devices
   const [loading, setLoading] = useState(true);
 
   // Data State
@@ -71,8 +72,16 @@ export default function App() {
     const unsubProfiles = onSnapshot(profilesRef, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setProfiles(data);
-      const myProfile = data.find(p => p.id === user.uid);
-      setProfile(myProfile || null);
+      const myDoc = data.find(p => p.id === user.uid);
+      if (myDoc && myDoc.linkedTo) {
+        // This device is linked to another teacher's account
+        const primaryProfile = data.find(p => p.id === myDoc.linkedTo);
+        setProfile(primaryProfile || null);
+        setEffectiveUid(myDoc.linkedTo);
+      } else {
+        setProfile(myDoc || null);
+        setEffectiveUid(myDoc ? user.uid : null);
+      }
       if (snap.metadata.fromCache === false) setLoading(false);
     });
 
@@ -115,13 +124,13 @@ export default function App() {
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {profile.role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} profile={profile} goldenTickets={goldenTickets} />
+          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} effectiveUid={effectiveUid} profile={profile} goldenTickets={goldenTickets} />
         )}
         {profile.role === 'homeroom' && (
-          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} goldenTickets={goldenTickets} />
+          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} />
         )}
         {profile.role === 'specialist' && (
-          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} goldenTickets={goldenTickets} />
+          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} />
         )}
       </main>
 
@@ -313,6 +322,7 @@ function SetupProfile({ user, onComplete }) {
   const [role, setRole] = useState('homeroom');
   const [adminPassword, setAdminPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -321,12 +331,28 @@ function SetupProfile({ user, onComplete }) {
       return;
     }
     setPasswordError('');
+    setIsSaving(true);
     try {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
-        name, role, customStudents: [], createdAt: serverTimestamp()
-      });
+      // Check if a teacher with this name and role already exists
+      const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+      const q = query(usersRef, where('name', '==', name.trim()), where('role', '==', role));
+      const snap = await getDocs(q);
+
+      if (!snap.empty) {
+        // Link this device to the existing teacher's account
+        const primaryDoc = snap.docs[0];
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
+          linkedTo: primaryDoc.id, createdAt: serverTimestamp()
+        });
+      } else {
+        // First time setup — create a new profile
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
+          name: name.trim(), role, customStudents: [], createdAt: serverTimestamp()
+        });
+      }
       onComplete();
     } catch (err) { console.error(err); }
+    setIsSaving(false);
   };
 
   return (
@@ -372,8 +398,8 @@ function SetupProfile({ user, onComplete }) {
               {passwordError && <p className="text-red-500 text-sm mt-1">{passwordError}</p>}
             </div>
           )}
-          <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition">
-            Save & Continue
+          <button type="submit" disabled={isSaving} className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition">
+            {isSaving ? 'Setting up...' : 'Save & Continue'}
           </button>
         </form>
       </div>
@@ -382,7 +408,7 @@ function SetupProfile({ user, onComplete }) {
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, goldenTickets }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets }) {
   const [modalData, setModalData] = useState(null);
 
   const myStudents = useMemo(() => {
@@ -391,7 +417,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
     return [...new Set([...central, ...custom])].sort();
   }, [students, profile]);
 
-  const myTickets = tickets.filter(t => t.teacherId === user.uid);
+  const myTickets = tickets.filter(t => t.teacherId === effectiveUid);
   const ticketCounts = {};
   myStudents.forEach(s => ticketCounts[s] = 0);
   myTickets.forEach(t => { if (ticketCounts[t.recipient] !== undefined) ticketCounts[t.recipient]++; });
@@ -399,7 +425,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
   const handleGiveTicket = async (reason) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
+        teacherId: effectiveUid,
         teacherName: profile.name,
         recipient: modalData.recipient,
         recipientType: modalData.type,
@@ -421,7 +447,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
   const handleGoldenTicket = async () => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: user.uid, teacherName: profile.name,
+        teacherId: effectiveUid, teacherName: profile.name,
         className: profile.name, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${profile.name}'s class!`);
@@ -502,7 +528,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, goldenTickets }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
 
@@ -519,7 +545,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, gold
   const handleGiveTicket = async (reason) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
+        teacherId: effectiveUid,
         teacherName: profile.name,
         recipient: modalData.recipient,
         recipientType: modalData.type,
@@ -541,14 +567,14 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, gold
   const handleGoldenTicket = async (cls) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: user.uid, teacherName: profile.name,
+        teacherId: effectiveUid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${cls}'s class!`);
     } catch (e) { showToast("Error awarding Golden Ticket."); }
   };
 
-  const myTickets = tickets.filter(t => t.teacherId === user.uid);
+  const myTickets = tickets.filter(t => t.teacherId === effectiveUid);
 
   return (
     <div className="space-y-6">
@@ -656,7 +682,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, gold
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, profile, goldenTickets }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -681,7 +707,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
   const handleGiveTicket = async (reason) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
+        teacherId: effectiveUid,
         teacherName: profile.name,
         recipient: modalData.recipient,
         recipientType: modalData.type,
@@ -703,7 +729,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
   const handleGoldenTicket = async (cls) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: user.uid, teacherName: profile.name,
+        teacherId: effectiveUid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${cls}'s class!`);
