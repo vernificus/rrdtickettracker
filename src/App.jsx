@@ -8,8 +8,16 @@ import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
   getFirestore, collection, doc, setDoc, onSnapshot,
-  addDoc, serverTimestamp, writeBatch, deleteDoc
+  addDoc, serverTimestamp, writeBatch, deleteDoc, query, where, getDocs
 } from 'firebase/firestore';
+
+// Generate a short, easy-to-type sync code for cross-device linking
+function generateSyncCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I/1/O/0 to avoid confusion
+  let code = '';
+  for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
 
 // --- Firebase Setup ---
 const firebaseConfig = {
@@ -32,6 +40,7 @@ const db = getFirestore(app);
 export default function App() {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
+  const [effectiveUid, setEffectiveUid] = useState(null); // primary UID for linked devices
   const [loading, setLoading] = useState(true);
 
   // Data State
@@ -71,8 +80,16 @@ export default function App() {
     const unsubProfiles = onSnapshot(profilesRef, (snap) => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setProfiles(data);
-      const myProfile = data.find(p => p.id === user.uid);
-      setProfile(myProfile || null);
+      const myDoc = data.find(p => p.id === user.uid);
+      if (myDoc && myDoc.linkedTo) {
+        // This device is linked to another teacher's account
+        const primaryProfile = data.find(p => p.id === myDoc.linkedTo);
+        setProfile(primaryProfile || null);
+        setEffectiveUid(myDoc.linkedTo);
+      } else {
+        setProfile(myDoc || null);
+        setEffectiveUid(myDoc ? user.uid : null);
+      }
       if (snap.metadata.fromCache === false) setLoading(false);
     });
 
@@ -115,13 +132,13 @@ export default function App() {
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {profile.role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} profile={profile} goldenTickets={goldenTickets} />
+          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} effectiveUid={effectiveUid} profile={profile} goldenTickets={goldenTickets} />
         )}
         {profile.role === 'homeroom' && (
-          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} goldenTickets={goldenTickets} />
+          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} />
         )}
         {profile.role === 'specialist' && (
-          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} goldenTickets={goldenTickets} />
+          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} />
         )}
       </main>
 
@@ -272,6 +289,8 @@ function StudentSearch({ students, onSelect }) {
 
 // --- Components ---
 function Navbar({ profile, tickets }) {
+  const [showSyncCode, setShowSyncCode] = useState(false);
+
   const handleExport = () => {
     let data = profile.role === 'admin' ? tickets : tickets.filter(t => t.teacherId === profile.id);
     if (data.length === 0) return alert("No data to export.");
@@ -299,6 +318,22 @@ function Navbar({ profile, tickets }) {
           <span className="hidden sm:block text-sm font-medium bg-green-800 px-3 py-1 rounded-full">
             {profile.name} ({profile.role})
           </span>
+          {profile.syncCode && (
+            <div className="relative">
+              <button onClick={() => setShowSyncCode(!showSyncCode)} className="flex items-center gap-1.5 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium" title="Sync code for linking devices">
+                <Users className="w-4 h-4" /> Sync
+              </button>
+              {showSyncCode && (
+                <div className="absolute right-0 top-full mt-2 bg-white text-gray-800 rounded-xl shadow-xl p-4 w-64 z-50">
+                  <h4 className="font-bold text-sm mb-1">Your Sync Code</h4>
+                  <p className="text-xs text-gray-500 mb-3">Enter this code on your other device to link your account.</p>
+                  <div className="bg-gray-100 rounded-lg p-3 text-center font-mono text-2xl font-bold tracking-[0.3em] text-green-700">
+                    {profile.syncCode}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <button onClick={handleExport} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
             <Download className="w-4 h-4" /> Export
           </button>
@@ -309,10 +344,14 @@ function Navbar({ profile, tickets }) {
 }
 
 function SetupProfile({ user, onComplete }) {
+  const [mode, setMode] = useState('choose'); // 'choose', 'new', 'link'
   const [name, setName] = useState('');
   const [role, setRole] = useState('homeroom');
   const [adminPassword, setAdminPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
+  const [syncCode, setSyncCode] = useState('');
+  const [linkError, setLinkError] = useState('');
+  const [isLinking, setIsLinking] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -323,11 +362,100 @@ function SetupProfile({ user, onComplete }) {
     setPasswordError('');
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
-        name, role, customStudents: [], createdAt: serverTimestamp()
+        name, role, customStudents: [], syncCode: generateSyncCode(), createdAt: serverTimestamp()
       });
       onComplete();
     } catch (err) { console.error(err); }
   };
+
+  const handleLink = async (e) => {
+    e.preventDefault();
+    setLinkError('');
+    setIsLinking(true);
+    try {
+      const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+      const q = query(usersRef, where('syncCode', '==', syncCode.toUpperCase().trim()));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        setLinkError('No account found with that sync code. Please check and try again.');
+        setIsLinking(false);
+        return;
+      }
+      const primaryDoc = snap.docs[0];
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
+        linkedTo: primaryDoc.id, createdAt: serverTimestamp()
+      });
+      onComplete();
+    } catch (err) {
+      console.error(err);
+      setLinkError('Error linking device. Please try again.');
+    }
+    setIsLinking(false);
+  };
+
+  if (mode === 'choose') {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
+          <div className="text-center mb-6">
+            <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Users className="w-8 h-8 text-green-600" />
+            </div>
+            <h2 className="text-2xl font-bold">Welcome to Tracker</h2>
+            <p className="text-gray-500 mt-1">How would you like to get started?</p>
+          </div>
+          <div className="space-y-4">
+            <button onClick={() => setMode('new')} className="w-full p-5 border-2 border-gray-200 hover:border-green-500 rounded-xl transition text-left group">
+              <div className="font-bold text-gray-900 group-hover:text-green-700 text-lg">New Account</div>
+              <div className="text-sm text-gray-500 mt-1">I&apos;m setting up for the first time on this device.</div>
+            </button>
+            <button onClick={() => setMode('link')} className="w-full p-5 border-2 border-gray-200 hover:border-blue-500 rounded-xl transition text-left group">
+              <div className="font-bold text-gray-900 group-hover:text-blue-700 text-lg">Link to My Account</div>
+              <div className="text-sm text-gray-500 mt-1">I already have an account on another device and want to sync.</div>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'link') {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
+          <div className="text-center mb-6">
+            <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Users className="w-8 h-8 text-blue-600" />
+            </div>
+            <h2 className="text-2xl font-bold">Link Your Device</h2>
+            <p className="text-gray-500 mt-1">Enter the 6-character sync code from your other device.</p>
+            <p className="text-gray-400 text-xs mt-2">Find it in the top-right menu of the app on your other device.</p>
+          </div>
+          <form onSubmit={handleLink} className="space-y-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Sync Code</label>
+              <input
+                type="text"
+                required
+                maxLength={6}
+                value={syncCode}
+                onChange={e => { setSyncCode(e.target.value.toUpperCase()); setLinkError(''); }}
+                className={`w-full border-gray-300 rounded-lg p-4 border focus:ring-blue-500 focus:border-blue-500 text-center text-2xl font-mono tracking-[0.3em] uppercase ${linkError ? 'border-red-500' : ''}`}
+                placeholder="ABC123"
+              />
+              {linkError && <p className="text-red-500 text-sm mt-2">{linkError}</p>}
+            </div>
+            <button type="submit" disabled={isLinking || syncCode.trim().length < 6} className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition">
+              {isLinking ? 'Linking...' : 'Link This Device'}
+            </button>
+            <button type="button" onClick={() => setMode('choose')} className="w-full text-gray-500 hover:text-gray-700 font-medium py-2 transition text-sm">
+              &larr; Back
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
@@ -375,6 +503,9 @@ function SetupProfile({ user, onComplete }) {
           <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl transition">
             Save & Continue
           </button>
+          <button type="button" onClick={() => setMode('choose')} className="w-full text-gray-500 hover:text-gray-700 font-medium py-2 transition text-sm">
+            &larr; Back
+          </button>
         </form>
       </div>
     </div>
@@ -382,7 +513,7 @@ function SetupProfile({ user, onComplete }) {
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, goldenTickets }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets }) {
   const [modalData, setModalData] = useState(null);
 
   const myStudents = useMemo(() => {
@@ -391,7 +522,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
     return [...new Set([...central, ...custom])].sort();
   }, [students, profile]);
 
-  const myTickets = tickets.filter(t => t.teacherId === user.uid);
+  const myTickets = tickets.filter(t => t.teacherId === effectiveUid);
   const ticketCounts = {};
   myStudents.forEach(s => ticketCounts[s] = 0);
   myTickets.forEach(t => { if (ticketCounts[t.recipient] !== undefined) ticketCounts[t.recipient]++; });
@@ -399,7 +530,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
   const handleGiveTicket = async (reason) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
+        teacherId: effectiveUid,
         teacherName: profile.name,
         recipient: modalData.recipient,
         recipientType: modalData.type,
@@ -421,7 +552,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
   const handleGoldenTicket = async () => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: user.uid, teacherName: profile.name,
+        teacherId: effectiveUid, teacherName: profile.name,
         className: profile.name, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${profile.name}'s class!`);
@@ -502,7 +633,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, golden
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, goldenTickets }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
 
@@ -519,7 +650,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, gold
   const handleGiveTicket = async (reason) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
+        teacherId: effectiveUid,
         teacherName: profile.name,
         recipient: modalData.recipient,
         recipientType: modalData.type,
@@ -541,14 +672,14 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, gold
   const handleGoldenTicket = async (cls) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: user.uid, teacherName: profile.name,
+        teacherId: effectiveUid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${cls}'s class!`);
     } catch (e) { showToast("Error awarding Golden Ticket."); }
   };
 
-  const myTickets = tickets.filter(t => t.teacherId === user.uid);
+  const myTickets = tickets.filter(t => t.teacherId === effectiveUid);
 
   return (
     <div className="space-y-6">
@@ -656,7 +787,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, gold
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, profile, goldenTickets }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -681,7 +812,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
   const handleGiveTicket = async (reason) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
+        teacherId: effectiveUid,
         teacherName: profile.name,
         recipient: modalData.recipient,
         recipientType: modalData.type,
@@ -703,7 +834,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, profile,
   const handleGoldenTicket = async (cls) => {
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: user.uid, teacherName: profile.name,
+        teacherId: effectiveUid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${cls}'s class!`);
