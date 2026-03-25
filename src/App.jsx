@@ -76,13 +76,29 @@ export default function App() {
       if (myDoc && myDoc.linkedTo) {
         // This device is linked to another teacher's account
         const primaryProfile = data.find(p => p.id === myDoc.linkedTo);
+        if (!primaryProfile) {
+          console.warn("Linked primary profile not found:", myDoc.linkedTo);
+        }
         setProfile(primaryProfile || null);
         setEffectiveUid(myDoc.linkedTo);
       } else {
         setProfile(myDoc || null);
         setEffectiveUid(myDoc ? user.uid : null);
       }
-      if (snap.metadata.fromCache === false) setLoading(false);
+
+      // Backfill nameNormalized for existing profiles that are missing it
+      if (snap.metadata.fromCache === false) {
+        data.forEach((p) => {
+          if (p.name && !p.nameNormalized) {
+            setDoc(
+              doc(db, 'artifacts', appId, 'public', 'data', 'users', p.id),
+              { nameNormalized: p.name.trim().toLowerCase() },
+              { merge: true }
+            ).catch(e => console.error("Migration error for", p.id, e));
+          }
+        });
+        setLoading(false);
+      }
     });
 
     const unsubTickets = onSnapshot(ticketsRef, (snap) => {
@@ -323,6 +339,8 @@ function SetupProfile({ user, onComplete }) {
   const [adminPassword, setAdminPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [matchingTeachers, setMatchingTeachers] = useState(null);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -331,29 +349,101 @@ function SetupProfile({ user, onComplete }) {
       return;
     }
     setPasswordError('');
+    setError('');
     setIsSaving(true);
     try {
-      // Check if a teacher with this name and role already exists
+      // Check if a teacher with this name and role already exists (case-insensitive)
       const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-      const q = query(usersRef, where('name', '==', name.trim()), where('role', '==', role));
+      const q = query(usersRef, where('nameNormalized', '==', name.trim().toLowerCase()), where('role', '==', role));
       const snap = await getDocs(q);
 
       if (!snap.empty) {
-        // Link this device to the existing teacher's account
-        const primaryDoc = snap.docs[0];
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
-          linkedTo: primaryDoc.id, createdAt: serverTimestamp()
-        });
-      } else {
-        // First time setup — create a new profile
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
-          name: name.trim(), role, customStudents: [], createdAt: serverTimestamp()
-        });
+        // Found existing teacher(s) — show picker for confirmation
+        const matches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        setMatchingTeachers(matches);
+        setIsSaving(false);
+        return;
       }
-      onComplete();
-    } catch (err) { console.error(err); }
+
+      // No match — create a new profile
+      await createNewProfile();
+    } catch (err) {
+      console.error("SetupProfile error:", err);
+      setError('Something went wrong. Please check your connection and try again.');
+    }
     setIsSaving(false);
   };
+
+  const createNewProfile = async () => {
+    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
+      name: name.trim(), nameNormalized: name.trim().toLowerCase(), role, customStudents: [], createdAt: serverTimestamp()
+    });
+    onComplete();
+  };
+
+  const linkToTeacher = async (primaryId) => {
+    setIsSaving(true);
+    setError('');
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
+        linkedTo: primaryId, createdAt: serverTimestamp()
+      });
+      onComplete();
+    } catch (err) {
+      console.error("Device linking error:", err);
+      setError('Failed to link this device. Please try again.');
+    }
+    setIsSaving(false);
+  };
+
+  const handleCreateNewInstead = async () => {
+    setMatchingTeachers(null);
+    setIsSaving(true);
+    setError('');
+    try {
+      await createNewProfile();
+    } catch (err) {
+      console.error("Profile creation error:", err);
+      setError('Something went wrong. Please check your connection and try again.');
+    }
+    setIsSaving(false);
+  };
+
+  // Teacher picker view — shown when matching profiles are found
+  if (matchingTeachers) {
+    return (
+      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
+          <div className="text-center mb-6">
+            <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Users className="w-8 h-8 text-blue-600" />
+            </div>
+            <h2 className="text-2xl font-bold">Link This Device</h2>
+            <p className="text-gray-500 mt-1">We found an existing profile that matches. Is this you?</p>
+          </div>
+          <div className="space-y-3 mb-6">
+            {matchingTeachers.map(t => (
+              <button key={t.id} onClick={() => linkToTeacher(t.id)} disabled={isSaving}
+                className="w-full p-4 border-2 border-green-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition text-left disabled:opacity-50">
+                <div className="font-bold text-gray-900">{t.name}</div>
+                <div className="text-sm text-gray-500 capitalize">{t.role}</div>
+                <div className="text-xs text-green-600 mt-1 font-semibold">Tap to link this device</div>
+              </button>
+            ))}
+          </div>
+          <button onClick={handleCreateNewInstead} disabled={isSaving}
+            className="w-full border-2 border-gray-200 hover:border-gray-400 text-gray-700 font-bold py-3 rounded-xl transition disabled:opacity-50">
+            {isSaving ? 'Setting up...' : "That's not me — create a new profile"}
+          </button>
+          <button onClick={() => setMatchingTeachers(null)} disabled={isSaving}
+            className="w-full text-gray-400 hover:text-gray-600 text-sm mt-3 transition disabled:opacity-50">
+            Go back
+          </button>
+          {error && <p className="text-red-500 text-sm mt-3 text-center">{error}</p>}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
@@ -401,6 +491,7 @@ function SetupProfile({ user, onComplete }) {
           <button type="submit" disabled={isSaving} className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition">
             {isSaving ? 'Setting up...' : 'Save & Continue'}
           </button>
+          {error && <p className="text-red-500 text-sm mt-1 text-center">{error}</p>}
         </form>
       </div>
     </div>
@@ -422,7 +513,14 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   myStudents.forEach(s => ticketCounts[s] = 0);
   myTickets.forEach(t => { if (ticketCounts[t.recipient] !== undefined) ticketCounts[t.recipient]++; });
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleGiveTicket = async (reason) => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
+    setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
@@ -434,24 +532,39 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
       });
       showToast(`Ticket awarded to ${modalData.recipient}!`);
       setModalData(null);
-    } catch (e) { showToast("Error saving ticket."); }
+    } catch (e) {
+      console.error("Error saving ticket:", e);
+      showToast("Error saving ticket. Please check your connection and try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleRemoveTicket = async (ticketId, recipient) => {
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
       showToast(`Removed ticket from ${recipient}.`);
-    } catch (e) { showToast("Error removing ticket."); }
+    } catch (e) {
+      console.error("Error removing ticket:", e);
+      showToast("Error removing ticket.");
+    }
   };
 
   const handleGoldenTicket = async () => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
         teacherId: effectiveUid, teacherName: profile.name,
         className: profile.name, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${profile.name}'s class!`);
-    } catch (e) { showToast("Error awarding Golden Ticket."); }
+    } catch (e) {
+      console.error("Error awarding Golden Ticket:", e);
+      showToast("Error awarding Golden Ticket.");
+    }
   };
 
   const myClassGolden = goldenTickets.filter(g => g.className === profile.name).length;
@@ -522,7 +635,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         </div>
       )}
 
-      {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} />}
+      {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
     </div>
   );
 }
@@ -542,7 +655,14 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     return students.filter(s => s.homeroom === selectedClass).map(s => s.name).sort();
   }, [selectedClass, students]);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleGiveTicket = async (reason) => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
+    setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
@@ -554,24 +674,39 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
       });
       showToast(`Ticket awarded to ${modalData.recipient}!`);
       setModalData(null);
-    } catch (e) { showToast("Error saving ticket."); }
+    } catch (e) {
+      console.error("Error saving ticket:", e);
+      showToast("Error saving ticket. Please check your connection and try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleRemoveTicket = async (ticketId, recipient) => {
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
       showToast(`Removed ticket from ${recipient}.`);
-    } catch (e) { showToast("Error removing ticket."); }
+    } catch (e) {
+      console.error("Error removing ticket:", e);
+      showToast("Error removing ticket.");
+    }
   };
 
   const handleGoldenTicket = async (cls) => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
         teacherId: effectiveUid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${cls}'s class!`);
-    } catch (e) { showToast("Error awarding Golden Ticket."); }
+    } catch (e) {
+      console.error("Error awarding Golden Ticket:", e);
+      showToast("Error awarding Golden Ticket.");
+    }
   };
 
   const myTickets = tickets.filter(t => t.teacherId === effectiveUid);
@@ -676,7 +811,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
         </>
       )}
 
-      {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} />}
+      {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
     </div>
   );
 }
@@ -706,7 +841,14 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     return students.filter(s => s.homeroom === selectedClass).map(s => s.name).sort();
   }, [selectedClass, students]);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const handleGiveTicket = async (reason) => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
+    setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
@@ -718,31 +860,49 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       });
       showToast(`Ticket awarded to ${modalData.recipient}!`);
       setModalData(null);
-    } catch (e) { showToast("Error saving ticket."); }
+    } catch (e) {
+      console.error("Error saving ticket:", e);
+      showToast("Error saving ticket. Please check your connection and try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleRemoveTicket = async (ticketId, recipient) => {
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
       showToast(`Removed ticket from ${recipient}.`);
-    } catch (e) { showToast("Error removing ticket."); }
+    } catch (e) {
+      console.error("Error removing ticket:", e);
+      showToast("Error removing ticket.");
+    }
   };
 
   const handleGoldenTicket = async (cls) => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
         teacherId: effectiveUid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${cls}'s class!`);
-    } catch (e) { showToast("Error awarding Golden Ticket."); }
+    } catch (e) {
+      console.error("Error awarding Golden Ticket:", e);
+      showToast("Error awarding Golden Ticket.");
+    }
   };
 
   const handleRemoveGoldenTicket = async (ticketId, className) => {
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goldenTickets', ticketId));
       showToast(`Removed Golden Ticket from ${className}'s class.`);
-    } catch (e) { showToast("Error removing Golden Ticket."); }
+    } catch (e) {
+      console.error("Error removing Golden Ticket:", e);
+      showToast("Error removing Golden Ticket.");
+    }
   };
 
   const processCSV = async () => {
@@ -897,7 +1057,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               )}
             </>
           )}
-          {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} />}
+          {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
         </div>
       ) : activeTab === 'overview' ? (
         <>
@@ -1033,26 +1193,26 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 }
 
 // --- Shared Modals ---
-function GiveTicketModal({ data, onClose, onSelect }) {
+function GiveTicketModal({ data, onClose, onSelect, isSubmitting }) {
   return (
     <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
         <div className="p-6 text-center">
           <div className="flex justify-end mb-2">
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-6 h-6" /></button>
+            <button onClick={onClose} disabled={isSubmitting} className="text-gray-400 hover:text-gray-600 disabled:opacity-50"><X className="w-6 h-6" /></button>
           </div>
           <h3 className="text-gray-500 font-semibold uppercase tracking-wider text-sm mb-1">Award Ticket To</h3>
           <p className="text-2xl font-black text-gray-900 mb-8">{data.recipient}</p>
 
           <div className="space-y-3">
-            <button onClick={() => onSelect('Respectful')} className="w-full py-4 px-6 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-bold text-lg border-2 border-blue-200 hover:border-blue-400 transition-all text-left flex justify-between">
-              Respectful <span className="text-blue-400">&#x1F91D;</span>
+            <button disabled={isSubmitting} onClick={() => onSelect('Respectful')} className="w-full py-4 px-6 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-bold text-lg border-2 border-blue-200 hover:border-blue-400 transition-all text-left flex justify-between disabled:opacity-50 disabled:cursor-not-allowed">
+              {isSubmitting ? 'Saving...' : 'Respectful'} <span className="text-blue-400">&#x1F91D;</span>
             </button>
-            <button onClick={() => onSelect('Responsible')} className="w-full py-4 px-6 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl font-bold text-lg border-2 border-amber-200 hover:border-amber-400 transition-all text-left flex justify-between">
-              Responsible <span className="text-amber-400">&#x1F4CB;</span>
+            <button disabled={isSubmitting} onClick={() => onSelect('Responsible')} className="w-full py-4 px-6 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-xl font-bold text-lg border-2 border-amber-200 hover:border-amber-400 transition-all text-left flex justify-between disabled:opacity-50 disabled:cursor-not-allowed">
+              {isSubmitting ? 'Saving...' : 'Responsible'} <span className="text-amber-400">&#x1F4CB;</span>
             </button>
-            <button onClick={() => onSelect('Determined')} className="w-full py-4 px-6 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-bold text-lg border-2 border-purple-200 hover:border-purple-400 transition-all text-left flex justify-between">
-              Determined <span className="text-purple-400">&#x1F525;</span>
+            <button disabled={isSubmitting} onClick={() => onSelect('Determined')} className="w-full py-4 px-6 bg-purple-50 hover:bg-purple-100 text-purple-700 rounded-xl font-bold text-lg border-2 border-purple-200 hover:border-purple-400 transition-all text-left flex justify-between disabled:opacity-50 disabled:cursor-not-allowed">
+              {isSubmitting ? 'Saving...' : 'Determined'} <span className="text-purple-400">&#x1F525;</span>
             </button>
           </div>
         </div>
