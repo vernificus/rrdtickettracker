@@ -111,13 +111,13 @@ export default function App() {
     const needsMigration = profiles.filter(p => p.name && !p.nameNormalized);
     if (needsMigration.length === 0) return;
     backfillRan.current = true;
+    const batch = writeBatch(db);
     needsMigration.forEach((p) => {
-      setDoc(
-        doc(db, 'artifacts', appId, 'public', 'data', 'users', p.id),
-        { nameNormalized: p.name.trim().toLowerCase() },
-        { merge: true }
-      ).catch(e => console.error("Migration error for", p.id, e));
+      batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'users', p.id), {
+        nameNormalized: p.name.trim().toLowerCase()
+      });
     });
+    batch.commit().catch(e => console.error("Backfill migration error:", e));
   }, [profiles]);
 
   const showToast = (message) => {
@@ -524,21 +524,30 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    if (!modalData) return;
+    const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
         teacherName: profile.name,
-        recipient: modalData.recipient,
-        recipientType: modalData.type,
+        recipient,
+        recipientType: type,
         reason,
         timestamp: serverTimestamp()
       });
-      showToast(`Ticket awarded to ${modalData.recipient}!`);
+      showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      showToast("Error saving ticket. Please check your connection and try again.");
+      const code = e?.code || '';
+      if (code === 'permission-denied') {
+        showToast("Permission denied. Try closing and reopening the app.");
+      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
+        showToast("Network issue. Please check your connection and try again.");
+      } else {
+        showToast("Error saving ticket. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -666,21 +675,30 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    if (!modalData) return;
+    const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
         teacherName: profile.name,
-        recipient: modalData.recipient,
-        recipientType: modalData.type,
+        recipient,
+        recipientType: type,
         reason,
         timestamp: serverTimestamp()
       });
-      showToast(`Ticket awarded to ${modalData.recipient}!`);
+      showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      showToast("Error saving ticket. Please check your connection and try again.");
+      const code = e?.code || '';
+      if (code === 'permission-denied') {
+        showToast("Permission denied. Try closing and reopening the app.");
+      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
+        showToast("Network issue. Please check your connection and try again.");
+      } else {
+        showToast("Error saving ticket. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -852,21 +870,30 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    if (!modalData) return;
+    const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
         teacherName: profile.name,
-        recipient: modalData.recipient,
-        recipientType: modalData.type,
+        recipient,
+        recipientType: type,
         reason,
         timestamp: serverTimestamp()
       });
-      showToast(`Ticket awarded to ${modalData.recipient}!`);
+      showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      showToast("Error saving ticket. Please check your connection and try again.");
+      const code = e?.code || '';
+      if (code === 'permission-denied') {
+        showToast("Permission denied. Try closing and reopening the app.");
+      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
+        showToast("Network issue. Please check your connection and try again.");
+      } else {
+        showToast("Error saving ticket. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
