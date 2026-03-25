@@ -43,6 +43,7 @@ export default function App() {
 
   // UI State
   const [toast, setToast] = useState({ visible: false, message: '' });
+  const backfillRan = React.useRef(false);
 
   // 1. Initialize Auth
   useEffect(() => {
@@ -86,19 +87,7 @@ export default function App() {
         setEffectiveUid(myDoc ? user.uid : null);
       }
 
-      // Backfill nameNormalized for existing profiles that are missing it
-      if (snap.metadata.fromCache === false) {
-        data.forEach((p) => {
-          if (p.name && !p.nameNormalized) {
-            setDoc(
-              doc(db, 'artifacts', appId, 'public', 'data', 'users', p.id),
-              { nameNormalized: p.name.trim().toLowerCase() },
-              { merge: true }
-            ).catch(e => console.error("Migration error for", p.id, e));
-          }
-        });
-        setLoading(false);
-      }
+      if (snap.metadata.fromCache === false) setLoading(false);
     });
 
     const unsubTickets = onSnapshot(ticketsRef, (snap) => {
@@ -115,6 +104,21 @@ export default function App() {
 
     return () => { unsubProfiles(); unsubTickets(); unsubStudents(); unsubGolden(); };
   }, [user]);
+
+  // One-time backfill: add nameNormalized to existing profiles that are missing it
+  useEffect(() => {
+    if (backfillRan.current || profiles.length === 0) return;
+    const needsMigration = profiles.filter(p => p.name && !p.nameNormalized);
+    if (needsMigration.length === 0) return;
+    backfillRan.current = true;
+    needsMigration.forEach((p) => {
+      setDoc(
+        doc(db, 'artifacts', appId, 'public', 'data', 'users', p.id),
+        { nameNormalized: p.name.trim().toLowerCase() },
+        { merge: true }
+      ).catch(e => console.error("Migration error for", p.id, e));
+    });
+  }, [profiles]);
 
   const showToast = (message) => {
     setToast({ visible: true, message });
