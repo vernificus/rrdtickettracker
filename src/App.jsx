@@ -7,7 +7,8 @@ import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
-  getFirestore, collection, doc, setDoc, onSnapshot,
+  initializeFirestore, persistentLocalCache,
+  collection, doc, setDoc, onSnapshot,
   addDoc, serverTimestamp, writeBatch, deleteDoc, query, where, getDocs
 } from 'firebase/firestore';
 
@@ -26,7 +27,7 @@ const appId = 'school-green-ticket-react';
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
-const db = getFirestore(app);
+const db = initializeFirestore(app, { localCache: persistentLocalCache({}) });
 
 // --- Main App Component ---
 export default function App() {
@@ -43,7 +44,6 @@ export default function App() {
 
   // UI State
   const [toast, setToast] = useState({ visible: false, message: '' });
-  const backfillRan = React.useRef(false);
 
   // 1. Initialize Auth
   useEffect(() => {
@@ -104,21 +104,6 @@ export default function App() {
 
     return () => { unsubProfiles(); unsubTickets(); unsubStudents(); unsubGolden(); };
   }, [user]);
-
-  // One-time backfill: add nameNormalized to existing profiles that are missing it
-  useEffect(() => {
-    if (backfillRan.current || profiles.length === 0) return;
-    const needsMigration = profiles.filter(p => p.name && !p.nameNormalized);
-    if (needsMigration.length === 0) return;
-    backfillRan.current = true;
-    needsMigration.forEach((p) => {
-      setDoc(
-        doc(db, 'artifacts', appId, 'public', 'data', 'users', p.id),
-        { nameNormalized: p.name.trim().toLowerCase() },
-        { merge: true }
-      ).catch(e => console.error("Migration error for", p.id, e));
-    });
-  }, [profiles]);
 
   const showToast = (message) => {
     setToast({ visible: true, message });
@@ -356,10 +341,16 @@ function SetupProfile({ user, onComplete }) {
     setError('');
     setIsSaving(true);
     try {
-      // Check if a teacher with this name and role already exists (case-insensitive)
+      // Check if a teacher with this name and role already exists
       const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-      const q = query(usersRef, where('nameNormalized', '==', name.trim().toLowerCase()), where('role', '==', role));
-      const snap = await getDocs(q);
+      // Try case-insensitive match first (new profiles have nameNormalized)
+      let q = query(usersRef, where('nameNormalized', '==', name.trim().toLowerCase()), where('role', '==', role));
+      let snap = await getDocs(q);
+      if (snap.empty) {
+        // Fallback: exact name match for older profiles without nameNormalized
+        q = query(usersRef, where('name', '==', name.trim()), where('role', '==', role));
+        snap = await getDocs(q);
+      }
 
       if (!snap.empty) {
         // Found existing teacher(s) — show picker for confirmation
@@ -524,21 +515,30 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    if (!modalData) return;
+    const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
         teacherName: profile.name,
-        recipient: modalData.recipient,
-        recipientType: modalData.type,
+        recipient,
+        recipientType: type,
         reason,
         timestamp: serverTimestamp()
       });
-      showToast(`Ticket awarded to ${modalData.recipient}!`);
+      showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      showToast("Error saving ticket. Please check your connection and try again.");
+      const code = e?.code || '';
+      if (code === 'permission-denied') {
+        showToast("Permission denied. Try closing and reopening the app.");
+      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
+        showToast("Network issue. Please check your connection and try again.");
+      } else {
+        showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -666,21 +666,30 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    if (!modalData) return;
+    const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
         teacherName: profile.name,
-        recipient: modalData.recipient,
-        recipientType: modalData.type,
+        recipient,
+        recipientType: type,
         reason,
         timestamp: serverTimestamp()
       });
-      showToast(`Ticket awarded to ${modalData.recipient}!`);
+      showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      showToast("Error saving ticket. Please check your connection and try again.");
+      const code = e?.code || '';
+      if (code === 'permission-denied') {
+        showToast("Permission denied. Try closing and reopening the app.");
+      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
+        showToast("Network issue. Please check your connection and try again.");
+      } else {
+        showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -852,21 +861,30 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    if (!modalData) return;
+    const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
         teacherId: effectiveUid,
         teacherName: profile.name,
-        recipient: modalData.recipient,
-        recipientType: modalData.type,
+        recipient,
+        recipientType: type,
         reason,
         timestamp: serverTimestamp()
       });
-      showToast(`Ticket awarded to ${modalData.recipient}!`);
+      showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      showToast("Error saving ticket. Please check your connection and try again.");
+      const code = e?.code || '';
+      if (code === 'permission-denied') {
+        showToast("Permission denied. Try closing and reopening the app.");
+      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
+        showToast("Network issue. Please check your connection and try again.");
+      } else {
+        showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      }
     } finally {
       setIsSubmitting(false);
     }
