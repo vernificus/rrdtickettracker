@@ -79,6 +79,8 @@ export default function App() {
       if (!docSnap.exists()) {
         setProfile(null);
         setEffectiveUid(null);
+        // Only stop loading once server confirms doc doesn't exist
+        // (cache may say "not found" before server has responded)
         if (docSnap.metadata.fromCache === false) setLoading(false);
         return;
       }
@@ -89,7 +91,8 @@ export default function App() {
         setProfile(myDoc);
         setEffectiveUid(uid);
       }
-      if (docSnap.metadata.fromCache === false) setLoading(false);
+      // Profile exists — show the app immediately, even from cache
+      setLoading(false);
     });
 
     // For linked devices, listen to the primary profile doc
