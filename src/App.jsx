@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getAuth, signInAnonymously, signOut, onAuthStateChanged } from 'firebase/auth';
 import {
   initializeFirestore, getFirestore, persistentLocalCache,
   collection, doc, setDoc, onSnapshot,
@@ -139,7 +139,8 @@ export default function App() {
 
   const handleSignOut = async () => {
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid));
+      await signOut(auth);
+      await signInAnonymously(auth);
     } catch (e) {
       console.error("Error signing out:", e);
     }
