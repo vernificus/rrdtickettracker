@@ -7,7 +7,7 @@ import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import {
-  initializeFirestore, persistentLocalCache,
+  initializeFirestore, getFirestore, persistentLocalCache,
   collection, doc, setDoc, onSnapshot,
   addDoc, serverTimestamp, writeBatch, deleteDoc, query, where, getDocs
 } from 'firebase/firestore';
@@ -27,7 +27,13 @@ const appId = 'school-green-ticket-react';
 const app = initializeApp(firebaseConfig);
 const analytics = getAnalytics(app);
 const auth = getAuth(app);
-const db = initializeFirestore(app, { localCache: persistentLocalCache({}) });
+let db;
+try {
+  db = initializeFirestore(app, { localCache: persistentLocalCache({}) });
+} catch (e) {
+  console.warn("Offline persistence not available, using default Firestore:", e);
+  db = getFirestore(app);
+}
 
 // --- Main App Component ---
 export default function App() {
