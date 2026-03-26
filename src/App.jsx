@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  Ticket, Users, Shield, Palette, Download,
+  Ticket, Users, Shield, Palette, Download, LogOut,
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
@@ -137,9 +137,17 @@ export default function App() {
   });
   if (user) myUids.add(user.uid);
 
+  const handleSignOut = async () => {
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid));
+    } catch (e) {
+      console.error("Error signing out:", e);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans text-gray-800">
-      <Navbar profile={profile} tickets={tickets} />
+      <Navbar profile={profile} tickets={tickets} onSignOut={handleSignOut} />
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {profile.role === 'admin' && (
@@ -299,7 +307,7 @@ function StudentSearch({ students, onSelect }) {
 }
 
 // --- Components ---
-function Navbar({ profile, tickets }) {
+function Navbar({ profile, tickets, onSignOut }) {
   const handleExport = () => {
     let data = profile.role === 'admin' ? tickets : tickets.filter(t => t.teacherId === profile.id);
     if (data.length === 0) return alert("No data to export.");
@@ -329,6 +337,9 @@ function Navbar({ profile, tickets }) {
           </span>
           <button onClick={handleExport} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
             <Download className="w-4 h-4" /> Export
+          </button>
+          <button onClick={onSignOut} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
+            <LogOut className="w-4 h-4" /> Sign Out
           </button>
         </div>
       </div>
