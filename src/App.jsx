@@ -50,6 +50,7 @@ export default function App() {
 
   // UI State
   const [toast, setToast] = useState({ visible: false, message: '' });
+  const uid = user?.uid;
 
   // 1. Initialize Auth
   useEffect(() => {
@@ -68,37 +69,76 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // 2. Fetch Data (Only after auth)
+  // 2. Fetch profile (Only after auth — depends on uid, not user object ref)
   useEffect(() => {
-    if (!user) return;
-    const profilesRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-    const ticketsRef = collection(db, 'artifacts', appId, 'public', 'data', 'tickets');
-    const studentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'students');
-    const goldenRef = collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets');
+    if (!uid) return;
 
-    const unsubProfiles = onSnapshot(profilesRef, (snap) => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      setProfiles(data);
-      const myDoc = data.find(p => p.id === user.uid);
-      if (myDoc && myDoc.linkedTo) {
-        // This device is linked to another teacher's account
-        const primaryProfile = data.find(p => p.id === myDoc.linkedTo);
-        if (!primaryProfile) {
-          console.warn("Linked primary profile not found:", myDoc.linkedTo);
-        }
-        setProfile(primaryProfile || null);
+    // Listen to own profile doc only (1 read) instead of entire collection
+    const myProfileRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', uid);
+    const unsubMyProfile = onSnapshot(myProfileRef, (docSnap) => {
+      if (!docSnap.exists()) {
+        setProfile(null);
+        setEffectiveUid(null);
+        if (docSnap.metadata.fromCache === false) setLoading(false);
+        return;
+      }
+      const myDoc = { id: docSnap.id, ...docSnap.data() };
+      if (myDoc.linkedTo) {
         setEffectiveUid(myDoc.linkedTo);
       } else {
-        setProfile(myDoc || null);
-        setEffectiveUid(myDoc ? user.uid : null);
+        setProfile(myDoc);
+        setEffectiveUid(uid);
       }
-
-      if (snap.metadata.fromCache === false) setLoading(false);
+      if (docSnap.metadata.fromCache === false) setLoading(false);
     });
 
-    const unsubTickets = onSnapshot(ticketsRef, (snap) => {
-      setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    // For linked devices, listen to the primary profile doc
+    // This is set up dynamically when effectiveUid changes (see next effect)
+
+    return () => { unsubMyProfile(); };
+  }, [uid]);
+
+  // 2b. If linked, listen to primary profile + fetch linked UIDs for myUids
+  useEffect(() => {
+    if (!effectiveUid || effectiveUid === uid) return;
+
+    const primaryRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', effectiveUid);
+    const unsub = onSnapshot(primaryRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setProfile({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        console.warn("Linked primary profile not found:", effectiveUid);
+        setProfile(null);
+      }
     });
+    return () => unsub();
+  }, [effectiveUid, uid]);
+
+  // 2c. Fetch profiles: linked UIDs for ticket filtering + all profiles for admin
+  useEffect(() => {
+    if (!effectiveUid || !profile) { setProfiles([]); return; }
+    const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
+    if (profile.role === 'admin') {
+      // Admin needs all profiles for the dashboard
+      const unsub = onSnapshot(usersRef, (snap) => {
+        setProfiles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+      return () => unsub();
+    } else {
+      // Non-admin: one-time fetch of linked device UIDs only
+      const q = query(usersRef, where('linkedTo', '==', effectiveUid));
+      getDocs(q).then(snap => {
+        setProfiles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }).catch(e => console.error("Error fetching linked profiles:", e));
+    }
+  }, [effectiveUid, profile?.role]);
+
+  // 3. Fetch app data (tickets, students, goldenTickets) — only after profile is known
+  useEffect(() => {
+    if (!uid || !profile) return;
+
+    const studentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'students');
+    const goldenRef = collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets');
 
     const unsubStudents = onSnapshot(studentsRef, (snap) => {
       setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -108,8 +148,23 @@ export default function App() {
       setGoldenTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
     });
 
-    return () => { unsubProfiles(); unsubTickets(); unsubStudents(); unsubGolden(); };
-  }, [user]);
+    // Scope tickets: admins see all, others see only their own
+    const ticketsRef = collection(db, 'artifacts', appId, 'public', 'data', 'tickets');
+    let unsubTickets;
+    if (profile.role === 'admin') {
+      unsubTickets = onSnapshot(ticketsRef, (snap) => {
+        setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+    } else {
+      // Only load this teacher's tickets (much fewer reads)
+      const myTicketsQuery = query(ticketsRef, where('teacherId', '==', uid));
+      unsubTickets = onSnapshot(myTicketsQuery, (snap) => {
+        setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+    }
+
+    return () => { unsubStudents(); unsubGolden(); unsubTickets(); };
+  }, [uid, profile?.role]);
 
   const showToast = (message) => {
     setToast({ visible: true, message });
@@ -138,7 +193,15 @@ export default function App() {
   if (user) myUids.add(user.uid);
 
   const handleSignOut = async () => {
+    // Clear all local state first so onSnapshot can't restore the old profile
+    setProfile(null);
+    setEffectiveUid(null);
+    setTickets([]);
+    setStudents([]);
+    setProfiles([]);
+    setGoldenTickets([]);
     try {
+      // Sign out destroys the anonymous session, sign in creates a fresh one with a new UID
       await signOut(auth);
       await signInAnonymously(auth);
     } catch (e) {
