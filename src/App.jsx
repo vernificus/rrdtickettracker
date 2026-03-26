@@ -129,19 +129,27 @@ export default function App() {
     return <SetupProfile user={user} onComplete={() => showToast("Profile created!")} />;
   }
 
+  // Collect all UIDs associated with this teacher (primary + all linked devices)
+  // so ticket filtering shows tickets from any of the teacher's devices
+  const myUids = new Set([effectiveUid]);
+  profiles.forEach(p => {
+    if (p.linkedTo === effectiveUid) myUids.add(p.id);
+  });
+  if (user) myUids.add(user.uid);
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans text-gray-800">
       <Navbar profile={profile} tickets={tickets} />
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {profile.role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} effectiveUid={effectiveUid} profile={profile} goldenTickets={goldenTickets} />
+          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} effectiveUid={effectiveUid} profile={profile} goldenTickets={goldenTickets} myUids={myUids} />
         )}
         {profile.role === 'homeroom' && (
-          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} />
+          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} myUids={myUids} />
         )}
         {profile.role === 'specialist' && (
-          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} />
+          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} myUids={myUids} />
         )}
       </main>
 
@@ -500,7 +508,7 @@ function SetupProfile({ user, onComplete }) {
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids }) {
   const [modalData, setModalData] = useState(null);
 
   const myStudents = useMemo(() => {
@@ -509,7 +517,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     return [...new Set([...central, ...custom])].sort();
   }, [students, profile]);
 
-  const myTickets = tickets.filter(t => t.teacherId === effectiveUid);
+  const myTickets = tickets.filter(t => myUids.has(t.teacherId));
   const ticketCounts = {};
   myStudents.forEach(s => ticketCounts[s] = 0);
   myTickets.forEach(t => { if (ticketCounts[t.recipient] !== undefined) ticketCounts[t.recipient]++; });
@@ -526,7 +534,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: effectiveUid,
+        teacherId: user.uid,
         teacherName: profile.name,
         recipient,
         recipientType: type,
@@ -567,7 +575,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: effectiveUid, teacherName: profile.name,
+        teacherId: user.uid, teacherName: profile.name,
         className: profile.name, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${profile.name}'s class!`);
@@ -651,7 +659,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
 
@@ -677,7 +685,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: effectiveUid,
+        teacherId: user.uid,
         teacherName: profile.name,
         recipient,
         recipientType: type,
@@ -718,7 +726,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     }
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: effectiveUid, teacherName: profile.name,
+        teacherId: user.uid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${cls}'s class!`);
@@ -728,7 +736,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     }
   };
 
-  const myTickets = tickets.filter(t => t.teacherId === effectiveUid);
+  const myTickets = tickets.filter(t => myUids.has(t.teacherId));
 
   return (
     <div className="space-y-6">
@@ -836,7 +844,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -872,7 +880,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: effectiveUid,
+        teacherId: user.uid,
         teacherName: profile.name,
         recipient,
         recipientType: type,
@@ -913,7 +921,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     }
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
-        teacherId: effectiveUid, teacherName: profile.name,
+        teacherId: user.uid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
       showToast(`Golden Ticket awarded to ${cls}'s class!`);
