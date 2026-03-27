@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download, LogOut,
-  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search
+  Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
+  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { getAnalytics } from 'firebase/analytics';
@@ -373,6 +374,43 @@ function StudentSearch({ students, onSelect }) {
   );
 }
 
+// --- Student Ticket Card (Inline ticket giving) ---
+function StudentTicketCard({ student, tickets: ticketList, onGiveTicket, isSubmitting, submittingFor }) {
+  const rc = getStudentReasonCounts(student, ticketList);
+  const noRecent = !hasRecentTicket(student, ticketList);
+  const total = rc.Respectful + rc.Responsible + rc.Determined;
+  const isBusy = isSubmitting && submittingFor === student;
+
+  return (
+    <div className={`p-3 rounded-xl shadow-sm border flex flex-col justify-between h-44 ${noRecent ? 'bg-red-50 border-red-300' : 'bg-white border-gray-200'}`}>
+      <div className="flex items-start justify-between w-full mb-1">
+        <span className={`font-bold leading-tight text-sm ${noRecent ? 'text-red-800' : 'text-gray-800'}`}>{student}</span>
+        {noRecent && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 ml-1" />}
+      </div>
+      <div className="flex items-center justify-between text-xs mb-2">
+        <span className="bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded">R {rc.Respectful}</span>
+        <span className="bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded">S {rc.Responsible}</span>
+        <span className="bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded">D {rc.Determined}</span>
+        <span className={`py-0.5 px-2 rounded-full font-black text-xs ${noRecent ? 'bg-red-100 text-red-700' : 'bg-green-50 text-green-700'}`}>{total}</span>
+      </div>
+      <div className="flex flex-col gap-1">
+        <button disabled={isBusy} onClick={() => onGiveTicket(student, 'Respectful')}
+          className="w-full py-1.5 bg-blue-50 hover:bg-blue-200 text-blue-700 rounded-lg font-bold text-xs border border-blue-200 hover:border-blue-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          {isBusy ? '...' : 'Respectful'}
+        </button>
+        <button disabled={isBusy} onClick={() => onGiveTicket(student, 'Responsible')}
+          className="w-full py-1.5 bg-amber-50 hover:bg-amber-200 text-amber-700 rounded-lg font-bold text-xs border border-amber-200 hover:border-amber-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          {isBusy ? '...' : 'Responsible'}
+        </button>
+        <button disabled={isBusy} onClick={() => onGiveTicket(student, 'Determined')}
+          className="w-full py-1.5 bg-purple-50 hover:bg-purple-200 text-purple-700 rounded-lg font-bold text-xs border border-purple-200 hover:border-purple-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
+          {isBusy ? '...' : 'Determined'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // --- Components ---
 function Navbar({ profile, tickets, onSignOut }) {
   const handleExport = () => {
@@ -601,6 +639,32 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   myTickets.forEach(t => { if (ticketCounts[t.recipient] !== undefined) ticketCounts[t.recipient]++; });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingFor, setSubmittingFor] = useState(null);
+
+  const handleGiveTicketDirect = async (recipient, reason) => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmittingFor(recipient);
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+        teacherId: user.uid, teacherName: profile.name,
+        recipient, recipientType: 'student', reason, timestamp: serverTimestamp()
+      });
+      showToast(`${reason} ticket awarded to ${recipient}!`);
+    } catch (e) {
+      console.error("Error saving ticket:", e);
+      const code = e?.code || '';
+      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
+      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
+      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+    } finally {
+      setIsSubmitting(false);
+      setSubmittingFor(null);
+    }
+  };
 
   const handleGiveTicket = async (reason) => {
     if (!effectiveUid || !profile) {
@@ -612,25 +676,17 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
-        teacherName: profile.name,
-        recipient,
-        recipientType: type,
-        reason,
-        timestamp: serverTimestamp()
+        teacherId: user.uid, teacherName: profile.name,
+        recipient, recipientType: type, reason, timestamp: serverTimestamp()
       });
       showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
       const code = e?.code || '';
-      if (code === 'permission-denied') {
-        showToast("Permission denied. Try closing and reopening the app.");
-      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
-        showToast("Network issue. Please check your connection and try again.");
-      } else {
-        showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
-      }
+      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
+      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
+      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -704,30 +760,10 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-          {myStudents.map(student => {
-            const rc = getStudentReasonCounts(student, myTickets);
-            const noRecent = !hasRecentTicket(student, myTickets);
-            return (
-              <button key={student} onClick={() => setModalData({ recipient: student, type: 'student' })}
-                className={`p-4 rounded-xl shadow-sm border hover:shadow-md transition text-left flex flex-col justify-between h-32 group ${noRecent ? 'bg-red-50 border-red-300 hover:border-red-500' : 'bg-white border-gray-200 hover:border-green-500'}`}>
-                <div className="flex items-start justify-between w-full">
-                  <span className={`font-bold leading-tight text-sm ${noRecent ? 'text-red-800' : 'text-gray-800 group-hover:text-green-700'}`}>{student}</span>
-                  {noRecent && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 ml-1" />}
-                </div>
-                <div className="w-full mt-auto">
-                  <div className="flex gap-1.5 mb-1.5">
-                    {rc.Respectful > 0 && <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded">R {rc.Respectful}</span>}
-                    {rc.Responsible > 0 && <span className="bg-amber-100 text-amber-700 text-xs font-bold px-1.5 py-0.5 rounded">S {rc.Responsible}</span>}
-                    {rc.Determined > 0 && <span className="bg-purple-100 text-purple-700 text-xs font-bold px-1.5 py-0.5 rounded">D {rc.Determined}</span>}
-                  </div>
-                  <div className="flex items-center justify-between w-full">
-                    <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Total</span>
-                    <span className={`py-0.5 px-2.5 rounded-full font-black text-sm ${noRecent ? 'bg-red-100 text-red-700' : 'bg-green-50 text-green-700'}`}>{ticketCounts[student]}</span>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+          {myStudents.map(student => (
+            <StudentTicketCard key={student} student={student} tickets={myTickets}
+              onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor} />
+          ))}
         </div>
       )}
 
@@ -752,6 +788,32 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
   }, [selectedClass, students]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingFor, setSubmittingFor] = useState(null);
+
+  const handleGiveTicketDirect = async (recipient, reason) => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmittingFor(recipient);
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+        teacherId: user.uid, teacherName: profile.name,
+        recipient, recipientType: 'student', reason, timestamp: serverTimestamp()
+      });
+      showToast(`${reason} ticket awarded to ${recipient}!`);
+    } catch (e) {
+      console.error("Error saving ticket:", e);
+      const code = e?.code || '';
+      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
+      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
+      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+    } finally {
+      setIsSubmitting(false);
+      setSubmittingFor(null);
+    }
+  };
 
   const handleGiveTicket = async (reason) => {
     if (!effectiveUid || !profile) {
@@ -763,25 +825,17 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
-        teacherName: profile.name,
-        recipient,
-        recipientType: type,
-        reason,
-        timestamp: serverTimestamp()
+        teacherId: user.uid, teacherName: profile.name,
+        recipient, recipientType: type, reason, timestamp: serverTimestamp()
       });
       showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
       const code = e?.code || '';
-      if (code === 'permission-denied') {
-        showToast("Permission denied. Try closing and reopening the app.");
-      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
-        showToast("Network issue. Please check your connection and try again.");
-      } else {
-        showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
-      }
+      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
+      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
+      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -884,33 +938,10 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
             <p className="text-gray-500 italic">No students found in this homeroom.</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-              {studentsInClass.map(student => {
-                const rc = getStudentReasonCounts(student, myTickets);
-                const noRecent = !hasRecentTicket(student, myTickets);
-                const total = rc.Respectful + rc.Responsible + rc.Determined;
-                return (
-                  <button key={student} onClick={() => setModalData({ recipient: student, type: 'student' })}
-                    className={`p-4 rounded-xl shadow-sm border hover:shadow-md transition text-left flex flex-col justify-between h-32 group ${noRecent ? 'bg-red-50 border-red-300 hover:border-red-500' : 'bg-white border-gray-200 hover:border-blue-500'}`}>
-                    <div className="flex items-start justify-between w-full">
-                      <span className={`font-bold leading-tight text-sm ${noRecent ? 'text-red-800' : 'text-gray-800'}`}>{student}</span>
-                      {noRecent && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 ml-1" />}
-                    </div>
-                    <div className="w-full mt-auto">
-                      <div className="flex gap-1.5 mb-1.5">
-                        {rc.Respectful > 0 && <span className="bg-blue-100 text-blue-700 text-xs font-bold px-1.5 py-0.5 rounded">R {rc.Respectful}</span>}
-                        {rc.Responsible > 0 && <span className="bg-amber-100 text-amber-700 text-xs font-bold px-1.5 py-0.5 rounded">S {rc.Responsible}</span>}
-                        {rc.Determined > 0 && <span className="bg-purple-100 text-purple-700 text-xs font-bold px-1.5 py-0.5 rounded">D {rc.Determined}</span>}
-                      </div>
-                      {total > 0 && (
-                        <div className="flex items-center justify-between w-full">
-                          <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Total</span>
-                          <span className={`py-0.5 px-2.5 rounded-full font-black text-sm ${noRecent ? 'bg-red-100 text-red-700' : 'bg-green-50 text-green-700'}`}>{total}</span>
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
+              {studentsInClass.map(student => (
+                <StudentTicketCard key={student} student={student} tickets={myTickets}
+                  onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor} />
+              ))}
             </div>
           )}
         </>
@@ -949,6 +980,38 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   }, [selectedClass, students]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingFor, setSubmittingFor] = useState(null);
+
+  // Merge students state
+  const [mergeSource, setMergeSource] = useState('');
+  const [mergeTarget, setMergeTarget] = useState('');
+  const [isMerging, setIsMerging] = useState(false);
+  const [confirmMerge, setConfirmMerge] = useState(false);
+
+  const handleGiveTicketDirect = async (recipient, reason) => {
+    if (!effectiveUid || !profile) {
+      showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
+      return;
+    }
+    setIsSubmitting(true);
+    setSubmittingFor(recipient);
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+        teacherId: user.uid, teacherName: profile.name,
+        recipient, recipientType: 'student', reason, timestamp: serverTimestamp()
+      });
+      showToast(`${reason} ticket awarded to ${recipient}!`);
+    } catch (e) {
+      console.error("Error saving ticket:", e);
+      const code = e?.code || '';
+      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
+      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
+      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+    } finally {
+      setIsSubmitting(false);
+      setSubmittingFor(null);
+    }
+  };
 
   const handleGiveTicket = async (reason) => {
     if (!effectiveUid || !profile) {
@@ -960,25 +1023,17 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
-        teacherId: user.uid,
-        teacherName: profile.name,
-        recipient,
-        recipientType: type,
-        reason,
-        timestamp: serverTimestamp()
+        teacherId: user.uid, teacherName: profile.name,
+        recipient, recipientType: type, reason, timestamp: serverTimestamp()
       });
       showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
       const code = e?.code || '';
-      if (code === 'permission-denied') {
-        showToast("Permission denied. Try closing and reopening the app.");
-      } else if (code === 'unavailable' || code === 'deadline-exceeded') {
-        showToast("Network issue. Please check your connection and try again.");
-      } else {
-        showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
-      }
+      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
+      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
+      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -992,6 +1047,35 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       console.error("Error removing ticket:", e);
       showToast("Error removing ticket.");
     }
+  };
+
+  const handleMergeStudents = async () => {
+    if (!mergeSource || !mergeTarget || mergeSource === mergeTarget) return;
+    setIsMerging(true);
+    try {
+      const batch = writeBatch(db);
+      // Update all tickets from source to target
+      const sourceTickets = tickets.filter(t => t.recipient === mergeSource);
+      sourceTickets.forEach(t => {
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tickets', t.id);
+        batch.update(ref, { recipient: mergeTarget });
+      });
+      // Remove source student docs from roster
+      const sourceStudentDocs = students.filter(s => s.name === mergeSource);
+      sourceStudentDocs.forEach(s => {
+        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'students', s.id);
+        batch.delete(ref);
+      });
+      await batch.commit();
+      showToast(`Merged "${mergeSource}" into "${mergeTarget}". ${sourceTickets.length} ticket${sourceTickets.length !== 1 ? 's' : ''} reassigned.`);
+      setMergeSource('');
+      setMergeTarget('');
+      setConfirmMerge(false);
+    } catch (e) {
+      console.error("Error merging students:", e);
+      showToast(`Error merging students (${e?.code || 'unknown'}).`);
+    }
+    setIsMerging(false);
   };
 
   const handleGoldenTicket = async (cls) => {
@@ -1109,9 +1193,10 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b pb-4">
         <h1 className="text-3xl font-bold text-gray-900">Admin Controls</h1>
-        <div className="flex bg-gray-200 p-1 rounded-lg">
+        <div className="flex flex-wrap bg-gray-200 p-1 rounded-lg gap-0.5">
           <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'overview' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Overview</button>
           <button onClick={() => setActiveTab('tickets')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'tickets' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Give Tickets</button>
+          <button onClick={() => setActiveTab('merge')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'merge' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Merge Students</button>
           <button onClick={() => setActiveTab('teachers')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'teachers' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Teachers{unusedProfiles.length > 0 && <span className="ml-1.5 bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 text-xs font-bold">{unusedProfiles.length}</span>}</button>
           <button onClick={() => setActiveTab('roster')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'roster' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Roster Sync (CSV)</button>
         </div>
@@ -1203,9 +1288,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {studentsInClass.map(student => (
-                    <button key={student} onClick={() => setModalData({ recipient: student, type: 'student' })} className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 hover:shadow-md transition text-left h-24 flex items-center">
-                      <span className="font-bold text-gray-800 leading-tight">{student}</span>
-                    </button>
+                    <StudentTicketCard key={student} student={student} tickets={tickets}
+                      onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor} />
                   ))}
                 </div>
               )}
@@ -1215,30 +1299,144 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
         </div>
       ) : activeTab === 'overview' ? (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="p-4 bg-green-100 rounded-full text-green-600"><Award className="w-8 h-8" /></div>
-              <div><div className="text-sm text-gray-500 font-medium">Total Tickets</div><div className="text-3xl font-bold">{tickets.length}</div></div>
+          {/* Summary stat cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+              <div className="p-3 bg-green-100 rounded-full text-green-600"><Award className="w-7 h-7" /></div>
+              <div><div className="text-xs text-gray-500 font-medium">Total Tickets</div><div className="text-2xl font-bold">{tickets.length}</div></div>
             </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="p-4 bg-yellow-100 rounded-full text-yellow-600"><Star className="w-8 h-8" /></div>
-              <div><div className="text-sm text-gray-500 font-medium">Golden Tickets</div><div className="text-3xl font-bold">{goldenTickets.length}</div></div>
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+              <div className="p-3 bg-yellow-100 rounded-full text-yellow-600"><Star className="w-7 h-7" /></div>
+              <div><div className="text-xs text-gray-500 font-medium">Golden Tickets</div><div className="text-2xl font-bold">{goldenTickets.length}</div></div>
             </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="p-4 bg-blue-100 rounded-full text-blue-600"><Users className="w-8 h-8" /></div>
-              <div><div className="text-sm text-gray-500 font-medium">Active Teachers</div><div className="text-3xl font-bold">{new Set(tickets.map(t => t.teacherId)).size}</div></div>
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+              <div className="p-3 bg-blue-100 rounded-full text-blue-600"><Users className="w-7 h-7" /></div>
+              <div><div className="text-xs text-gray-500 font-medium">Active Teachers</div><div className="text-2xl font-bold">{new Set(tickets.map(t => t.teacherId)).size}</div></div>
             </div>
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="p-4 bg-purple-100 rounded-full text-purple-600"><PieChart className="w-8 h-8" /></div>
-              <div>
-                <div className="text-sm text-gray-500 font-medium">Top Reason</div>
-                <div className="text-xl font-bold">
-                  {Object.entries(reasons).sort((a, b) => b[1] - a[1])[0]?.[0] || '-'}
-                </div>
-              </div>
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
+              <div className="p-3 bg-purple-100 rounded-full text-purple-600"><PieChart className="w-7 h-7" /></div>
+              <div><div className="text-xs text-gray-500 font-medium">Students in Roster</div><div className="text-2xl font-bold">{students.length}</div></div>
             </div>
           </div>
 
+          {/* Charts row */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
+            {/* Ticket Type Breakdown */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              <h3 className="font-bold text-gray-800 text-sm mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-gray-400" /> Ticket Type Breakdown</h3>
+              {tickets.length === 0 ? <p className="text-gray-400 text-sm">No tickets yet.</p> : (
+                <>
+                  <div className="flex rounded-full overflow-hidden h-8 bg-gray-100 mb-4">
+                    {reasons.Respectful > 0 && <div className="bg-blue-500 transition-all duration-500 flex items-center justify-center text-white text-xs font-bold" style={{ width: `${(reasons.Respectful / tickets.length) * 100}%` }}>{reasons.Respectful}</div>}
+                    {reasons.Responsible > 0 && <div className="bg-amber-500 transition-all duration-500 flex items-center justify-center text-white text-xs font-bold" style={{ width: `${(reasons.Responsible / tickets.length) * 100}%` }}>{reasons.Responsible}</div>}
+                    {reasons.Determined > 0 && <div className="bg-purple-500 transition-all duration-500 flex items-center justify-center text-white text-xs font-bold" style={{ width: `${(reasons.Determined / tickets.length) * 100}%` }}>{reasons.Determined}</div>}
+                  </div>
+                  <div className="flex justify-between text-xs font-semibold">
+                    <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-blue-500" /><span className="text-gray-600">Respectful</span><span className="text-gray-900">{reasons.Respectful} ({tickets.length > 0 ? Math.round(reasons.Respectful / tickets.length * 100) : 0}%)</span></div>
+                    <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-amber-500" /><span className="text-gray-600">Responsible</span><span className="text-gray-900">{reasons.Responsible} ({tickets.length > 0 ? Math.round(reasons.Responsible / tickets.length * 100) : 0}%)</span></div>
+                    <div className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-purple-500" /><span className="text-gray-600">Determined</span><span className="text-gray-900">{reasons.Determined} ({tickets.length > 0 ? Math.round(reasons.Determined / tickets.length * 100) : 0}%)</span></div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Top 10 Students */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              <h3 className="font-bold text-gray-800 text-sm mb-4 flex items-center gap-2"><Crown className="w-4 h-4 text-yellow-500" /> Top 10 Students (Most Tickets)</h3>
+              {(() => {
+                const studentCounts = {};
+                tickets.filter(t => t.recipientType === 'student').forEach(t => { studentCounts[t.recipient] = (studentCounts[t.recipient] || 0) + 1; });
+                const sorted = Object.entries(studentCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
+                const maxCount = sorted[0]?.[1] || 1;
+                if (sorted.length === 0) return <p className="text-gray-400 text-sm">No student tickets yet.</p>;
+                return (
+                  <div className="space-y-2">
+                    {sorted.map(([name, count], i) => (
+                      <div key={name} className="flex items-center gap-3">
+                        <span className={`w-6 text-xs font-bold text-right ${i < 3 ? 'text-yellow-600' : 'text-gray-400'}`}>{i + 1}.</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-sm font-medium text-gray-800 truncate">{name}</span>
+                            <span className="text-sm font-bold text-green-700 ml-2">{count}</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-500 ${i === 0 ? 'bg-yellow-400' : i === 1 ? 'bg-gray-400' : i === 2 ? 'bg-amber-600' : 'bg-green-400'}`} style={{ width: `${(count / maxCount) * 100}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Tickets by Teacher */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              <h3 className="font-bold text-gray-800 text-sm mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-green-500" /> Tickets by Teacher</h3>
+              {(() => {
+                const teacherCounts = {};
+                tickets.forEach(t => { teacherCounts[t.teacherName] = (teacherCounts[t.teacherName] || 0) + 1; });
+                const sorted = Object.entries(teacherCounts).sort((a, b) => b[1] - a[1]);
+                const maxCount = sorted[0]?.[1] || 1;
+                if (sorted.length === 0) return <p className="text-gray-400 text-sm">No tickets yet.</p>;
+                return (
+                  <div className="space-y-2">
+                    {sorted.map(([name, count]) => (
+                      <div key={name} className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{name.charAt(0).toUpperCase()}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-sm font-medium text-gray-800 truncate">{name}</span>
+                            <span className="text-sm font-bold text-green-700 ml-2">{count}</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full bg-green-500 transition-all duration-500" style={{ width: `${(count / maxCount) * 100}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Tickets by Class */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+              <h3 className="font-bold text-gray-800 text-sm mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-blue-500" /> Tickets by Homeroom Class</h3>
+              {(() => {
+                const studentHomeroom = {};
+                students.forEach(s => { studentHomeroom[s.name] = s.homeroom; });
+                const classCounts = {};
+                tickets.filter(t => t.recipientType === 'student').forEach(t => {
+                  const hr = studentHomeroom[t.recipient] || 'Unknown';
+                  classCounts[hr] = (classCounts[hr] || 0) + 1;
+                });
+                const sorted = Object.entries(classCounts).sort((a, b) => b[1] - a[1]);
+                const maxCount = sorted[0]?.[1] || 1;
+                if (sorted.length === 0) return <p className="text-gray-400 text-sm">No student tickets yet.</p>;
+                return (
+                  <div className="space-y-2">
+                    {sorted.map(([name, count]) => (
+                      <div key={name} className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{name.charAt(0).toUpperCase()}</div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between mb-0.5">
+                            <span className="text-sm font-medium text-gray-800 truncate">{name}</span>
+                            <span className="text-sm font-bold text-blue-700 ml-2">{count}</span>
+                          </div>
+                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${(count / maxCount) * 100}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
+          {/* All Activity table (kept) */}
           <div className="bg-white rounded-xl shadow-sm border mt-6 overflow-hidden">
             <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
               <h3 className="font-bold text-gray-800">All Activity</h3>
@@ -1294,6 +1492,83 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             </div>
           </div>
         </>
+      ) : activeTab === 'merge' ? (
+        <div className="max-w-2xl space-y-6">
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-indigo-100 rounded-full text-indigo-600"><GitMerge className="w-6 h-6" /></div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Merge Student Profiles</h2>
+                <p className="text-sm text-gray-500">Combine two student profiles into one. All tickets from the source student will be reassigned to the target, and the source will be removed from the roster.</p>
+              </div>
+            </div>
+
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-6 text-sm text-amber-800">
+              <strong>Note:</strong> This action cannot be undone. The source student&apos;s name will be removed and all their tickets transferred to the target student.
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr] gap-4 items-end mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Source (will be removed)</label>
+                <select value={mergeSource} onChange={e => { setMergeSource(e.target.value); setConfirmMerge(false); }}
+                  className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                  <option value="">Select student...</option>
+                  {[...new Set(students.map(s => s.name))].sort().filter(n => n !== mergeTarget).map(name => {
+                    const count = tickets.filter(t => t.recipient === name).length;
+                    return <option key={name} value={name}>{name} ({count} ticket{count !== 1 ? 's' : ''})</option>;
+                  })}
+                </select>
+              </div>
+              <div className="flex items-center justify-center py-2">
+                <ArrowRight className="w-6 h-6 text-gray-400" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Target (will keep)</label>
+                <select value={mergeTarget} onChange={e => { setMergeTarget(e.target.value); setConfirmMerge(false); }}
+                  className="w-full border border-gray-300 rounded-lg p-3 text-sm focus:ring-indigo-500 focus:border-indigo-500">
+                  <option value="">Select student...</option>
+                  {[...new Set(students.map(s => s.name))].sort().filter(n => n !== mergeSource).map(name => {
+                    const count = tickets.filter(t => t.recipient === name).length;
+                    return <option key={name} value={name}>{name} ({count} ticket{count !== 1 ? 's' : ''})</option>;
+                  })}
+                </select>
+              </div>
+            </div>
+
+            {mergeSource && mergeTarget && (
+              <div className="bg-gray-50 rounded-lg p-4 mb-4 text-sm">
+                <p className="font-medium text-gray-800 mb-2">Merge Preview:</p>
+                <div className="flex items-center gap-2 text-gray-600">
+                  <span className="font-bold text-red-600">{mergeSource}</span>
+                  <span className="text-gray-400">({tickets.filter(t => t.recipient === mergeSource).length} tickets)</span>
+                  <ArrowRight className="w-4 h-4 text-gray-400" />
+                  <span className="font-bold text-green-600">{mergeTarget}</span>
+                  <span className="text-gray-400">({tickets.filter(t => t.recipient === mergeTarget).length} tickets)</span>
+                </div>
+                <p className="text-gray-500 mt-1">After merge: <strong className="text-gray-800">{mergeTarget}</strong> will have <strong>{tickets.filter(t => t.recipient === mergeSource || t.recipient === mergeTarget).length}</strong> total tickets.</p>
+              </div>
+            )}
+
+            {!confirmMerge ? (
+              <button onClick={() => setConfirmMerge(true)} disabled={!mergeSource || !mergeTarget || mergeSource === mergeTarget}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-xl transition flex items-center gap-2">
+                <GitMerge className="w-4 h-4" /> Merge Students
+              </button>
+            ) : (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <p className="text-red-800 font-medium mb-3">Are you sure? This will permanently merge &quot;{mergeSource}&quot; into &quot;{mergeTarget}&quot; and remove &quot;{mergeSource}&quot; from the roster.</p>
+                <div className="flex gap-3">
+                  <button onClick={handleMergeStudents} disabled={isMerging} className="bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold py-2 px-5 rounded-lg transition text-sm">
+                    {isMerging ? 'Merging...' : 'Yes, Merge Now'}
+                  </button>
+                  <button onClick={() => setConfirmMerge(false)} className="bg-white hover:bg-gray-50 text-gray-700 font-bold py-2 px-5 rounded-lg transition border text-sm">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       ) : activeTab === 'teachers' ? (
         <div className="bg-white rounded-xl shadow-sm border max-w-3xl">
           <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
