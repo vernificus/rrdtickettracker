@@ -931,6 +931,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [confirmClear, setConfirmClear] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [activityPage, setActivityPage] = useState(0);
+  const [confirmDeleteProfile, setConfirmDeleteProfile] = useState(null);
+  const [isDeletingProfile, setIsDeletingProfile] = useState(false);
   const ITEMS_PER_PAGE = 25;
 
   const reasons = { Respectful: 0, Responsible: 0, Determined: 0 };
@@ -1048,6 +1050,40 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     setIsProcessing(false);
   };
 
+  const teacherTicketCounts = useMemo(() => {
+    const counts = {};
+    profiles.forEach(p => { counts[p.id] = 0; });
+    tickets.forEach(t => {
+      if (counts[t.teacherId] !== undefined) counts[t.teacherId]++;
+      else counts[t.teacherId] = 1;
+    });
+    return counts;
+  }, [profiles, tickets]);
+
+  const unusedProfiles = useMemo(() =>
+    profiles.filter(p => (teacherTicketCounts[p.id] || 0) === 0 && p.id !== effectiveUid),
+  [profiles, teacherTicketCounts, effectiveUid]);
+
+  const handleDeleteProfile = async (profileToDelete) => {
+    setIsDeletingProfile(true);
+    try {
+      // Also unlink any devices linked to this profile
+      const linkedDevices = profiles.filter(p => p.linkedTo === profileToDelete.id);
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'users', profileToDelete.id));
+      linkedDevices.forEach(d => {
+        batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'users', d.id));
+      });
+      await batch.commit();
+      showToast(`Deleted profile for ${profileToDelete.name}.`);
+      setConfirmDeleteProfile(null);
+    } catch (e) {
+      console.error("Error deleting profile:", e);
+      showToast("Error deleting profile.");
+    }
+    setIsDeletingProfile(false);
+  };
+
   const clearRoster = async () => {
     setIsClearing(true);
     try {
@@ -1073,6 +1109,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
         <div className="flex bg-gray-200 p-1 rounded-lg">
           <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'overview' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Overview</button>
           <button onClick={() => setActiveTab('tickets')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'tickets' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Give Tickets</button>
+          <button onClick={() => setActiveTab('teachers')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'teachers' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Teachers{unusedProfiles.length > 0 && <span className="ml-1.5 bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 text-xs font-bold">{unusedProfiles.length}</span>}</button>
           <button onClick={() => setActiveTab('roster')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'roster' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Roster Sync (CSV)</button>
         </div>
       </div>
@@ -1254,6 +1291,62 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             </div>
           </div>
         </>
+      ) : activeTab === 'teachers' ? (
+        <div className="bg-white rounded-xl shadow-sm border max-w-3xl">
+          <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900">Teacher Profiles</h2>
+              <p className="text-sm text-gray-500 mt-0.5">Profiles with 0 tickets can be deleted.</p>
+            </div>
+            <span className="text-xs text-gray-500">{profiles.length} total</span>
+          </div>
+          <div className="divide-y">
+            {profiles.length === 0 && (
+              <div className="px-6 py-8 text-center text-gray-500">No profiles found.</div>
+            )}
+            {[...profiles].sort((a, b) => (teacherTicketCounts[b.id] || 0) - (teacherTicketCounts[a.id] || 0)).map(p => {
+              const count = teacherTicketCounts[p.id] || 0;
+              const isCurrentUser = p.id === effectiveUid;
+              const linkedCount = profiles.filter(x => x.linkedTo === p.id).length;
+              return (
+                <div key={p.id} className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${count === 0 ? 'bg-gray-100 text-gray-400' : 'bg-green-100 text-green-700'}`}>
+                      {p.name?.charAt(0)?.toUpperCase() || '?'}
+                    </div>
+                    <div>
+                      <div className="font-medium text-gray-900 flex items-center gap-2">
+                        {p.name}
+                        {isCurrentUser && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">You</span>}
+                        {p.linkedTo && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Linked device</span>}
+                      </div>
+                      <div className="text-xs text-gray-500 capitalize">{p.role}{linkedCount > 0 ? ` · ${linkedCount} linked device${linkedCount > 1 ? 's' : ''}` : ''}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-sm font-medium ${count === 0 ? 'text-gray-400' : 'text-green-700'}`}>{count} ticket{count !== 1 ? 's' : ''}</span>
+                    {!isCurrentUser && count === 0 && !p.linkedTo && (
+                      confirmDeleteProfile?.id === p.id ? (
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => handleDeleteProfile(p)} disabled={isDeletingProfile} className="text-xs bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg transition">
+                            {isDeletingProfile ? 'Deleting…' : 'Confirm'}
+                          </button>
+                          <button onClick={() => setConfirmDeleteProfile(null)} className="text-xs bg-white border hover:bg-gray-50 text-gray-700 font-bold px-3 py-1.5 rounded-lg transition">
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setConfirmDeleteProfile(p)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       ) : (
         <div className="bg-white p-6 rounded-xl shadow-sm border max-w-3xl">
           <h2 className="text-xl font-bold mb-2">Central Roster Import</h2>
