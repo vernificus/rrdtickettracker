@@ -1061,25 +1061,28 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   }, [profiles, tickets]);
 
   const unusedProfiles = useMemo(() =>
-    profiles.filter(p => (teacherTicketCounts[p.id] || 0) === 0 && p.id !== effectiveUid),
+    profiles.filter(p => p.name && !p.linkedTo && (teacherTicketCounts[p.id] || 0) === 0 && p.id !== effectiveUid),
   [profiles, teacherTicketCounts, effectiveUid]);
 
   const handleDeleteProfile = async (profileToDelete) => {
     setIsDeletingProfile(true);
     try {
-      // Also unlink any devices linked to this profile
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', profileToDelete.id));
+      // Best-effort cleanup of linked device docs — failures are non-fatal
       const linkedDevices = profiles.filter(p => p.linkedTo === profileToDelete.id);
-      const batch = writeBatch(db);
-      batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'users', profileToDelete.id));
-      linkedDevices.forEach(d => {
-        batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'users', d.id));
-      });
-      await batch.commit();
+      await Promise.allSettled(linkedDevices.map(d =>
+        deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', d.id))
+      ));
       showToast(`Deleted profile for ${profileToDelete.name}.`);
       setConfirmDeleteProfile(null);
     } catch (e) {
       console.error("Error deleting profile:", e);
-      showToast("Error deleting profile.");
+      const code = e?.code || '';
+      if (code === 'permission-denied') {
+        showToast("Permission denied. Check Firestore rules allow admin to delete user docs.");
+      } else {
+        showToast(`Error deleting profile (${code || 'unknown'}).`);
+      }
     }
     setIsDeletingProfile(false);
   };
@@ -1304,7 +1307,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             {profiles.length === 0 && (
               <div className="px-6 py-8 text-center text-gray-500">No profiles found.</div>
             )}
-            {[...profiles].sort((a, b) => (teacherTicketCounts[b.id] || 0) - (teacherTicketCounts[a.id] || 0)).map(p => {
+            {[...profiles].filter(p => p.name && !p.linkedTo).sort((a, b) => (teacherTicketCounts[b.id] || 0) - (teacherTicketCounts[a.id] || 0)).map(p => {
               const count = teacherTicketCounts[p.id] || 0;
               const isCurrentUser = p.id === effectiveUid;
               const linkedCount = profiles.filter(x => x.linkedTo === p.id).length;
