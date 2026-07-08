@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download, LogOut,
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
-  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock
+  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus
 } from 'lucide-react';
 
 const API_URL = import.meta.env.DEV ? 'http://localhost:8080' : '';
@@ -38,14 +38,21 @@ const api = {
 const db = {}; // dummy
 
 const collection = (db, ...paths) => {
-  return paths[paths.length - 1];
+  return { type: 'collection', path: paths[paths.length - 1] };
 };
 
-const doc = (db, ...paths) => {
-  if (paths.length === 2 && typeof paths[0] === 'string') {
+const doc = (dbOrColl, ...paths) => {
+  if (dbOrColl && dbOrColl.type === 'collection') {
+    const id = paths[0] || Math.random().toString(36).substring(2);
+    return { collection: dbOrColl.path, id };
+  }
+  const isDocReference = paths.length === 2 && typeof paths[0] === 'string';
+  if (isDocReference) {
     return { collection: paths[0], id: paths[1] };
   }
-  return { collection: paths[paths.length - 2], id: paths[paths.length - 1] };
+  const collectionName = paths.length >= 2 ? paths[paths.length - 2] : dbOrColl;
+  const id = paths.length >= 1 ? paths[paths.length - 1] : Math.random().toString(36).substring(2);
+  return { collection: collectionName, id };
 };
 
 const addDoc = async (collName, data) => {
@@ -164,6 +171,9 @@ export default function App() {
   const [students, setStudents] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [goldenTickets, setGoldenTickets] = useState([]);
+  const [spending, setSpending] = useState([]);
+  const [classGoals, setClassGoals] = useState([]);
+  const [gradeGoals, setGradeGoals] = useState([]);
   const [balances, setBalances] = useState({});
 
   // Student Data State
@@ -205,6 +215,9 @@ export default function App() {
           setStudents(data.students || []);
           setTickets((data.tickets || []).map(formatTicket));
           setGoldenTickets((data.goldenTickets || []).map(formatTicket));
+          setSpending(data.spending || []);
+          setClassGoals(data.classGoals || []);
+          setGradeGoals(data.gradeGoals || []);
           setBalances(data.balances || {});
         }
       } catch (e) {
@@ -261,13 +274,13 @@ export default function App() {
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} />
+          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} />
         )}
         {role === 'homeroom' && (
-          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} />
+          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} />
         )}
         {role === 'specialist' && (
-          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} />
+          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} />
         )}
       </main>
 
@@ -417,37 +430,169 @@ function StudentSearch({ students, onSelect }) {
 }
 
 // --- Student Ticket Card (Inline ticket giving) ---
-function StudentTicketCard({ student, tickets: ticketList, onGiveTicket, isSubmitting, submittingFor }) {
-  const rc = getStudentReasonCounts(student, ticketList);
-  const noRecent = !hasRecentTicket(student, ticketList);
-  const total = rc.Respectful + rc.Responsible + rc.Determined;
+function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor, balances, onSpend }) {
+  const bal = balances[student] || { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
+  const spendable = Math.max(0, bal.earned - bal.spent);
+  const earned = bal.earned;
   const isBusy = isSubmitting && submittingFor === student;
 
   return (
-    <div className={`p-3 rounded-xl shadow-sm border flex flex-col justify-between h-44 ${noRecent ? 'bg-red-50 border-red-300' : 'bg-white border-gray-200'}`}>
-      <div className="flex items-start justify-between w-full mb-1">
-        <span className={`font-bold leading-tight text-sm ${noRecent ? 'text-red-800' : 'text-gray-800'}`}>{student}</span>
-        {noRecent && <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 ml-1" />}
+    <div className="bg-white rounded-3xl p-5 border border-gray-150 shadow-sm flex flex-col justify-between space-y-4 hover:shadow-md transition duration-200">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <span className="font-display font-black text-navy-950 text-lg leading-tight truncate">{student}</span>
+        <Users className="w-5 h-5 text-gray-400" />
       </div>
-      <div className="flex items-center justify-between text-xs mb-2">
-        <span className="bg-blue-100 text-blue-700 font-bold px-1.5 py-0.5 rounded">R {rc.Respectful}</span>
-        <span className="bg-amber-100 text-amber-700 font-bold px-1.5 py-0.5 rounded">S {rc.Responsible}</span>
-        <span className="bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded">D {rc.Determined}</span>
-        <span className={`py-0.5 px-2 rounded-full font-black text-xs ${noRecent ? 'bg-red-100 text-red-700' : 'bg-green-50 text-green-700'}`}>{total}</span>
+
+      {/* Middle Stats Pill Container */}
+      <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl flex items-center justify-between gap-2">
+        {/* Spendable Group */}
+        <div className="text-center">
+          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Spendable</div>
+          <div className="w-10 h-10 bg-brand-700 text-white rounded-full flex items-center justify-center font-black text-lg shadow-inner">
+            {spendable}
+          </div>
+        </div>
+
+        {/* Spend Action Button */}
+        <button
+          onClick={() => onSpend(student, spendable)}
+          disabled={spendable < 1}
+          className="bg-brand-50 hover:bg-brand-100 border border-brand-200 text-brand-700 font-bold px-3 py-1.5 rounded-xl text-xs transition disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Spend
+        </button>
+
+        {/* Category Breakdown Group */}
+        <div className="text-center text-navy-950">
+          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Earned {earned}</div>
+          <div className="flex items-center gap-1">
+            <div className="flex flex-col items-center bg-blue-50 border border-blue-100 text-blue-700 px-1.5 py-0.5 rounded-lg">
+              <span className="text-[10px] font-bold">R</span>
+              <span className="text-xs font-black">{bal.Respectful || 0}</span>
+            </div>
+            <div className="flex flex-col items-center bg-amber-50 border border-amber-100 text-amber-700 px-1.5 py-0.5 rounded-lg">
+              <span className="text-[10px] font-bold">S</span>
+              <span className="text-xs font-black">{bal.Responsible || 0}</span>
+            </div>
+            <div className="flex flex-col items-center bg-purple-50 border border-purple-100 text-purple-700 px-1.5 py-0.5 rounded-lg">
+              <span className="text-[10px] font-bold">D</span>
+              <span className="text-xs font-black">{bal.Determined || 0}</span>
+            </div>
+          </div>
+        </div>
       </div>
-      <div className="flex flex-col gap-1">
-        <button disabled={isBusy} onClick={() => onGiveTicket(student, 'Respectful')}
-          className="w-full py-1.5 bg-blue-50 hover:bg-blue-200 text-blue-700 rounded-lg font-bold text-xs border border-blue-200 hover:border-blue-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
-          {isBusy ? '...' : 'Respectful'}
+
+      {/* Roster Give Tickets Buttons */}
+      <div className="flex flex-col gap-1.5">
+        <button
+          disabled={isBusy}
+          onClick={() => onGiveTicket(student, 'Respectful')}
+          className="w-full py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-xl font-bold text-xs transition disabled:opacity-50"
+        >
+          {isBusy ? '...' : 'Respectful Ticket'}
         </button>
-        <button disabled={isBusy} onClick={() => onGiveTicket(student, 'Responsible')}
-          className="w-full py-1.5 bg-amber-50 hover:bg-amber-200 text-amber-700 rounded-lg font-bold text-xs border border-amber-200 hover:border-amber-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
-          {isBusy ? '...' : 'Responsible'}
+        <button
+          disabled={isBusy}
+          onClick={() => onGiveTicket(student, 'Responsible')}
+          className="w-full py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl font-bold text-xs transition disabled:opacity-50"
+        >
+          {isBusy ? '...' : 'Responsible Ticket'}
         </button>
-        <button disabled={isBusy} onClick={() => onGiveTicket(student, 'Determined')}
-          className="w-full py-1.5 bg-purple-50 hover:bg-purple-200 text-purple-700 rounded-lg font-bold text-xs border border-purple-200 hover:border-purple-400 transition disabled:opacity-50 disabled:cursor-not-allowed">
-          {isBusy ? '...' : 'Determined'}
+        <button
+          disabled={isBusy}
+          onClick={() => onGiveTicket(student, 'Determined')}
+          className="w-full py-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 rounded-xl font-bold text-xs transition disabled:opacity-50"
+        >
+          {isBusy ? '...' : 'Determined Ticket'}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// --- Spend Points Modal ---
+function SpendPointsModal({ student, spendable, onClose, showToast }) {
+  const [amount, setAmount] = useState(1);
+  const [item, setItem] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (amount < 1 || amount > spendable) {
+      showToast(`Invalid amount. Student only has ${spendable} spendable tickets.`);
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'spending'), {
+        recipient: student,
+        amount: Number(amount),
+        item: item.trim() || 'Class Store Reward',
+        timestamp: serverTimestamp()
+      });
+      showToast(`Successfully redeemed ${amount} tickets for ${student}!`);
+      onClose();
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast("Error redeeming tickets.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-100 shadow-xl space-y-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <h3 className="font-display font-black text-navy-950 text-base">Redeem Tickets for {student}</h3>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-700">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label htmlFor="spend-amount" className="block text-xs font-bold text-gray-500 mb-1">Tickets to Deduct (Spendable: {spendable})</label>
+            <input
+              id="spend-amount"
+              type="number"
+              min="1"
+              max={spendable}
+              required
+              value={amount}
+              onChange={e => setAmount(Number(e.target.value))}
+              className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none text-navy-950"
+            />
+          </div>
+          <div>
+            <label htmlFor="spend-item" className="block text-xs font-bold text-gray-500 mb-1">Reward Item / Reason</label>
+            <input
+              id="spend-item"
+              type="text"
+              placeholder="e.g. Sit at teacher's desk"
+              value={item}
+              onChange={e => setItem(e.target.value)}
+              className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none text-navy-950"
+            />
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || spendable < 1}
+              className="px-4 py-2 border rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50"
+            >
+              {isSubmitting ? 'Processing...' : 'Confirm Spend'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -558,7 +703,7 @@ function Login({ onLoginSuccess, showToast }) {
         <div className="text-center">
           <div className="flex justify-center">
             <div className="bg-brand-100 p-3 rounded-2xl">
-              <Ticket className="w-10 h-10 text-brand-600 animate-pulse" />
+              <Ticket className="w-10 h-10 text-brand-600 animate-pulse" aria-hidden="true" />
             </div>
           </div>
           <h2 className="mt-4 text-3xl font-extrabold text-navy-900 font-display">Roadrunner Tracker</h2>
@@ -566,14 +711,18 @@ function Login({ onLoginSuccess, showToast }) {
         </div>
 
         {/* Tab Toggle */}
-        <div className="flex bg-gray-100 p-1 rounded-xl">
+        <div role="tablist" className="flex bg-gray-100 p-1 rounded-xl">
           <button
+            role="tab"
+            aria-selected={activeTab === 'student'}
             onClick={() => { setActiveTab('student'); setError(''); }}
             className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'student' ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 hover:text-navy-900'}`}
           >
             Student Portal
           </button>
           <button
+            role="tab"
+            aria-selected={activeTab === 'teacher'}
             onClick={() => { setActiveTab('teacher'); setError(''); }}
             className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'teacher' ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 hover:text-navy-900'}`}
           >
@@ -582,10 +731,10 @@ function Login({ onLoginSuccess, showToast }) {
         </div>
 
         {error && (
-          <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-md">
+          <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-md" role="alert">
             <div className="flex">
               <div className="flex-shrink-0">
-                <AlertTriangle className="h-5 w-5 text-red-400" />
+                <AlertTriangle className="h-5 w-5 text-red-400" aria-hidden="true" />
               </div>
               <div className="ml-3">
                 <p className="text-sm text-red-700">{error}</p>
@@ -597,8 +746,9 @@ function Login({ onLoginSuccess, showToast }) {
         {activeTab === 'student' ? (
           <form className="mt-6 space-y-4" onSubmit={handleStudentSubmit}>
             <div>
-              <label className="block text-sm font-bold text-gray-700">Student ID</label>
+              <label htmlFor="student-id" className="block text-sm font-bold text-gray-700">Student ID</label>
               <input
+                id="student-id"
                 type="text"
                 required
                 value={studentId}
@@ -608,8 +758,9 @@ function Login({ onLoginSuccess, showToast }) {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700">4-Digit PIN</label>
+              <label htmlFor="student-pin" className="block text-sm font-bold text-gray-700">4-Digit PIN</label>
               <input
+                id="student-pin"
                 type="password"
                 maxLength={4}
                 required
@@ -632,8 +783,9 @@ function Login({ onLoginSuccess, showToast }) {
             {isRegistering && (
               <>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700">Full Name</label>
+                  <label htmlFor="teacher-name" className="block text-sm font-bold text-gray-700">Full Name</label>
                   <input
+                    id="teacher-name"
                     type="text"
                     required
                     value={name}
@@ -643,8 +795,9 @@ function Login({ onLoginSuccess, showToast }) {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700">Role</label>
+                  <label htmlFor="teacher-role" className="block text-sm font-bold text-gray-700">Role</label>
                   <select
+                    id="teacher-role"
                     value={role}
                     onChange={e => setRole(e.target.value)}
                     className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition bg-white"
@@ -657,8 +810,9 @@ function Login({ onLoginSuccess, showToast }) {
               </>
             )}
             <div>
-              <label className="block text-sm font-bold text-gray-700">Email Address</label>
+              <label htmlFor="teacher-email" className="block text-sm font-bold text-gray-700">Email Address</label>
               <input
+                id="teacher-email"
                 type="email"
                 required
                 value={email}
@@ -668,8 +822,9 @@ function Login({ onLoginSuccess, showToast }) {
               />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700">Password</label>
+              <label htmlFor="teacher-password" className="block text-sm font-bold text-gray-700">Password</label>
               <input
+                id="teacher-password"
                 type="password"
                 required
                 value={password}
@@ -719,20 +874,21 @@ function StudentDashboard({ studentData, onSignOut }) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-800">
-      <nav className="bg-brand-700 text-white shadow-md">
+      <nav className="bg-brand-700 text-white shadow-md" aria-label="Main Navigation">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-3">
-              <Ticket className="w-8 h-8 text-brand-200" />
+              <Ticket className="w-8 h-8 text-brand-200" aria-hidden="true" />
               <span className="font-display font-bold text-xl tracking-tight">Roadrunner Student Portal</span>
             </div>
             <div className="flex items-center gap-4">
               <span className="text-sm font-semibold text-brand-100 hidden sm:inline">Hello, {profile.name}</span>
               <button
                 onClick={onSignOut}
+                aria-label="Sign Out"
                 className="flex items-center gap-1 bg-brand-800 hover:bg-brand-900 px-3 py-1.5 rounded-lg text-xs font-bold transition"
               >
-                <LogOut className="w-4 h-4" />
+                <LogOut className="w-4 h-4" aria-hidden="true" />
                 <span>Sign Out</span>
               </button>
             </div>
@@ -748,7 +904,7 @@ function StudentDashboard({ studentData, onSignOut }) {
           </div>
           <div className="bg-brand-50 border border-brand-100 px-6 py-4 rounded-xl flex items-center gap-4">
             <div className="bg-brand-600 p-2.5 rounded-xl text-white">
-              <Award className="w-6 h-6" />
+              <Award className="w-6 h-6" aria-hidden="true" />
             </div>
             <div>
               <div className="text-xs text-brand-700 font-bold uppercase tracking-wider">Spendable Balance</div>
@@ -761,7 +917,7 @@ function StudentDashboard({ studentData, onSignOut }) {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-display font-bold text-navy-950 text-lg flex items-center gap-2">
-                <Users className="w-5 h-5 text-blue-500" />
+                <Users className="w-5 h-5 text-blue-500" aria-hidden="true" />
                 <span>Class Reward Goal</span>
               </h2>
               {classGoal && <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">{classProgress}% Complete</span>}
@@ -773,7 +929,14 @@ function StudentDashboard({ studentData, onSignOut }) {
                   <span>Class Tickets: {classTicketsEarned}</span>
                   <span>Goal: {classGoal.goalTickets}</span>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-3.5 overflow-hidden">
+                <div 
+                  role="progressbar" 
+                  aria-valuenow={classProgress} 
+                  aria-valuemin="0" 
+                  aria-valuemax="100" 
+                  aria-label="Class reward goal progress"
+                  className="w-full bg-gray-100 rounded-full h-3.5 overflow-hidden"
+                >
                   <div className="bg-blue-500 h-full rounded-full transition-all duration-500" style={{ width: `${classProgress}%` }} />
                 </div>
               </div>
@@ -785,7 +948,7 @@ function StudentDashboard({ studentData, onSignOut }) {
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-display font-bold text-navy-950 text-lg flex items-center gap-2">
-                <Crown className="w-5 h-5 text-amber-500" />
+                <Crown className="w-5 h-5 text-amber-500" aria-hidden="true" />
                 <span>Grade Golden Ticket Goal</span>
               </h2>
               {gradeGoal && <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full">{gradeProgress}% Complete</span>}
@@ -797,7 +960,14 @@ function StudentDashboard({ studentData, onSignOut }) {
                   <span>Grade Golden Tickets: {gradeGoldenEarned}</span>
                   <span>Goal: {gradeGoal.goalGolden}</span>
                 </div>
-                <div className="w-full bg-gray-100 rounded-full h-3.5 overflow-hidden">
+                <div 
+                  role="progressbar" 
+                  aria-valuenow={gradeProgress} 
+                  aria-valuemin="0" 
+                  aria-valuemax="100" 
+                  aria-label="Grade golden ticket goal progress"
+                  className="w-full bg-gray-100 rounded-full h-3.5 overflow-hidden"
+                >
                   <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: `${gradeProgress}%` }} />
                 </div>
               </div>
@@ -831,7 +1001,7 @@ function StudentDashboard({ studentData, onSignOut }) {
               recentActivity.map(act => (
                 <div key={act.key} className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition">
                   <div className="flex items-center gap-3">
-                    <span className={`w-2.5 h-2.5 rounded-full ${act.type === 'earned' ? (act.reason === 'Respectful' ? 'bg-blue-500' : act.reason === 'Responsible' ? 'bg-amber-500' : 'bg-purple-500') : 'bg-red-500'}`} />
+                    <span className={`w-2.5 h-2.5 rounded-full ${act.type === 'earned' ? (act.reason === 'Respectful' ? 'bg-blue-500' : act.reason === 'Responsible' ? 'bg-amber-500' : 'bg-purple-500') : 'bg-red-500'}`} aria-hidden="true" />
                     <div>
                       <div className="font-semibold text-gray-900 text-sm">
                         {act.type === 'earned' ? `Earned ticket for being ${act.reason}` : `Redeemed points for ${act.item || 'Item'}`}
@@ -857,8 +1027,55 @@ function StudentDashboard({ studentData, onSignOut }) {
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances }) {
   const [modalData, setModalData] = useState(null);
+  const [isDisplayMode, setIsDisplayMode] = useState(false);
+  const [awardDate, setAwardDate] = useState('today'); // 'today', 'yesterday', 'other'
+  const [customDate, setCustomDate] = useState(''); // specific date picker value
+  const [showGoalSettings, setShowGoalSettings] = useState(false);
+  const [goalTarget, setGoalTarget] = useState(50);
+  const [rewardText, setRewardText] = useState('Pajama Party');
+
+  // Add individual student state
+  const [showAddStudent, setShowAddStudent] = useState(false);
+  const [newStudentName, setNewStudentName] = useState('');
+  const [newStudentGrade, setNewStudentGrade] = useState(profile?.grade || '');
+
+  // Spend points & display mode states
+  const [spendData, setSpendData] = useState(null);
+  const [hideBalances, setHideBalances] = useState(false);
+  const [activeDisplayStudent, setActiveDisplayStudent] = useState(null);
+
+  useEffect(() => {
+    if (profile?.grade) {
+      setNewStudentGrade(profile.grade);
+    }
+  }, [profile]);
+
+  const handleCreateStudent = async (e) => {
+    e.preventDefault();
+    if (!newStudentName.trim() || !newStudentGrade.trim()) {
+      showToast("Name and Grade are required.");
+      return;
+    }
+    try {
+      await api.fetch('/api/students', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newStudentName.trim(),
+          homeroom: profile.name,
+          grade: newStudentGrade.trim()
+        })
+      });
+      showToast(`Student ${newStudentName} added successfully to your class!`);
+      setNewStudentName('');
+      setShowAddStudent(false);
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to add student.");
+    }
+  };
 
   const myStudents = useMemo(() => {
     const central = students.filter(s => s.homeroom === profile.name).map(s => s.name);
@@ -866,13 +1083,49 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     return [...new Set([...central, ...custom])].sort();
   }, [students, profile]);
 
-  const myTickets = tickets.filter(t => myUids.has(t.teacherId));
+  const myTickets = useMemo(() => {
+    return tickets.filter(t => myUids.has(t.teacherEmail));
+  }, [tickets, myUids]);
+
   const ticketCounts = {};
   myStudents.forEach(s => ticketCounts[s] = 0);
   myTickets.forEach(t => { if (ticketCounts[t.recipient] !== undefined) ticketCounts[t.recipient]++; });
 
+  // Calculate Class Goal
+  const currentGoal = useMemo(() => {
+    return classGoals.find(g => g.className === profile.name);
+  }, [classGoals, profile.name]);
+
+  useEffect(() => {
+    if (currentGoal) {
+      setGoalTarget(currentGoal.goalTickets || 50);
+      setRewardText(currentGoal.rewardText || 'Pajama Party');
+    }
+  }, [currentGoal]);
+
+  const classTicketsEarned = myTickets.length;
+  const goalProgress = Math.min(100, Math.round((classTicketsEarned / goalTarget) * 100));
+
+  // Calculate Tickets Spent
+  const classStudentsSet = useMemo(() => new Set(myStudents), [myStudents]);
+  const totalSpent = useMemo(() => {
+    return spending
+      .filter(s => classStudentsSet.has(s.recipient))
+      .reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  }, [spending, classStudentsSet]);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingFor, setSubmittingFor] = useState(null);
+
+  const resolveSelectedDate = () => {
+    if (awardDate === 'today') return new Date().toISOString().split('T')[0];
+    if (awardDate === 'yesterday') {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      return yesterday.toISOString().split('T')[0];
+    }
+    return customDate || new Date().toISOString().split('T')[0];
+  };
 
   const handleGiveTicketDirect = async (recipient, reason) => {
     if (!effectiveUid || !profile) {
@@ -882,17 +1135,15 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     setIsSubmitting(true);
     setSubmittingFor(recipient);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+      await addDoc(collection(db, 'tickets'), {
         teacherId: user.uid, teacherName: profile.name,
-        recipient, recipientType: 'student', reason, timestamp: serverTimestamp()
+        recipient, recipientType: 'student', reason, timestamp: serverTimestamp(),
+        customDate: resolveSelectedDate()
       });
       showToast(`${reason} ticket awarded to ${recipient}!`);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      const code = e?.code || '';
-      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
-      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
-      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      showToast(`Error saving ticket. Please try again.`);
     } finally {
       setIsSubmitting(false);
       setSubmittingFor(null);
@@ -908,18 +1159,16 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+      await addDoc(collection(db, 'tickets'), {
         teacherId: user.uid, teacherName: profile.name,
-        recipient, recipientType: type, reason, timestamp: serverTimestamp()
+        recipient, recipientType: type, reason, timestamp: serverTimestamp(),
+        customDate: resolveSelectedDate()
       });
       showToast(`Ticket awarded to ${recipient}!`);
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      const code = e?.code || '';
-      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
-      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
-      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      showToast(`Error saving ticket. Please try again.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -927,7 +1176,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 
   const handleRemoveTicket = async (ticketId, recipient) => {
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
+      await deleteDoc(doc(db, 'tickets', ticketId));
       showToast(`Removed ticket from ${recipient}.`);
     } catch (e) {
       console.error("Error removing ticket:", e);
@@ -941,7 +1190,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
       return;
     }
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
+      await addDoc(collection(db, 'goldenTickets'), {
         teacherId: user.uid, teacherName: profile.name,
         className: profile.name, timestamp: serverTimestamp()
       });
@@ -952,24 +1201,347 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
   };
 
+  const handleSaveClassGoal = async (e) => {
+    e.preventDefault();
+    try {
+      await api.fetch('/api/class-goals', {
+        method: 'POST',
+        body: JSON.stringify({
+          className: profile.name,
+          goalTickets: Number(goalTarget),
+          rewardText
+        })
+      });
+      showToast("Class goal updated successfully!");
+      setShowGoalSettings(false);
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error("Error saving class goal:", err);
+      showToast("Failed to save class goal.");
+    }
+  };
+
   const myClassGolden = goldenTickets.filter(g => g.className === profile.name).length;
+
+  if (isDisplayMode) {
+    // Find highest earner for crown calculation
+    let maxTickets = 0;
+    let topEarner = '';
+    myStudents.forEach(student => {
+      const bal = balances[student] || { earned: 0 };
+      if (bal.earned > maxTickets) {
+        maxTickets = bal.earned;
+        topEarner = student;
+      }
+    });
+
+    return (
+      <div className="min-h-screen bg-[#0b3c29] text-white flex flex-col font-sans rounded-3xl shadow-xl overflow-hidden pb-8">
+        {/* Display Mode Header Banner */}
+        <header className="bg-[#05281a] border-b border-[#0f4630] p-6 flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-extrabold tracking-tight font-display text-white">
+              {profile.name}&apos;s Roadrunners
+            </h1>
+            <p className="text-[#a3d9c1] text-xs mt-1">Tap a student to award a ticket!</p>
+          </div>
+          <div className="flex items-center gap-3">
+            {/* Total Class Tickets count badge */}
+            <div className="bg-[#eab308] text-[#1c1917] font-black px-4 py-2 rounded-2xl flex items-center gap-1.5 shadow-sm text-sm">
+              <Star className="w-4 h-4 fill-[#1c1917] text-[#1c1917]" />
+              <span>{classTicketsEarned}</span>
+            </div>
+            
+            <button
+              onClick={() => setHideBalances(!hideBalances)}
+              className="flex items-center gap-2 border border-white/20 hover:bg-white/10 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition"
+            >
+              {hideBalances ? 'Show Balances' : 'Hide Balances'}
+            </button>
+
+            <button
+              onClick={() => setIsDisplayMode(false)}
+              className="flex items-center gap-2 border border-white/20 hover:bg-white/10 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition"
+            >
+              <X className="w-4 h-4" />
+              Exit
+            </button>
+          </div>
+        </header>
+
+        {/* Class Goal Card */}
+        <div className="max-w-7xl mx-auto w-full px-6 pt-6">
+          <div className="bg-white border border-gray-150 p-5 rounded-2xl shadow-md flex flex-col md:flex-row items-center gap-4 justify-between text-navy-950">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center text-brand-700">
+                <Star className="w-6 h-6 fill-current" />
+              </div>
+              <div>
+                <h3 className="font-display font-black text-brand-800 text-lg">Class Goal: {rewardText}</h3>
+                <p className="text-xs text-brand-700 font-bold uppercase tracking-wider mt-0.5">
+                  {goalProgress}% OF THE WAY THERE — KEEP EARNING, ROADRUNNERS!
+                </p>
+              </div>
+            </div>
+            <div className="text-right font-display font-black text-brand-800 text-2xl">
+              {classTicketsEarned} / {goalTarget}
+            </div>
+          </div>
+          {/* Progress bar container */}
+          <div className="mt-4 bg-white border border-gray-150 p-2.5 rounded-2xl shadow-md">
+            <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden flex items-center p-0.5">
+              <div className="bg-brand-500 h-full rounded-full transition-all duration-500" style={{ width: `${goalProgress}%` }} />
+            </div>
+          </div>
+        </div>
+
+        {/* Roster Grid */}
+        <div className="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 overflow-y-auto max-h-[60vh]">
+          {myStudents.map(student => {
+            const bal = balances[student] || { earned: 0, spent: 0 };
+            const spendable = Math.max(0, bal.earned - bal.spent);
+            const isTop = student === topEarner && maxTickets > 0;
+            return (
+              <button
+                key={student}
+                onClick={() => setActiveDisplayStudent(student)}
+                className="bg-white border border-gray-150 p-6 rounded-3xl shadow-md hover:shadow-lg transition duration-200 relative flex flex-col items-center justify-center space-y-3 cursor-pointer group"
+              >
+                {/* Crown Icon for top earner */}
+                {isTop && (
+                  <div className="absolute top-4 left-4 bg-yellow-400 text-amber-950 p-1.5 rounded-xl shadow-sm">
+                    <Crown className="w-4 h-4 fill-current" />
+                  </div>
+                )}
+                
+                <span className="text-xl font-display font-black text-navy-950 text-center truncate w-full group-hover:text-brand-600 transition">
+                  {student}
+                </span>
+
+                {/* Big Green Circle */}
+                <div className="w-20 h-20 bg-brand-700 text-white rounded-full flex items-center justify-center font-black text-3xl shadow-inner border-4 border-brand-100 transition-transform group-hover:scale-105">
+                  {hideBalances ? '?' : spendable}
+                </div>
+
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Tickets to Spend
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Display Mode Award Modal */}
+        {activeDisplayStudent && (
+          <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+            <div className="bg-white rounded-3xl p-8 max-w-md w-full border border-gray-100 shadow-2xl flex flex-col items-center space-y-6">
+              <div className="text-center">
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  AWARD A GREEN TICKET TO
+                </span>
+                <h2 className="text-4xl font-display font-black text-navy-950">
+                  {activeDisplayStudent}
+                </h2>
+              </div>
+
+              <div className="w-full flex flex-col gap-3">
+                <button
+                  disabled={isSubmitting}
+                  onClick={async () => {
+                    await handleGiveTicketDirect(activeDisplayStudent, 'Respectful');
+                    setActiveDisplayStudent(null);
+                  }}
+                  className="w-full py-4 border border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 text-xl font-bold rounded-2xl transition disabled:opacity-50"
+                >
+                  Respectful
+                </button>
+                <button
+                  disabled={isSubmitting}
+                  onClick={async () => {
+                    await handleGiveTicketDirect(activeDisplayStudent, 'Responsible');
+                    setActiveDisplayStudent(null);
+                  }}
+                  className="w-full py-4 border border-amber-200 text-amber-700 bg-amber-50/50 hover:bg-amber-50 text-xl font-bold rounded-2xl transition disabled:opacity-50"
+                >
+                  Responsible
+                </button>
+                <button
+                  disabled={isSubmitting}
+                  onClick={async () => {
+                    await handleGiveTicketDirect(activeDisplayStudent, 'Determined');
+                    setActiveDisplayStudent(null);
+                  }}
+                  className="w-full py-4 border border-purple-200 text-purple-700 bg-purple-50/50 hover:bg-purple-50 text-xl font-bold rounded-2xl transition disabled:opacity-50"
+                >
+                  Determined
+                </button>
+              </div>
+
+              <button
+                onClick={() => setActiveDisplayStudent(null)}
+                className="text-gray-400 hover:text-gray-750 font-bold text-sm pt-2"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-end">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">My Class Roster</h1>
-          <p className="text-gray-500">Select a student to award a ticket.</p>
+      {/* Metrics & Mode Controls Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
+        {/* Award Date Group */}
+        <div className="space-y-1.5 w-full md:w-auto">
+          <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block flex items-center gap-1">
+            <Star className="w-3.5 h-3.5 text-gray-400" />
+            <span>Award Date</span>
+          </label>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setAwardDate('today')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold border transition ${awardDate === 'today' ? 'bg-amber-500 border-amber-600 text-white shadow-sm' : 'bg-gray-50 hover:bg-gray-100 text-gray-700'}`}
+            >
+              Today
+            </button>
+            <button
+              onClick={() => setAwardDate('yesterday')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold border transition ${awardDate === 'yesterday' ? 'bg-amber-500 border-amber-600 text-white shadow-sm' : 'bg-gray-50 hover:bg-gray-100 text-gray-700'}`}
+            >
+              Yesterday
+            </button>
+            <button
+              onClick={() => setAwardDate('other')}
+              className={`px-4 py-2 rounded-xl text-sm font-bold border transition flex items-center gap-1.5 ${awardDate === 'other' ? 'bg-amber-500 border-amber-600 text-white shadow-sm' : 'bg-gray-50 hover:bg-gray-100 text-gray-700'}`}
+            >
+              <Star className="w-4 h-4" />
+              <span>Other</span>
+            </button>
+            {awardDate === 'other' && (
+              <input
+                type="date"
+                value={customDate}
+                onChange={e => setCustomDate(e.target.value)}
+                className="p-1.5 border border-gray-300 rounded-lg text-sm focus:ring-amber-500 focus:border-amber-500 outline-none"
+              />
+            )}
+          </div>
         </div>
-        <div className="text-right">
-          <div className="text-sm text-gray-500 font-medium">Tickets Given</div>
-          <div className="text-3xl font-black text-green-600">{myTickets.length}</div>
+
+        {/* Display Mode Button */}
+        <div className="flex items-center gap-3 w-full md:w-auto justify-end">
+          <button
+            onClick={() => setIsDisplayMode(true)}
+            className="flex items-center gap-2 bg-brand-700 hover:bg-brand-800 text-white font-bold py-2.5 px-5 rounded-xl shadow-sm border border-brand-850 transition"
+          >
+            <Shield className="w-5 h-5 text-brand-200" />
+            <span>Display Mode</span>
+          </button>
+
+          {/* Metrics Column */}
+          <div className="bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl text-center">
+            <div className="text-xxs font-bold text-gray-400 uppercase tracking-wider">Tickets Given</div>
+            <div className="text-xl font-black text-brand-600">{myTickets.length}</div>
+          </div>
+
+          <div className="bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl text-center">
+            <div className="text-xxs font-bold text-gray-400 uppercase tracking-wider">Tickets Spent</div>
+            <div className="text-xl font-black text-red-600">{totalSpent}</div>
+          </div>
         </div>
+      </div>
+
+      {/* Class Ticket Goal progress card */}
+      <div className="bg-white border border-gray-150 p-6 rounded-2xl shadow-sm space-y-4">
+        <div className="flex justify-between items-center">
+          <h2 className="font-display font-black text-navy-950 text-base flex items-center gap-2">
+            <Star className="w-5 h-5 text-brand-500" />
+            <span>MY CLASS TICKET GOAL</span>
+          </h2>
+          <button
+            onClick={() => setShowGoalSettings(!showGoalSettings)}
+            aria-label="Class Goal Settings"
+            className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-gray-700 hover:bg-gray-50 transition"
+          >
+            <Shield className="w-4 h-4" />
+          </button>
+        </div>
+
+        {showGoalSettings ? (
+          <form onSubmit={handleSaveClassGoal} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="goal-target" className="block text-xs font-bold text-gray-600 mb-1">Goal Target (Tickets)</label>
+                <input
+                  id="goal-target"
+                  type="number"
+                  required
+                  value={goalTarget}
+                  onChange={e => setGoalTarget(Number(e.target.value))}
+                  className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="reward-text" className="block text-xs font-bold text-gray-600 mb-1">Reward Description</label>
+                <input
+                  id="reward-text"
+                  type="text"
+                  required
+                  value={rewardText}
+                  onChange={e => setRewardText(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-lg text-sm"
+                  placeholder="e.g. Pajama Party"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                type="button"
+                onClick={() => setShowGoalSettings(false)}
+                className="px-3 py-1.5 border rounded-lg text-xs font-bold text-gray-600 bg-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                className="px-3 py-1.5 border rounded-lg text-xs font-bold text-white bg-brand-600 hover:bg-brand-700"
+              >
+                Save Goal
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm font-bold text-navy-900">
+              <span>Goal Target: <span className="text-brand-700">{goalTarget} tickets</span></span>
+              <span>Reward: <span className="text-brand-700">{rewardText}</span></span>
+            </div>
+            <div 
+              role="progressbar" 
+              aria-valuenow={goalProgress} 
+              aria-valuemin="0" 
+              aria-valuemax="100" 
+              aria-label="Class ticket goal progress"
+              className="w-full bg-gray-100 rounded-full h-3.5 overflow-hidden flex items-center p-0.5"
+            >
+              <div className="bg-brand-500 h-full rounded-full transition-all duration-500" style={{ width: `${goalProgress}%` }} />
+            </div>
+            <div className="flex justify-between text-xxs font-bold text-gray-400">
+              <span>0 TICKETS</span>
+              <span className="text-center">{classTicketsEarned} / {goalTarget} TICKETS ({goalProgress}%)</span>
+              <span>REWARD REACHED!</span>
+            </div>
+            <p className="text-xxs text-gray-400 italic text-center mt-1">Goal progress counts lifetime tickets earned — spending tickets never lowers it.</p>
+          </div>
+        )}
       </div>
 
       <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm text-white flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <Star className="w-8 h-8 text-yellow-100" />
+          <Star className="w-8 h-8 text-yellow-100 animate-spin-slow" aria-hidden="true" />
           <div>
             <h3 className="text-lg font-bold">Golden Ticket</h3>
             <p className="text-yellow-100 text-sm">Award your class for awesome behavior! <span className="font-bold text-white">({myClassGolden} earned)</span></p>
@@ -980,6 +1552,67 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         </button>
       </div>
 
+      <div className="flex justify-between items-center flex-wrap gap-4">
+        <div>
+          <h2 className="text-2xl font-black text-navy-950 font-display">My Class Roster</h2>
+          <p className="text-sm text-gray-500 mt-1">Award tickets, run your class class store, or toggle attendance below.</p>
+        </div>
+        <button
+          onClick={() => setShowAddStudent(!showAddStudent)}
+          className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 px-4 rounded-xl shadow-sm border border-brand-700 transition text-sm"
+        >
+          <Plus className="w-4 h-4" />
+          <span>Add Student</span>
+        </button>
+      </div>
+
+      {showAddStudent && (
+        <form onSubmit={handleCreateStudent} className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm space-y-4 max-w-md">
+          <h3 className="font-bold text-navy-950 text-sm">Add Individual Student to Class</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="new-student-name" className="block text-xs font-bold text-gray-600 mb-1">Student Full Name</label>
+              <input
+                id="new-student-name"
+                type="text"
+                required
+                placeholder="e.g. Samuel Harbert"
+                value={newStudentName}
+                onChange={e => setNewStudentName(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-green-500 focus:border-green-500 outline-none"
+              />
+            </div>
+            <div>
+              <label htmlFor="new-student-grade" className="block text-xs font-bold text-gray-600 mb-1">Grade Level</label>
+              <input
+                id="new-student-grade"
+                type="text"
+                required
+                placeholder="e.g. 3rd Grade"
+                value={newStudentGrade}
+                onChange={e => setNewStudentGrade(e.target.value)}
+                className="w-full p-2 border border-gray-300 rounded-lg text-sm focus:ring-green-500 focus:border-green-500 outline-none"
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => setShowAddStudent(false)}
+              className="px-3 py-1.5 border rounded-lg text-xs font-bold text-gray-600 bg-white"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-3 py-1.5 border rounded-lg text-xs font-bold text-white bg-brand-600 hover:bg-brand-700"
+            >
+              Add Student
+            </button>
+          </div>
+        </form>
+      )}
+
       <StudentSearch students={students} onSelect={setModalData} />
 
       {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
@@ -987,26 +1620,28 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 
       {myStudents.length === 0 ? (
         <div className="bg-white p-8 rounded-xl border text-center text-gray-500">
-          <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+          <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" aria-hidden="true" />
           <p>No students assigned to &quot;{profile.name}&quot;.</p>
           <p className="text-sm mt-1">Admins can upload the central roster, or you can add custom students in settings.</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {myStudents.map(student => (
-            <StudentTicketCard key={student} student={student} tickets={myTickets}
-              onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor} />
+            <StudentTicketCard key={student} student={student}
+              onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
+              balances={balances} onSpend={(s, spendable) => setSpendData({ student: s, spendable })} />
           ))}
         </div>
       )}
 
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
+      {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
     </div>
   );
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
 
@@ -1172,8 +1807,9 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {studentsInClass.map(student => (
-                <StudentTicketCard key={student} student={student} tickets={myTickets}
-                  onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor} />
+                <StudentTicketCard key={student} student={student}
+                  onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
+                  balances={balances} />
               ))}
             </div>
           )}
@@ -1186,7 +1822,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1343,18 +1979,52 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     setIsProcessing(true);
 
     const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const parsedStudents = lines.map(line => {
-      const parts = line.split(',');
-      return {
-        name: parts[0]?.trim() || 'Unknown',
-        homeroom: parts[1]?.trim() || 'Unassigned'
-      };
-    });
+    if (lines.length < 2) {
+      showToast("CSV must contain a header row and at least one student row.");
+      setIsProcessing(false);
+      return;
+    }
+
+    // Parse headers (case-insensitive)
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const nameIndex = headers.indexOf('name');
+    const homeroomIndex = headers.indexOf('homeroom');
+    const gradeIndex = headers.indexOf('grade');
+
+    if (nameIndex === -1 || homeroomIndex === -1 || gradeIndex === -1) {
+      showToast("CSV header must contain 'name', 'homeroom', and 'grade'.");
+      setIsProcessing(false);
+      return;
+    }
+
+    const parsedStudents = [];
+    let hasError = false;
+    for (let i = 1; i < lines.length; i++) {
+      const parts = lines[i].split(',').map(p => p.trim());
+      if (parts.length < Math.max(nameIndex, homeroomIndex, gradeIndex) + 1) continue;
+      
+      const name = parts[nameIndex];
+      const homeroom = parts[homeroomIndex];
+      const grade = parts[gradeIndex];
+      
+      if (!name || !homeroom || !grade) {
+        showToast(`Line ${i + 1} is missing a required value (Name, Homeroom, or Grade).`);
+        hasError = true;
+        break;
+      }
+      
+      parsedStudents.push({ name, homeroom, grade });
+    }
+
+    if (hasError || parsedStudents.length === 0) {
+      setIsProcessing(false);
+      return;
+    }
 
     try {
       const batch = writeBatch(db);
       parsedStudents.forEach(s => {
-        const ref = doc(collection(db, 'artifacts', appId, 'public', 'data', 'students'));
+        const ref = doc(collection(db, 'students'));
         batch.set(ref, s);
       });
       await batch.commit();
@@ -1521,8 +2191,9 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {studentsInClass.map(student => (
-                    <StudentTicketCard key={student} student={student} tickets={tickets}
-                      onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor} />
+                    <StudentTicketCard key={student} student={student}
+                      onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
+                      balances={balances} />
                   ))}
                 </div>
               )}
@@ -1862,8 +2533,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
         <div className="bg-white p-6 rounded-xl shadow-sm border max-w-3xl">
           <h2 className="text-xl font-bold mb-2">Central Roster Import</h2>
           <p className="text-gray-600 text-sm mb-6">
-            Paste data from Excel/Sheets to populate the central database. Format must be exactly: <strong>Student Name, Homeroom Teacher</strong> (one per line).
-            <br /><em>Example: <br />Jane Doe, Mr. Smith <br />John Smith, Ms. Davis</em>
+            Paste data from Excel/Sheets to populate the central database. A header row is required and must contain columns: <strong>name</strong>, <strong>homeroom</strong>, and <strong>grade</strong>. All columns are required.
+            <br /><em>Example: <br />name,homeroom,grade<br />Jane Doe, Mr. Smith, 3rd Grade <br />John Smith, Ms. Davis, 4th Grade</em>
           </p>
 
           <textarea
@@ -1871,7 +2542,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             value={csvText}
             onChange={(e) => setCsvText(e.target.value)}
             className="w-full border-gray-300 rounded-lg p-4 font-mono text-sm bg-gray-50 focus:border-green-500 focus:ring-green-500 border mb-4"
-            placeholder={"Jane Doe, Mr. Smith\nJohn Smith, Ms. Davis"}
+            placeholder={"name,homeroom,grade\nJane Doe, Mr. Smith, 3rd Grade\nJohn Smith, Ms. Davis, 4th Grade"}
           />
           <button
             onClick={processCSV}

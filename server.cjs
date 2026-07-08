@@ -57,12 +57,11 @@ class GoogleSheetsDb {
     if (process.env.GOOGLE_PRIVATE_KEY && process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) {
       try {
         const privateKey = formatPrivateKey(process.env.GOOGLE_PRIVATE_KEY);
-        auth = new google.auth.JWT(
-          process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL.trim(),
-          null,
-          privateKey,
-          ['https://www.googleapis.com/auth/spreadsheets']
-        );
+        auth = new google.auth.JWT({
+          email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL.trim(),
+          key: privateKey,
+          scopes: ['https://www.googleapis.com/auth/spreadsheets']
+        });
         console.log("Authenticated Google Sheets API using GOOGLE_SERVICE_ACCOUNT_EMAIL and formatted GOOGLE_PRIVATE_KEY");
       } catch (e) {
         console.error("Failed to authenticate using key environment variables:", e.message);
@@ -130,6 +129,23 @@ class GoogleSheetsDb {
             valueInputOption: 'USER_ENTERED',
             resource: { values: [req.headers] }
           });
+        } else {
+          // Sheet exists, verify and update headers if columns are missing
+          const rangeRes = await this.sheets.spreadsheets.values.get({
+            spreadsheetId: this.spreadsheetId,
+            range: `${req.name}!A1:Z1`
+          });
+          const currentHeaders = rangeRes.data.values ? rangeRes.data.values[0] : [];
+          const missingHeader = req.headers.some(h => !currentHeaders.map(x => x.trim().toLowerCase()).includes(h.toLowerCase()));
+          if (missingHeader) {
+            console.log(`Updating schema headers for existing sheet ${req.name}...`);
+            await this.sheets.spreadsheets.values.update({
+              spreadsheetId: this.spreadsheetId,
+              range: `${req.name}!A1`,
+              valueInputOption: 'USER_ENTERED',
+              resource: { values: [req.headers] }
+            });
+          }
         }
       }
       console.log("All database tables are verified and active.");
@@ -425,12 +441,19 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     const balances = {};
     tickets.forEach(t => {
       if (t.recipientType === 'student') {
-        if (!balances[t.recipient]) balances[t.recipient] = { earned: 0, spent: 0 };
+        if (!balances[t.recipient]) {
+          balances[t.recipient] = { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
+        }
         balances[t.recipient].earned++;
+        if (t.reason && balances[t.recipient][t.reason] !== undefined) {
+          balances[t.recipient][t.reason]++;
+        }
       }
     });
     spending.forEach(s => {
-      if (!balances[s.recipient]) balances[s.recipient] = { earned: 0, spent: 0 };
+      if (!balances[s.recipient]) {
+        balances[s.recipient] = { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
+      }
       balances[s.recipient].spent += Number(s.amount || 0);
     });
 
@@ -568,6 +591,63 @@ app.delete('/api/golden-tickets/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// --- Goals CRUD ---
+app.post('/api/class-goals', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+  const { className, goalTickets, rewardText } = req.body;
+  if (!className || !goalTickets || !rewardText) {
+    return res.status(400).json({ message: 'Missing className, goalTickets, or rewardText' });
+  }
+
+  try {
+    const goals = await db.getRows('ClassGoals');
+    const existing = goals.find(g => g.className.toLowerCase() === className.toLowerCase());
+    const payload = {
+      className,
+      goalTickets: Number(goalTickets),
+      rewardText,
+      timestamp: new Date().toISOString()
+    };
+    if (existing) {
+      await db.updateRow('ClassGoals', ['ClassName', 'GoalTickets', 'RewardText', 'Timestamp'], existing._rowNum, payload);
+    } else {
+      await db.appendRow('ClassGoals', ['ClassName', 'GoalTickets', 'RewardText', 'Timestamp'], payload);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to save class goal' });
+  }
+});
+
+app.post('/api/grade-goals', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: 'Unauthorized' });
+  const { grade, goalGolden, rewardText } = req.body;
+  if (!grade || !goalGolden || !rewardText) {
+    return res.status(400).json({ message: 'Missing grade, goalGolden, or rewardText' });
+  }
+
+  try {
+    const goals = await db.getRows('GradeGoals');
+    const existing = goals.find(g => String(g.grade).toLowerCase() === String(grade).toLowerCase());
+    const payload = {
+      grade,
+      goalGolden: Number(goalGolden),
+      rewardText,
+      timestamp: new Date().toISOString()
+    };
+    if (existing) {
+      await db.updateRow('GradeGoals', ['Grade', 'GoalGolden', 'RewardText', 'Timestamp'], existing._rowNum, payload);
+    } else {
+      await db.appendRow('GradeGoals', ['Grade', 'GoalGolden', 'RewardText', 'Timestamp'], payload);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to save grade goal' });
+  }
+});
+
 // --- Point Spending Store CRUD ---
 app.post('/api/spending', authMiddleware, async (req, res) => {
   if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
@@ -700,10 +780,12 @@ app.post('/api/roster/upload', authMiddleware, async (req, res) => {
 
     for (const line of lines) {
       const parts = line.split(',').map(p => p.trim());
-      if (parts.length < 2) continue;
+      if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) {
+        return res.status(400).json({ message: 'Invalid roster upload format. Each student must have a name, homeroom, and grade.' });
+      }
       const name = parts[0];
       const homeroom = parts[1];
-      const grade = parts[2] || '';
+      const grade = parts[2];
 
       const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
 
@@ -736,6 +818,49 @@ app.post('/api/roster/upload', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error uploading student roster' });
+  }
+});
+
+// Add individual student
+app.post('/api/students', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+  const { name, homeroom, grade } = req.body;
+  if (!name || !homeroom || !grade) {
+    return res.status(400).json({ message: 'Name, homeroom, and grade are required.' });
+  }
+
+  try {
+    const studentsSheet = await db.getRows('Students');
+    const exists = studentsSheet.some(s => s.name.trim().toLowerCase() === name.trim().toLowerCase());
+    if (exists) {
+      return res.status(400).json({ message: `Student '${name}' already exists in the roster.` });
+    }
+
+    const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
+    let baseId = name.toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-');
+    if (baseId.startsWith('-')) baseId = baseId.slice(1);
+    if (baseId.endsWith('-')) baseId = baseId.slice(0, -1);
+
+    let studentId = baseId;
+    let counter = 1;
+    while (studentsSheet.some(s => s.id === studentId)) {
+      studentId = `${baseId}-${counter}`;
+      counter++;
+    }
+
+    const newStudent = {
+      id: studentId,
+      name: name.trim(),
+      homeroom: homeroom.trim(),
+      grade: grade.trim(),
+      pinCode
+    };
+
+    await db.appendRow('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], newStudent);
+    res.json(newStudent);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to add student to roster' });
   }
 });
 
