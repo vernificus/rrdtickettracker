@@ -2,177 +2,229 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download, LogOut,
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
-  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight
+  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { getAnalytics } from 'firebase/analytics';
-import { getAuth, signInAnonymously, signOut, onAuthStateChanged } from 'firebase/auth';
-import {
-  initializeFirestore, getFirestore, persistentLocalCache,
-  collection, doc, setDoc, onSnapshot,
-  addDoc, serverTimestamp, writeBatch, deleteDoc, query, where, getDocs
-} from 'firebase/firestore';
 
-// --- Firebase Setup ---
-const firebaseConfig = {
-  apiKey: "AIzaSyDFaghCP9SYQcUwRAYmzFWQfRNr14KNacQ",
-  authDomain: "school-experiments-5bc99.firebaseapp.com",
-  projectId: "school-experiments-5bc99",
-  storageBucket: "school-experiments-5bc99.firebasestorage.app",
-  messagingSenderId: "413467320532",
-  appId: "1:413467320532:web:bb4c813435161776b49b41",
-  measurementId: "G-6VT532QW0M"
+const API_URL = import.meta.env.DEV ? 'http://localhost:8080' : '';
+
+const api = {
+  token: localStorage.getItem('token'),
+  setToken(token) {
+    this.token = token;
+    if (token) localStorage.setItem('token', token);
+    else localStorage.removeItem('token');
+  },
+  async fetch(endpoint, options = {}) {
+    const headers = {
+      'Content-Type': 'application/json',
+      ...options.headers
+    };
+    if (this.token) {
+      headers['Authorization'] = `Bearer ${this.token}`;
+    }
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.message || `API error (${res.status})`);
+    }
+    return res.json();
+  }
 };
 
-const appId = 'school-green-ticket-react';
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
-const auth = getAuth(app);
-let db;
-try {
-  db = initializeFirestore(app, { localCache: persistentLocalCache({}) });
-} catch (e) {
-  console.warn("Offline persistence not available, using default Firestore:", e);
-  db = getFirestore(app);
-}
+// --- Mock Firestore Layer for compatibility with existing dashboards ---
+const db = {}; // dummy
+
+const collection = (db, ...paths) => {
+  return paths[paths.length - 1];
+};
+
+const doc = (db, ...paths) => {
+  if (paths.length === 2 && typeof paths[0] === 'string') {
+    return { collection: paths[0], id: paths[1] };
+  }
+  return { collection: paths[paths.length - 2], id: paths[paths.length - 1] };
+};
+
+const addDoc = async (collName, data) => {
+  const payload = { ...data };
+  if (payload.timestamp && typeof payload.timestamp === 'object') {
+    payload.timestamp = new Date().toISOString();
+  }
+  const endpointMap = {
+    'tickets': '/api/tickets',
+    'goldenTickets': '/api/golden-tickets',
+    'spending': '/api/spending'
+  };
+  const url = endpointMap[collName] || `/api/${collName}`;
+  const result = await api.fetch(url, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+  if (window.triggerRefresh) window.triggerRefresh();
+  return { id: result.id };
+};
+
+const deleteDoc = async (docRef) => {
+  const collName = docRef.collection;
+  const id = docRef.id;
+  const endpointMap = {
+    'tickets': `/api/tickets/${id}`,
+    'goldenTickets': `/api/golden-tickets/${id}`,
+    'spending': `/api/spending/${id}`,
+    'users': `/api/teachers/${id}`
+  };
+  const url = endpointMap[collName] || `/api/${collName}/${id}`;
+  await api.fetch(url, {
+    method: 'DELETE'
+  });
+  if (window.triggerRefresh) window.triggerRefresh();
+};
+
+const setDoc = async (docRef, data) => {
+  const url = `/api/${docRef.collection}/${docRef.id}`;
+  await api.fetch(url, {
+    method: 'POST',
+    body: JSON.stringify(data)
+  });
+  if (window.triggerRefresh) window.triggerRefresh();
+};
+
+const writeBatch = () => {
+  const operations = [];
+  return {
+    set(docRef, data) {
+      operations.push({ type: 'set', docRef, data });
+    },
+    delete(docRef) {
+      operations.push({ type: 'delete', docRef });
+    },
+    async commit() {
+      const isDeleteStudents = operations.every(op => op.type === 'delete' && op.docRef.collection === 'students');
+      if (isDeleteStudents && operations.length > 0) {
+        await api.fetch('/api/roster/clear', { method: 'POST' });
+        if (window.triggerRefresh) window.triggerRefresh();
+        return;
+      }
+
+      const isUploadRoster = operations.every(op => op.type === 'set' && op.docRef.collection === 'students');
+      if (isUploadRoster && operations.length > 0) {
+        const csvLines = operations.map(op => `${op.data.name},${op.data.homeroom},${op.data.grade || ''}`);
+        await api.fetch('/api/roster/upload', {
+          method: 'POST',
+          body: JSON.stringify({ csvText: csvLines.join('\n') })
+        });
+        if (window.triggerRefresh) window.triggerRefresh();
+        return;
+      }
+
+      const deleteOp = operations.find(op => op.type === 'delete' && op.docRef.collection === 'students');
+      const setOp = operations.find(op => op.type === 'set' && op.docRef.collection === 'tickets');
+      if (deleteOp && setOp) {
+        const sourceName = deleteOp.docRef.id;
+        const targetName = setOp.data.recipient;
+        await api.fetch('/api/roster/merge', {
+          method: 'POST',
+          body: JSON.stringify({ sourceName, targetName })
+        });
+        if (window.triggerRefresh) window.triggerRefresh();
+        return;
+      }
+    }
+  };
+};
+
+const serverTimestamp = () => {
+  return new Date().toISOString();
+};
+
+// --- Helper to convert ISO dates into Firestore-like Timestamp objects ---
+const formatTicket = (t) => {
+  const date = t.timestamp ? new Date(t.timestamp) : new Date();
+  return {
+    ...t,
+    timestamp: {
+      toDate: () => date,
+      toMillis: () => date.getTime()
+    }
+  };
+};
 
 // --- Main App Component ---
 export default function App() {
-  const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  const [effectiveUid, setEffectiveUid] = useState(null); // primary UID for linked devices
+  const [role, setRole] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // Data State
+  // Teacher Data State
   const [tickets, setTickets] = useState([]);
   const [students, setStudents] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [goldenTickets, setGoldenTickets] = useState([]);
+  const [balances, setBalances] = useState({});
+
+  // Student Data State
+  const [studentData, setStudentData] = useState(null);
 
   // UI State
   const [toast, setToast] = useState({ visible: false, message: '' });
-  const uid = user?.uid;
 
-  // 1. Initialize Auth
+  // Expose triggerRefresh globally for the mock Firestore operations
   useEffect(() => {
-    const initAuth = async () => {
-      try {
-        await signInAnonymously(auth);
-      } catch (err) {
-        console.error("Auth failed:", err);
-      }
+    window.triggerRefresh = () => {
+      setRefreshTrigger(prev => prev + 1);
     };
-    initAuth();
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      if (!u) setLoading(false);
-    });
-    return () => unsubscribe();
+    return () => {
+      delete window.triggerRefresh;
+    };
   }, []);
-
-  // 2. Fetch profile (Only after auth — depends on uid, not user object ref)
-  useEffect(() => {
-    if (!uid) return;
-
-    // Listen to own profile doc only (1 read) instead of entire collection
-    const myProfileRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', uid);
-    const unsubMyProfile = onSnapshot(myProfileRef, (docSnap) => {
-      if (!docSnap.exists()) {
-        setProfile(null);
-        setEffectiveUid(null);
-        // Only stop loading once server confirms doc doesn't exist
-        // (cache may say "not found" before server has responded)
-        if (docSnap.metadata.fromCache === false) setLoading(false);
-        return;
-      }
-      const myDoc = { id: docSnap.id, ...docSnap.data() };
-      if (myDoc.linkedTo) {
-        setEffectiveUid(myDoc.linkedTo);
-      } else {
-        setProfile(myDoc);
-        setEffectiveUid(uid);
-      }
-      // Profile exists — show the app immediately, even from cache
-      setLoading(false);
-    });
-
-    // For linked devices, listen to the primary profile doc
-    // This is set up dynamically when effectiveUid changes (see next effect)
-
-    return () => { unsubMyProfile(); };
-  }, [uid]);
-
-  // 2b. If linked, listen to primary profile + fetch linked UIDs for myUids
-  useEffect(() => {
-    if (!effectiveUid || effectiveUid === uid) return;
-
-    const primaryRef = doc(db, 'artifacts', appId, 'public', 'data', 'users', effectiveUid);
-    const unsub = onSnapshot(primaryRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setProfile({ id: docSnap.id, ...docSnap.data() });
-      } else {
-        console.warn("Linked primary profile not found:", effectiveUid);
-        setProfile(null);
-      }
-    });
-    return () => unsub();
-  }, [effectiveUid, uid]);
-
-  // 2c. Fetch profiles: linked UIDs for ticket filtering + all profiles for admin
-  useEffect(() => {
-    if (!effectiveUid || !profile) { setProfiles([]); return; }
-    const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-    if (profile.role === 'admin') {
-      // Admin needs all profiles for the dashboard
-      const unsub = onSnapshot(usersRef, (snap) => {
-        setProfiles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      });
-      return () => unsub();
-    } else {
-      // Non-admin: one-time fetch of linked device UIDs only
-      const q = query(usersRef, where('linkedTo', '==', effectiveUid));
-      getDocs(q).then(snap => {
-        setProfiles(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      }).catch(e => console.error("Error fetching linked profiles:", e));
-    }
-  }, [effectiveUid, profile?.role]);
-
-  // 3. Fetch app data (tickets, students, goldenTickets) — only after profile is known
-  useEffect(() => {
-    if (!uid || !profile) return;
-
-    const studentsRef = collection(db, 'artifacts', appId, 'public', 'data', 'students');
-    const goldenRef = collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets');
-
-    const unsubStudents = onSnapshot(studentsRef, (snap) => {
-      setStudents(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-
-    const unsubGolden = onSnapshot(goldenRef, (snap) => {
-      setGoldenTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-
-    // Scope tickets: admins see all, others see only their own
-    const ticketsRef = collection(db, 'artifacts', appId, 'public', 'data', 'tickets');
-    let unsubTickets;
-    if (profile.role === 'admin') {
-      unsubTickets = onSnapshot(ticketsRef, (snap) => {
-        setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      });
-    } else {
-      // Only load this teacher's tickets (much fewer reads)
-      const myTicketsQuery = query(ticketsRef, where('teacherId', '==', uid));
-      unsubTickets = onSnapshot(myTicketsQuery, (snap) => {
-        setTickets(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-      });
-    }
-
-    return () => { unsubStudents(); unsubGolden(); unsubTickets(); };
-  }, [uid, profile?.role]);
 
   const showToast = (message) => {
     setToast({ visible: true, message });
     setTimeout(() => setToast({ visible: false, message: '' }), 3000);
+  };
+
+  // 1. Initial Load & Auth Check
+  useEffect(() => {
+    const loadInitialData = async () => {
+      if (!api.token) {
+        setLoading(false);
+        return;
+      }
+      try {
+        const data = await api.fetch('/api/initial-data');
+        setProfile(data.profile);
+        setRole(data.role);
+        if (data.role === 'student') {
+          setStudentData(data);
+        } else {
+          setProfiles(data.profiles || []);
+          setStudents(data.students || []);
+          setTickets((data.tickets || []).map(formatTicket));
+          setGoldenTickets((data.goldenTickets || []).map(formatTicket));
+          setBalances(data.balances || {});
+        }
+      } catch (e) {
+        console.error("Session expired or invalid:", e);
+        api.setToken(null);
+        setProfile(null);
+        setRole(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadInitialData();
+  }, [refreshTrigger]);
+
+  const handleSignOut = () => {
+    api.setToken(null);
+    setProfile(null);
+    setRole(null);
+    setStudentData(null);
+    showToast("Signed out successfully");
   };
 
   if (loading) {
@@ -185,47 +237,37 @@ export default function App() {
   }
 
   if (!profile) {
-    return <SetupProfile user={user} onComplete={() => showToast("Profile created!")} />;
+    return <Login onLoginSuccess={(prof, token) => {
+      api.setToken(token);
+      setProfile(prof);
+      setRole(prof.role);
+      setRefreshTrigger(prev => prev + 1);
+    }} showToast={showToast} />;
   }
 
-  // Collect all UIDs associated with this teacher (primary + all linked devices)
-  // so ticket filtering shows tickets from any of the teacher's devices
-  const myUids = new Set([effectiveUid]);
-  profiles.forEach(p => {
-    if (p.linkedTo === effectiveUid) myUids.add(p.id);
-  });
-  if (user) myUids.add(user.uid);
+  if (role === 'student' && studentData) {
+    return <StudentDashboard studentData={studentData} onSignOut={handleSignOut} />;
+  }
 
-  const handleSignOut = async () => {
-    // Clear all local state first so onSnapshot can't restore the old profile
-    setProfile(null);
-    setEffectiveUid(null);
-    setTickets([]);
-    setStudents([]);
-    setProfiles([]);
-    setGoldenTickets([]);
-    try {
-      // Sign out destroys the anonymous session, sign in creates a fresh one with a new UID
-      await signOut(auth);
-      await signInAnonymously(auth);
-    } catch (e) {
-      console.error("Error signing out:", e);
-    }
-  };
+  // Calculate myUids for ticket filter mapping
+  const myUids = new Set([profile.email]); // email is primary teacher ID
+  profiles.forEach(p => {
+    if (p.linkedTo === profile.email) myUids.add(p.email);
+  });
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans text-gray-800">
       <Navbar profile={profile} tickets={tickets} onSignOut={handleSignOut} />
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
-        {profile.role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={user} effectiveUid={effectiveUid} profile={profile} goldenTickets={goldenTickets} myUids={myUids} />
+        {role === 'admin' && (
+          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} />
         )}
-        {profile.role === 'homeroom' && (
-          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} myUids={myUids} />
+        {role === 'homeroom' && (
+          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} />
         )}
-        {profile.role === 'specialist' && (
-          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={user} effectiveUid={effectiveUid} goldenTickets={goldenTickets} myUids={myUids} />
+        {role === 'specialist' && (
+          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} />
         )}
       </main>
 
@@ -452,173 +494,364 @@ function Navbar({ profile, tickets, onSignOut }) {
   );
 }
 
-function SetupProfile({ user, onComplete }) {
+function Login({ onLoginSuccess, showToast }) {
+  const [activeTab, setActiveTab] = useState('student'); // 'student' or 'teacher'
+  const [isRegistering, setIsRegistering] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  // Form Fields
+  const [studentId, setStudentId] = useState('');
+  const [pinCode, setPinCode] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('homeroom');
-  const [adminPassword, setAdminPassword] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [matchingTeachers, setMatchingTeachers] = useState(null);
 
-  const handleSubmit = async (e) => {
+  const handleStudentSubmit = async (e) => {
     e.preventDefault();
-    if (role === 'admin' && adminPassword !== 'data4life') {
-      setPasswordError('Incorrect admin password.');
-      return;
-    }
-    setPasswordError('');
     setError('');
-    setIsSaving(true);
+    setLoading(true);
     try {
-      // Check if a teacher with this name and role already exists
-      const usersRef = collection(db, 'artifacts', appId, 'public', 'data', 'users');
-      // Try case-insensitive match first (new profiles have nameNormalized)
-      let q = query(usersRef, where('nameNormalized', '==', name.trim().toLowerCase()), where('role', '==', role));
-      let snap = await getDocs(q);
-      if (snap.empty) {
-        // Fallback: exact name match for older profiles without nameNormalized
-        q = query(usersRef, where('name', '==', name.trim()), where('role', '==', role));
-        snap = await getDocs(q);
-      }
-
-      if (!snap.empty) {
-        // Found existing teacher(s) — show picker for confirmation
-        const matches = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        setMatchingTeachers(matches);
-        setIsSaving(false);
-        return;
-      }
-
-      // No match — create a new profile
-      await createNewProfile();
-    } catch (err) {
-      console.error("SetupProfile error:", err);
-      setError('Something went wrong. Please check your connection and try again.');
-    }
-    setIsSaving(false);
-  };
-
-  const createNewProfile = async () => {
-    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
-      name: name.trim(), nameNormalized: name.trim().toLowerCase(), role, customStudents: [], createdAt: serverTimestamp()
-    });
-    onComplete();
-  };
-
-  const linkToTeacher = async (primaryId) => {
-    setIsSaving(true);
-    setError('');
-    try {
-      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', user.uid), {
-        linkedTo: primaryId, createdAt: serverTimestamp()
+      const data = await api.fetch('/api/auth/student', {
+        method: 'POST',
+        body: JSON.stringify({ studentId, pinCode })
       });
-      onComplete();
+      showToast(`Welcome back, ${data.profile.name}!`);
+      onLoginSuccess(data.profile, data.token);
     } catch (err) {
-      console.error("Device linking error:", err);
-      setError('Failed to link this device. Please try again.');
+      setError(err.message || 'Invalid Student ID or PIN');
+    } finally {
+      setLoading(false);
     }
-    setIsSaving(false);
   };
 
-  const handleCreateNewInstead = async () => {
-    setMatchingTeachers(null);
-    setIsSaving(true);
+  const handleTeacherSubmit = async (e) => {
+    e.preventDefault();
     setError('');
+    setLoading(true);
     try {
-      await createNewProfile();
+      if (isRegistering) {
+        await api.fetch('/api/auth/teacher/register', {
+          method: 'POST',
+          body: JSON.stringify({ email, password, name, role })
+        });
+        showToast("Registration successful! Logging in...");
+      }
+      
+      const data = await api.fetch('/api/auth/teacher', {
+        method: 'POST',
+        body: JSON.stringify({ email, password })
+      });
+      showToast(`Logged in as ${data.profile.name}`);
+      onLoginSuccess(data.profile, data.token);
     } catch (err) {
-      console.error("Profile creation error:", err);
-      setError('Something went wrong. Please check your connection and try again.');
+      setError(err.message || 'Authentication failed');
+    } finally {
+      setLoading(false);
     }
-    setIsSaving(false);
   };
-
-  // Teacher picker view — shown when matching profiles are found
-  if (matchingTeachers) {
-    return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
-          <div className="text-center mb-6">
-            <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <Users className="w-8 h-8 text-blue-600" />
-            </div>
-            <h2 className="text-2xl font-bold">Link This Device</h2>
-            <p className="text-gray-500 mt-1">We found an existing profile that matches. Is this you?</p>
-          </div>
-          <div className="space-y-3 mb-6">
-            {matchingTeachers.map(t => (
-              <button key={t.id} onClick={() => linkToTeacher(t.id)} disabled={isSaving}
-                className="w-full p-4 border-2 border-green-200 rounded-xl hover:border-green-500 hover:bg-green-50 transition text-left disabled:opacity-50">
-                <div className="font-bold text-gray-900">{t.name}</div>
-                <div className="text-sm text-gray-500 capitalize">{t.role}</div>
-                <div className="text-xs text-green-600 mt-1 font-semibold">Tap to link this device</div>
-              </button>
-            ))}
-          </div>
-          <button onClick={handleCreateNewInstead} disabled={isSaving}
-            className="w-full border-2 border-gray-200 hover:border-gray-400 text-gray-700 font-bold py-3 rounded-xl transition disabled:opacity-50">
-            {isSaving ? 'Setting up...' : "That's not me — create a new profile"}
-          </button>
-          <button onClick={() => setMatchingTeachers(null)} disabled={isSaving}
-            className="w-full text-gray-400 hover:text-gray-600 text-sm mt-3 transition disabled:opacity-50">
-            Go back
-          </button>
-          {error && <p className="text-red-500 text-sm mt-3 text-center">{error}</p>}
-        </div>
-      </div>
-    );
-  }
 
   return (
-    <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
-      <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
-        <div className="text-center mb-6">
-          <div className="bg-green-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Users className="w-8 h-8 text-green-600" />
+    <div className="min-h-screen flex items-center justify-center bg-paper px-4 sm:px-6 lg:px-8">
+      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-3xl shadow-xl border border-brand-100">
+        <div className="text-center">
+          <div className="flex justify-center">
+            <div className="bg-brand-100 p-3 rounded-2xl">
+              <Ticket className="w-10 h-10 text-brand-600 animate-pulse" />
+            </div>
           </div>
-          <h2 className="text-2xl font-bold">Welcome to Tracker</h2>
-          <p className="text-gray-500 mt-1">Let&apos;s set up your profile.</p>
+          <h2 className="mt-4 text-3xl font-extrabold text-navy-900 font-display">Roadrunner Tracker</h2>
+          <p className="mt-2 text-sm text-gray-500">Earn Tickets. Build Community.</p>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              {role === 'admin' ? 'Your Name' : 'Your Last Name (e.g. Smith)'}
-            </label>
-            <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full border-gray-300 rounded-lg p-3 border focus:ring-green-500 focus:border-green-500" placeholder={role === 'admin' ? 'Admin' : 'Smith'} />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Select Your Role</label>
-            <div className="grid grid-cols-1 gap-3">
-              {[
-                { id: 'homeroom', icon: Users, title: 'Homeroom Teacher', desc: 'I have a primary class of students.' },
-                { id: 'specialist', icon: Palette, title: 'Specialist', desc: 'I see multiple different classes.' },
-                { id: 'admin', icon: Shield, title: 'Administrator', desc: 'I manage rosters and view school data.' }
-              ].map(r => (
-                <label key={r.id} className={`flex items-center p-4 border rounded-xl cursor-pointer transition ${role === r.id ? 'border-green-500 bg-green-50' : 'hover:bg-gray-50'}`}>
-                  <input type="radio" name="role" value={r.id} checked={role === r.id} onChange={e => setRole(e.target.value)} className="sr-only" />
-                  <r.icon className={`w-6 h-6 mr-4 ${role === r.id ? 'text-green-600' : 'text-gray-400'}`} />
-                  <div>
-                    <div className="font-bold text-gray-900">{r.title}</div>
-                    <div className="text-xs text-gray-500">{r.desc}</div>
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-          {role === 'admin' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Admin Password</label>
-              <input type="password" required value={adminPassword} onChange={e => { setAdminPassword(e.target.value); setPasswordError(''); }} className={`w-full border-gray-300 rounded-lg p-3 border focus:ring-green-500 focus:border-green-500 ${passwordError ? 'border-red-500' : ''}`} placeholder="Enter admin password" />
-              {passwordError && <p className="text-red-500 text-sm mt-1">{passwordError}</p>}
-            </div>
-          )}
-          <button type="submit" disabled={isSaving} className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition">
-            {isSaving ? 'Setting up...' : 'Save & Continue'}
+
+        {/* Tab Toggle */}
+        <div className="flex bg-gray-100 p-1 rounded-xl">
+          <button
+            onClick={() => { setActiveTab('student'); setError(''); }}
+            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'student' ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 hover:text-navy-900'}`}
+          >
+            Student Portal
           </button>
-          {error && <p className="text-red-500 text-sm mt-1 text-center">{error}</p>}
-        </form>
+          <button
+            onClick={() => { setActiveTab('teacher'); setError(''); }}
+            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'teacher' ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 hover:text-navy-900'}`}
+          >
+            Teacher Access
+          </button>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-md">
+            <div className="flex">
+              <div className="flex-shrink-0">
+                <AlertTriangle className="h-5 w-5 text-red-400" />
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-700">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'student' ? (
+          <form className="mt-6 space-y-4" onSubmit={handleStudentSubmit}>
+            <div>
+              <label className="block text-sm font-bold text-gray-700">Student ID</label>
+              <input
+                type="text"
+                required
+                value={studentId}
+                onChange={e => setStudentId(e.target.value)}
+                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                placeholder="e.g. ALICE-101"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700">4-Digit PIN</label>
+              <input
+                type="password"
+                maxLength={4}
+                required
+                value={pinCode}
+                onChange={e => setPinCode(e.target.value)}
+                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition tracking-widest text-center text-lg font-bold"
+                placeholder="••••"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-xl text-white bg-brand-600 hover:bg-brand-700 focus:outline-none transition disabled:opacity-50 mt-6"
+            >
+              {loading ? 'Logging in...' : 'Log In'}
+            </button>
+          </form>
+        ) : (
+          <form className="mt-6 space-y-4" onSubmit={handleTeacherSubmit}>
+            {isRegistering && (
+              <>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700">Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={name}
+                    onChange={e => setName(e.target.value)}
+                    className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                    placeholder="e.g. Mr. Smith"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700">Role</label>
+                  <select
+                    value={role}
+                    onChange={e => setRole(e.target.value)}
+                    className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition bg-white"
+                  >
+                    <option value="homeroom">Homeroom Teacher</option>
+                    <option value="specialist">Specialist</option>
+                    <option value="admin">Administrator</option>
+                  </select>
+                </div>
+              </>
+            )}
+            <div>
+              <label className="block text-sm font-bold text-gray-700">Email Address</label>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                placeholder="teacher@school.edu"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700">Password</label>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                placeholder="••••••••"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-xl text-white bg-brand-600 hover:bg-brand-700 focus:outline-none transition disabled:opacity-50 mt-6"
+            >
+              {loading ? 'Processing...' : isRegistering ? 'Register & Log In' : 'Log In'}
+            </button>
+            <div className="text-center mt-4">
+              <button
+                type="button"
+                onClick={() => setIsRegistering(!isRegistering)}
+                className="text-xs text-brand-600 hover:underline font-semibold"
+              >
+                {isRegistering ? 'Already have an account? Log in instead' : 'Need an account? Register here'}
+              </button>
+            </div>
+          </form>
+        )}
       </div>
+    </div>
+  );
+}
+
+function StudentDashboard({ studentData, onSignOut }) {
+  const { profile, tickets, spending, classGoal, gradeGoal, wallet, goldenCount, classTicketsEarned, gradeGoldenEarned } = studentData;
+
+  const reasonCounts = { Respectful: 0, Responsible: 0, Determined: 0 };
+  tickets.forEach(t => {
+    if (reasonCounts[t.reason] !== undefined) reasonCounts[t.reason]++;
+  });
+
+  const recentActivity = [
+    ...tickets.map(t => ({ ...t, type: 'earned', key: `t-${t.id}` })),
+    ...spending.map(s => ({ ...s, type: 'spent', key: `s-${s.id}` }))
+  ].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+  const classProgress = classGoal && classGoal.goalTickets ? Math.min(100, Math.round((classTicketsEarned / classGoal.goalTickets) * 100)) : 0;
+  const gradeProgress = gradeGoal && gradeGoal.goalGolden ? Math.min(100, Math.round((gradeGoldenEarned / gradeGoal.goalGolden) * 100)) : 0;
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-800">
+      <nav className="bg-brand-700 text-white shadow-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center gap-3">
+              <Ticket className="w-8 h-8 text-brand-200" />
+              <span className="font-display font-bold text-xl tracking-tight">Roadrunner Student Portal</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-semibold text-brand-100 hidden sm:inline">Hello, {profile.name}</span>
+              <button
+                onClick={onSignOut}
+                className="flex items-center gap-1 bg-brand-800 hover:bg-brand-900 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto w-full space-y-6">
+        <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-extrabold text-navy-950 font-display">Welcome Back, {profile.name}!</h1>
+            <p className="text-gray-500 text-sm mt-1">Homeroom: <span className="font-bold text-navy-800">{profile.homeroom || 'N/A'}</span> • Grade: <span className="font-bold text-navy-800">{profile.grade || 'N/A'}</span></p>
+          </div>
+          <div className="bg-brand-50 border border-brand-100 px-6 py-4 rounded-xl flex items-center gap-4">
+            <div className="bg-brand-600 p-2.5 rounded-xl text-white">
+              <Award className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="text-xs text-brand-700 font-bold uppercase tracking-wider">Spendable Balance</div>
+              <div className="text-3xl font-black text-brand-900 leading-none mt-1">{wallet.balance} <span className="text-sm font-bold text-brand-700">Tickets</span></div>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display font-bold text-navy-950 text-lg flex items-center gap-2">
+                <Users className="w-5 h-5 text-blue-500" />
+                <span>Class Reward Goal</span>
+              </h2>
+              {classGoal && <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">{classProgress}% Complete</span>}
+            </div>
+            {classGoal ? (
+              <div className="space-y-3">
+                <div className="text-navy-900 font-semibold">{classGoal.rewardText}</div>
+                <div className="flex justify-between text-xs text-gray-500 font-medium">
+                  <span>Class Tickets: {classTicketsEarned}</span>
+                  <span>Goal: {classGoal.goalTickets}</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-3.5 overflow-hidden">
+                  <div className="bg-blue-500 h-full rounded-full transition-all duration-500" style={{ width: `${classProgress}%` }} />
+                </div>
+              </div>
+            ) : (
+              <div className="text-gray-400 text-sm text-center py-6">No class goal has been set by your homeroom teacher yet.</div>
+            )}
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="font-display font-bold text-navy-950 text-lg flex items-center gap-2">
+                <Crown className="w-5 h-5 text-amber-500" />
+                <span>Grade Golden Ticket Goal</span>
+              </h2>
+              {gradeGoal && <span className="text-xs font-bold text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full">{gradeProgress}% Complete</span>}
+            </div>
+            {gradeGoal ? (
+              <div className="space-y-3">
+                <div className="text-navy-900 font-semibold">{gradeGoal.rewardText}</div>
+                <div className="flex justify-between text-xs text-gray-500 font-medium">
+                  <span>Grade Golden Tickets: {gradeGoldenEarned}</span>
+                  <span>Goal: {gradeGoal.goalGolden}</span>
+                </div>
+                <div className="w-full bg-gray-100 rounded-full h-3.5 overflow-hidden">
+                  <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: `${gradeProgress}%` }} />
+                </div>
+              </div>
+            ) : (
+              <div className="text-gray-400 text-sm text-center py-6">No grade-level golden ticket goal has been set by the administrator yet.</div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-blue-50 border border-blue-100 p-5 rounded-2xl text-center space-y-1">
+            <div className="text-2xl font-black text-blue-900">{reasonCounts.Respectful}</div>
+            <div className="text-xs font-bold text-blue-700 uppercase tracking-wider">Respectful Tickets</div>
+          </div>
+          <div className="bg-amber-50 border border-amber-100 p-5 rounded-2xl text-center space-y-1">
+            <div className="text-2xl font-black text-amber-900">{reasonCounts.Responsible}</div>
+            <div className="text-xs font-bold text-amber-700 uppercase tracking-wider">Responsible Tickets</div>
+          </div>
+          <div className="bg-purple-50 border border-purple-100 p-5 rounded-2xl text-center space-y-1">
+            <div className="text-2xl font-black text-purple-900">{reasonCounts.Determined}</div>
+            <div className="text-xs font-bold text-purple-700 uppercase tracking-wider">Determined Tickets</div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 bg-gray-50">
+            <h3 className="font-bold text-navy-950 font-display text-base">My Recent Activity</h3>
+          </div>
+          <div className="divide-y divide-gray-100 max-h-96 overflow-y-auto">
+            {recentActivity.length > 0 ? (
+              recentActivity.map(act => (
+                <div key={act.key} className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition">
+                  <div className="flex items-center gap-3">
+                    <span className={`w-2.5 h-2.5 rounded-full ${act.type === 'earned' ? (act.reason === 'Respectful' ? 'bg-blue-500' : act.reason === 'Responsible' ? 'bg-amber-500' : 'bg-purple-500') : 'bg-red-500'}`} />
+                    <div>
+                      <div className="font-semibold text-gray-900 text-sm">
+                        {act.type === 'earned' ? `Earned ticket for being ${act.reason}` : `Redeemed points for ${act.item || 'Item'}`}
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5">
+                        {act.type === 'earned' ? `Given by ${act.teacherName}` : `Approved by ${act.teacherName}`} • {new Date(act.timestamp).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                  <div className={`font-black text-sm ${act.type === 'earned' ? 'text-brand-600' : 'text-red-600'}`}>
+                    {act.type === 'earned' ? '+1' : `-${act.amount}`}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="text-gray-400 text-center py-12 text-sm">You haven&apos;t earned or spent any tickets yet. Keep up the good work!</div>
+            )}
+          </div>
+        </div>
+      </main>
     </div>
   );
 }
