@@ -976,6 +976,92 @@ app.delete('/api/teachers/:email', authMiddleware, async (req, res) => {
   }
 });
 
+// Update individual student (Admin / Teacher only)
+app.put('/api/students/:id', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+  const oldId = req.params.id;
+  const { id: newId, name, homeroom, grade, pinCode } = req.body;
+
+  if (!name || !homeroom || !grade || !newId || !pinCode) {
+    return res.status(400).json({ message: 'All fields are required.' });
+  }
+
+  try {
+    const studentsSheet = await db.getRows('Students');
+    const studentIdx = studentsSheet.findIndex(s => s.id === oldId);
+    if (studentIdx === -1) {
+      return res.status(404).json({ message: 'Student not found.' });
+    }
+
+    // Check if new student ID is taken by another student
+    if (newId.toUpperCase() !== oldId.toUpperCase() && studentsSheet.some(s => s.id.toUpperCase() === newId.toUpperCase())) {
+      return res.status(400).json({ message: `Student ID '${newId}' is already in use.` });
+    }
+
+    const updatedStudent = {
+      id: newId.trim(),
+      name: name.trim(),
+      homeroom: homeroom.trim(),
+      grade: grade.trim(),
+      pinCode: pinCode.trim()
+    };
+
+    // If the name changed, update the tickets and spending sheets too!
+    const oldName = studentsSheet[studentIdx].name;
+    if (oldName !== updatedStudent.name) {
+      // Best-effort cascade name updates
+      const tickets = await db.getRows('Tickets');
+      for (const t of tickets) {
+        if (t.recipient === oldName && t.recipientType === 'student') {
+          t.recipient = updatedStudent.name;
+          await db.updateRow('Tickets', ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'RecipientType', 'Reason', 'Timestamp'], t._rowNum, t);
+        }
+      }
+      const spending = await db.getRows('Spending');
+      for (const s of spending) {
+        if (s.recipient === oldName) {
+          s.recipient = updatedStudent.name;
+          await db.updateRow('Spending', ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'Amount', 'Item', 'Timestamp'], s._rowNum, s);
+        }
+      }
+    }
+
+    await db.updateRow('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], studentsSheet[studentIdx]._rowNum, updatedStudent);
+    res.json(updatedStudent);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to update student' });
+  }
+});
+
+// Reset own password (Teacher / Admin)
+app.post('/api/auth/reset-password', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Only teachers and admins can reset passwords' });
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Current password and new password are required.' });
+  }
+
+  try {
+    const users = await db.getRows('Users');
+    const user = users.find(u => u.email.toLowerCase() === req.user.email.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (!verifyPassword(currentPassword, user.password)) {
+      return res.status(401).json({ message: 'Invalid current password.' });
+    }
+
+    user.password = hashPassword(newPassword);
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt'], user._rowNum, user);
+    res.json({ message: 'Password updated successfully!' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error resetting password.' });
+  }
+});
+
 // --- Frontend Assets Server ---
 if (process.env.NODE_ENV === 'production') {
   app.use(express.static(path.join(__dirname, 'dist')));

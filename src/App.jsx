@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download, LogOut,
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
-  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings
+  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2
 } from 'lucide-react';
 
 const API_URL = import.meta.env.DEV ? 'http://localhost:8080' : '';
@@ -55,7 +55,8 @@ const doc = (dbOrColl, ...paths) => {
   return { collection: collectionName, id };
 };
 
-const addDoc = async (collName, data) => {
+const addDoc = async (collOrName, data) => {
+  const collName = typeof collOrName === 'object' && collOrName.path ? collOrName.path : collOrName;
   const payload = { ...data };
   if (payload.timestamp && typeof payload.timestamp === 'object') {
     payload.timestamp = new Date().toISOString();
@@ -191,6 +192,12 @@ export default function App() {
   // Help Modal State
   const [showHelp, setShowHelp] = useState(false);
 
+  // Attendance & Student Modals & View States
+  const [absentStudents, setAbsentStudents] = useState(new Set());
+  const [editStudentData, setEditStudentData] = useState(null);
+  const [showChangePassword, setShowChangePassword] = useState(false);
+  const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' or 'raffle'
+
   // Expose triggerRefresh globally for the mock Firestore operations
   useEffect(() => {
     window.triggerRefresh = () => {
@@ -299,26 +306,41 @@ export default function App() {
     }
   };
 
+  const handleToggleAbsent = (name) => {
+    setAbsentStudents(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans text-gray-800">
-      <Navbar profile={profile} tickets={tickets} onSignOut={handleSignOut} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onHelp={() => setShowHelp(true)} />
+      <Navbar profile={profile} tickets={tickets} onSignOut={handleSignOut} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onHelp={() => setShowHelp(true)} activeView={activeView} setActiveView={setActiveView} onChangePassword={() => setShowChangePassword(true)} />
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
-        {role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} />
-        )}
-        {role === 'homeroom' && (
-          <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} />
-        )}
-        {role === 'specialist' && (
-          <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} />
+        {activeView === 'raffle' ? (
+          <RaffleDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} />
+        ) : (
+          <>
+            {role === 'admin' && (
+              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
+            )}
+            {role === 'homeroom' && (
+              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
+            )}
+            {role === 'specialist' && (
+              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
+            )}
+          </>
         )}
       </main>
 
       {/* Role Switch Modal */}
       {showRoleSwitch && (
         <div className="fixed inset-0 bg-navy-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-100 shadow-xl space-y-4">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-150 shadow-xl space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="font-display font-black text-navy-950 text-base flex items-center gap-2"><Settings className="w-5 h-5 text-gray-400" /> Change Role</h3>
               <button onClick={() => setShowRoleSwitch(false)} className="text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
@@ -344,6 +366,16 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Edit Student Modal */}
+      {editStudentData && (
+        <EditStudentModal student={editStudentData} onClose={() => setEditStudentData(null)} showToast={showToast} />
+      )}
+
+      {/* Change Password Modal */}
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} showToast={showToast} />
       )}
 
       {/* Help Modal */}
@@ -495,79 +527,126 @@ function StudentSearch({ students, onSelect }) {
 }
 
 // --- Student Ticket Card (Inline ticket giving) ---
-function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor, balances, onSpend }) {
+function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor, balances, onSpend, students = [], onEditStudent, isAbsent, onToggleAbsent, tickets = [], teacherEmail }) {
   const bal = balances[student] || { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
   const spendable = Math.max(0, bal.earned - bal.spent);
-  const earned = bal.earned;
   const isBusy = isSubmitting && submittingFor === student;
+  
+  const studentObj = students.find(s => s.name === student);
+
+  // Calculate only tickets given by THIS teacher (if teacherEmail is provided)
+  const teacherCounts = useMemo(() => {
+    const counts = { Respectful: 0, Responsible: 0, Determined: 0 };
+    if (!teacherEmail) {
+      return {
+        Respectful: bal.Respectful || 0,
+        Responsible: bal.Responsible || 0,
+        Determined: bal.Determined || 0
+      };
+    }
+    tickets.forEach(t => {
+      if (t.recipient === student && t.recipientType === 'student' && t.teacherEmail && t.teacherEmail.toLowerCase() === teacherEmail.toLowerCase()) {
+        if (counts[t.reason] !== undefined) {
+          counts[t.reason]++;
+        }
+      }
+    });
+    return counts;
+  }, [tickets, student, teacherEmail, bal]);
+
+  const earned = teacherCounts.Respectful + teacherCounts.Responsible + teacherCounts.Determined;
 
   return (
-    <div className="bg-white rounded-3xl p-5 border border-gray-150 shadow-sm flex flex-col justify-between space-y-4 hover:shadow-md transition duration-200">
+    <div className={`bg-white rounded-3xl p-4 border shadow-sm flex flex-col justify-between space-y-3 hover:shadow-md transition duration-200 ${isAbsent ? 'opacity-55 border-red-200 bg-red-50/20' : 'border-gray-150'}`}>
       {/* Header */}
-      <div className="flex justify-between items-center">
-        <span className="font-display font-black text-navy-950 text-lg leading-tight truncate">{student}</span>
-        <Users className="w-5 h-5 text-gray-400" />
+      <div className="flex justify-between items-start gap-1">
+        <div className="min-w-0">
+          <span className="font-display font-black text-navy-950 text-base leading-tight block truncate" title={student}>{student}</span>
+          {studentObj && (
+            <span className="text-[10px] text-gray-400 block truncate">
+              ID: {studentObj.id}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {studentObj && onEditStudent && (
+            <button
+              onClick={() => onEditStudent(studentObj)}
+              aria-label="Edit Student"
+              type="button"
+              className="text-gray-400 hover:text-navy-955 p-1 rounded-lg hover:bg-gray-100 transition"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onToggleAbsent && (
+            <button
+              onClick={onToggleAbsent}
+              type="button"
+              className={`px-1.5 py-0.5 rounded text-[9px] font-black tracking-wider uppercase transition ${isAbsent ? 'bg-red-100 text-red-750 border border-red-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
+            >
+              {isAbsent ? 'Absent' : 'Present'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Middle Stats Pill Container */}
-      <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl flex items-center justify-between gap-2">
-        {/* Spendable Group */}
-        <div className="text-center">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Spendable</div>
-          <div className="w-10 h-10 bg-brand-700 text-white rounded-full flex items-center justify-center font-black text-lg shadow-inner">
-            {spendable}
+      <div className="bg-slate-50 border border-slate-100 p-2.5 rounded-2xl flex flex-col gap-1.5">
+        <div className="flex items-center justify-between gap-1">
+          {/* Spendable Group */}
+          <div className="flex items-center gap-1.5">
+            <div className="w-7 h-7 bg-brand-700 text-white rounded-full flex items-center justify-center font-black text-sm shadow-inner">
+              {spendable}
+            </div>
+            <div className="text-left">
+              <div className="text-[9px] font-bold text-gray-400 uppercase leading-none">Spendable</div>
+              <button
+                onClick={() => onSpend && onSpend(student, spendable)}
+                disabled={spendable < 1 || isAbsent}
+                type="button"
+                className="text-brand-700 font-bold hover:underline text-[10px] disabled:opacity-40 disabled:no-underline text-left block leading-tight"
+              >
+                Spend
+              </button>
+            </div>
           </div>
-        </div>
 
-        {/* Spend Action Button */}
-        <button
-          onClick={() => onSpend(student, spendable)}
-          disabled={spendable < 1}
-          className="bg-brand-50 hover:bg-brand-100 border border-brand-200 text-brand-700 font-bold px-3 py-1.5 rounded-xl text-xs transition disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          Spend
-        </button>
-
-        {/* Category Breakdown Group */}
-        <div className="text-center text-navy-950">
-          <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Earned {earned}</div>
-          <div className="flex items-center gap-1">
-            <div className="flex flex-col items-center bg-blue-50 border border-blue-100 text-blue-700 px-1.5 py-0.5 rounded-lg">
-              <span className="text-[10px] font-bold">R</span>
-              <span className="text-xs font-black">{bal.Respectful || 0}</span>
-            </div>
-            <div className="flex flex-col items-center bg-amber-50 border border-amber-100 text-amber-700 px-1.5 py-0.5 rounded-lg">
-              <span className="text-[10px] font-bold">S</span>
-              <span className="text-xs font-black">{bal.Responsible || 0}</span>
-            </div>
-            <div className="flex flex-col items-center bg-purple-50 border border-purple-100 text-purple-700 px-1.5 py-0.5 rounded-lg">
-              <span className="text-[10px] font-bold">D</span>
-              <span className="text-xs font-black">{bal.Determined || 0}</span>
+          {/* Earned Summary */}
+          <div className="text-right">
+            <div className="text-[9px] font-bold text-gray-400 uppercase mb-0.5">Earned: {earned}</div>
+            <div className="flex items-center gap-0.5 justify-end">
+              <span className="text-[9px] font-bold bg-blue-50 border border-blue-100 text-blue-700 px-1 py-0.5 rounded-sm" title="Respectful">R:{teacherCounts.Respectful}</span>
+              <span className="text-[9px] font-bold bg-amber-50 border border-amber-100 text-amber-700 px-1 py-0.5 rounded-sm" title="Responsible">S:{teacherCounts.Responsible}</span>
+              <span className="text-[9px] font-bold bg-purple-50 border border-purple-100 text-purple-700 px-1 py-0.5 rounded-sm" title="Determined">D:{teacherCounts.Determined}</span>
             </div>
           </div>
         </div>
       </div>
 
       {/* Roster Give Tickets Buttons */}
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1">
         <button
-          disabled={isBusy}
+          disabled={isBusy || isAbsent}
           onClick={() => onGiveTicket(student, 'Respectful')}
-          className="w-full py-2 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-xl font-bold text-xs transition disabled:opacity-50"
+          type="button"
+          className="w-full py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 rounded-xl font-bold text-[11px] transition disabled:opacity-40"
         >
           {isBusy ? '...' : 'Respectful Ticket'}
         </button>
         <button
-          disabled={isBusy}
+          disabled={isBusy || isAbsent}
           onClick={() => onGiveTicket(student, 'Responsible')}
-          className="w-full py-2 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl font-bold text-xs transition disabled:opacity-50"
+          type="button"
+          className="w-full py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl font-bold text-[11px] transition disabled:opacity-40"
         >
           {isBusy ? '...' : 'Responsible Ticket'}
         </button>
         <button
-          disabled={isBusy}
+          disabled={isBusy || isAbsent}
           onClick={() => onGiveTicket(student, 'Determined')}
-          className="w-full py-2 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 rounded-xl font-bold text-xs transition disabled:opacity-50"
+          type="button"
+          className="w-full py-1.5 bg-purple-50 hover:bg-purple-100 border border-purple-200 text-purple-800 rounded-xl font-bold text-[11px] transition disabled:opacity-40"
         >
           {isBusy ? '...' : 'Determined Ticket'}
         </button>
@@ -663,10 +742,488 @@ function SpendPointsModal({ student, spendable, onClose, showToast }) {
   );
 }
 
+// --- Weekly Raffle Component ---
+function RaffleDashboard({ tickets, students, profiles, showToast }) {
+  const [targetType, setTargetType] = useState('student'); // 'student' or 'teacher'
+  const [timeRange, setTimeRange] = useState('week'); // 'week', 'month', 'all'
+  const [selectedGrade, setSelectedGrade] = useState('');
+  const [selectedHomeroom, setSelectedHomeroom] = useState('');
+
+  // Raffle animation states
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [winner, setWinner] = useState(null);
+  const [tickerName, setTickerName] = useState('');
+  const [showConfetti, setShowConfetti] = useState(false);
+
+  // Filter candidates based on ticket history
+  const candidates = useMemo(() => {
+    const now = new Date();
+    let cutoff = new Date(0); // all time
+    if (timeRange === 'week') {
+      cutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    } else if (timeRange === 'month') {
+      cutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    }
+
+    const eligibleTickets = tickets.filter(t => {
+      const ticketTime = t.timestamp ? new Date(t.timestamp.toDate()) : new Date();
+      return ticketTime >= cutoff;
+    });
+
+    if (targetType === 'student') {
+      // Group by student
+      const counts = {};
+      eligibleTickets.forEach(t => {
+        if (t.recipientType === 'student') {
+          counts[t.recipient] = (counts[t.recipient] || 0) + 1;
+        }
+      });
+
+      // Filter by homeroom and grade if requested
+      return Object.entries(counts)
+        .map(([name, count]) => {
+          const studentObj = students.find(s => s.name === name);
+          return {
+            name,
+            count,
+            homeroom: studentObj?.homeroom || 'Unknown',
+            grade: studentObj?.grade || 'Unknown'
+          };
+        })
+        .filter(c => {
+          if (selectedGrade && c.grade !== selectedGrade) return false;
+          if (selectedHomeroom && c.homeroom !== selectedHomeroom) return false;
+          return true;
+        });
+    } else {
+      // Group by teacher
+      const counts = {};
+      eligibleTickets.forEach(t => {
+        counts[t.teacherName] = (counts[t.teacherName] || 0) + 1;
+      });
+
+      return Object.entries(counts).map(([name, count]) => ({
+        name,
+        count
+      }));
+    }
+  }, [tickets, students, targetType, timeRange, selectedGrade, selectedHomeroom]);
+
+  const totalTickets = useMemo(() => {
+    return candidates.reduce((sum, c) => sum + c.count, 0);
+  }, [candidates]);
+
+  // List of all candidate grades & homerooms for dropdowns
+  const grades = useMemo(() => [...new Set(students.map(s => s.grade).filter(Boolean))].sort(), [students]);
+  const homerooms = useMemo(() => [...new Set(students.map(s => s.homeroom).filter(Boolean))].sort(), [students]);
+
+  const handleDraw = () => {
+    if (candidates.length === 0) {
+      showToast("No eligible candidates in this pool!");
+      return;
+    }
+    setIsDrawing(true);
+    setWinner(null);
+    setShowConfetti(false);
+
+    // Create the lottery pool (weighted by ticket counts)
+    const pool = [];
+    candidates.forEach(c => {
+      for (let i = 0; i < c.count; i++) {
+        pool.push(c.name);
+      }
+    });
+
+    // Run custom ticker animation
+    let duration = 4000; // 4 seconds total animation
+    let start = Date.now();
+    let speed = 40; // start fast (every 40ms change name)
+
+    const tick = () => {
+      const elapsed = Date.now() - start;
+      if (elapsed >= duration) {
+        // Finished! Pick final winner
+        const finalWinnerName = pool[Math.floor(Math.random() * pool.length)];
+        const finalWinner = candidates.find(c => c.name === finalWinnerName);
+        setWinner(finalWinner);
+        setTickerName(finalWinner.name);
+        setIsDrawing(false);
+        setShowConfetti(true);
+        // Turn off confetti after 8 seconds
+        setTimeout(() => setShowConfetti(false), 8000);
+      } else {
+        // Cycle names
+        const randomCandidate = candidates[Math.floor(Math.random() * candidates.length)];
+        setTickerName(randomCandidate.name);
+        
+        // Decelerate speed
+        const progress = elapsed / duration;
+        speed = 40 + Math.pow(progress, 2.5) * 500; // curves from 40ms to 540ms
+        setTimeout(tick, speed);
+      }
+    };
+
+    tick();
+  };
+
+  return (
+    <div className="space-y-6 max-w-4xl mx-auto relative">
+      {showConfetti && <ConfettiEffect />}
+
+      <div className="bg-white p-6 rounded-3xl border border-gray-155 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <h1 className="text-3xl font-extrabold text-navy-950 font-display flex items-center gap-2">
+            <Star className="w-8 h-8 text-yellow-500 fill-current animate-spin-slow" />
+            <span>Weekly Raffle Drum</span>
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">Reward students and teachers who earned tickets during the selected time period.</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setTargetType('student'); setWinner(null); }}
+            className={`px-4 py-2 text-sm font-bold rounded-xl transition ${targetType === 'student' ? 'bg-brand-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >
+            Student Raffle
+          </button>
+          <button
+            onClick={() => { setTargetType('teacher'); setWinner(null); }}
+            className={`px-4 py-2 text-sm font-bold rounded-xl transition ${targetType === 'teacher' ? 'bg-brand-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >
+            Teacher Raffle
+          </button>
+        </div>
+      </div>
+
+      {/* Control Filters and Visual Drawer */}
+      <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-6">
+        {/* Filters Sidebar */}
+        <div className="bg-white p-5 rounded-3xl border border-gray-155 shadow-sm space-y-4">
+          <h3 className="font-display font-black text-navy-950 text-sm border-b pb-2 uppercase tracking-wider">Configure Pool</h3>
+          
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Time Range</label>
+            <select value={timeRange} onChange={e => { setTimeRange(e.target.value); setWinner(null); }} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none bg-white">
+              <option value="week">This Week (Last 7 Days)</option>
+              <option value="month">This Month (Last 30 Days)</option>
+              <option value="all">All Time</option>
+            </select>
+          </div>
+
+          {targetType === 'student' && (
+            <>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Grade Level</label>
+                <select value={selectedGrade} onChange={e => { setSelectedGrade(e.target.value); setWinner(null); }} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none bg-white">
+                  <option value="">All Grades</option>
+                  {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Homeroom</label>
+                <select value={selectedHomeroom} onChange={e => { setSelectedHomeroom(e.target.value); setWinner(null); }} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none bg-white">
+                  <option value="">All Homerooms</option>
+                  {homerooms.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            </>
+          )}
+
+          <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl text-xs space-y-1.5">
+            <div className="flex justify-between">
+              <span className="text-gray-400 font-bold">Total Candidates:</span>
+              <span className="font-black text-navy-950">{candidates.length}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-400 font-bold">Total Entries:</span>
+              <span className="font-black text-navy-950">{totalTickets}</span>
+            </div>
+            <p className="text-[10px] text-gray-400 italic mt-2">Chance of winning is proportional to tickets earned during the period.</p>
+          </div>
+        </div>
+
+        {/* Visual Drawing Stage */}
+        <div className="bg-gradient-to-br from-navy-900 to-navy-950 p-6 rounded-3xl border border-navy-700 shadow-xl flex flex-col items-center justify-center min-h-[400px] relative overflow-hidden text-center text-white">
+          {/* Decorative Stars */}
+          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-yellow-300 via-transparent to-transparent pointer-events-none"></div>
+
+          {!isDrawing && !winner ? (
+            <div className="space-y-6 z-10">
+              <div className="w-24 h-24 bg-navy-800 border-2 border-yellow-500 rounded-full flex items-center justify-center mx-auto text-yellow-500 shadow-lg shadow-yellow-500/20">
+                <Ticket className="w-12 h-12" />
+              </div>
+              <div>
+                <h2 className="text-2xl font-black font-display text-white">Ready for Draw</h2>
+                <p className="text-sm text-navy-200 mt-2 max-w-sm mx-auto">Click below to start the weighted draw. Candidates with more tickets have a higher chance of winning!</p>
+              </div>
+              <button
+                onClick={handleDraw}
+                disabled={candidates.length === 0}
+                className="bg-yellow-500 hover:bg-yellow-600 disabled:opacity-40 disabled:hover:bg-yellow-500 text-navy-950 font-black px-8 py-3.5 rounded-2xl shadow-lg shadow-yellow-500/10 transition text-base"
+              >
+                Start Raffle Draw
+              </button>
+            </div>
+          ) : isDrawing ? (
+            <div className="space-y-6 z-10 w-full max-w-md">
+              <div className="text-yellow-400 uppercase tracking-widest text-xs font-black animate-pulse">Drawing Winner...</div>
+              <div className="h-28 flex items-center justify-center border-y-2 border-navy-800 bg-navy-950/60 p-4 rounded-xl shadow-inner">
+                <div className="text-3xl font-black font-display tracking-tight text-white animate-fade-in truncate w-full">
+                  {tickerName}
+                </div>
+              </div>
+              <p className="text-xs text-navy-300 italic">Rolling the weighted ticket drum...</p>
+            </div>
+          ) : (
+            <div className="space-y-6 z-10 animate-fade-in max-w-md">
+              <div className="text-yellow-400 uppercase tracking-widest text-xs font-black">Winner Drawn! 🎉</div>
+              <div className="bg-yellow-500 text-navy-955 p-6 rounded-3xl shadow-xl shadow-yellow-500/20 border-4 border-white inline-block w-full">
+                <Crown className="w-12 h-12 mx-auto mb-2 text-navy-950 fill-current" />
+                <h2 className="text-3xl font-black font-display truncate leading-tight">{winner.name}</h2>
+                {winner.homeroom && (
+                  <p className="text-xs font-bold text-navy-900 mt-1 uppercase tracking-wider">
+                    {winner.homeroom} · {winner.grade}
+                  </p>
+                )}
+                <div className="bg-navy-900 text-white rounded-2xl px-4 py-2 mt-4 inline-block text-xs font-bold">
+                  {winner.count} Tickets Earned This Period ({Math.round((winner.count / totalTickets) * 100)}% Chance)
+                </div>
+              </div>
+              <div className="flex gap-3 justify-center mt-6">
+                <button
+                  onClick={handleDraw}
+                  className="bg-navy-800 hover:bg-navy-750 text-white font-bold px-6 py-2.5 rounded-xl border border-navy-700 transition text-sm"
+                >
+                  Draw Another
+                </button>
+                <button
+                  onClick={() => { setWinner(null); setShowConfetti(false); }}
+                  className="bg-white hover:bg-gray-50 text-navy-950 font-bold px-6 py-2.5 rounded-xl transition text-sm"
+                >
+                  Reset
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Candidate List Table */}
+      <div className="bg-white rounded-3xl border border-gray-155 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
+          <h3 className="font-display font-black text-navy-955 text-sm">Raffle Candidates ({candidates.length})</h3>
+          <span className="text-xs text-gray-505">Weighted entry list</span>
+        </div>
+        <div className="max-h-[300px] overflow-y-auto">
+          {candidates.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 italic">No candidates matching the current filters.</div>
+          ) : (
+            <table className="w-full text-left text-sm text-gray-600">
+              <thead className="bg-gray-50 text-[10px] font-bold uppercase text-gray-450 border-b">
+                <tr>
+                  <th className="px-6 py-3">Candidate</th>
+                  {targetType === 'student' && <th className="px-6 py-3">Homeroom / Grade</th>}
+                  <th className="px-6 py-3 text-center">Entries</th>
+                  <th className="px-6 py-3 text-right">Win Probability</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {candidates.sort((a, b) => b.count - a.count).map(c => (
+                  <tr key={c.name} className="hover:bg-slate-50 transition">
+                    <td className="px-6 py-3 font-bold text-navy-955">{c.name}</td>
+                    {targetType === 'student' && (
+                      <td className="px-6 py-3 text-xs text-gray-500">{c.homeroom} · {c.grade}</td>
+                    )}
+                    <td className="px-6 py-3 text-center font-bold text-brand-700">{c.count}</td>
+                    <td className="px-6 py-3 text-right font-medium text-gray-500">
+                      {Math.round((c.count / totalTickets) * 100)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Confetti Particles Visual Element ---
+const ConfettiEffect = () => {
+  const colors = ['bg-red-500', 'bg-blue-500', 'bg-yellow-500', 'bg-green-500', 'bg-pink-500', 'bg-purple-500'];
+  return (
+    <div className="absolute inset-0 pointer-events-none overflow-hidden z-50">
+      {[...Array(80)].map((_, i) => {
+        const left = Math.random() * 100;
+        const delay = Math.random() * 3;
+        const duration = 2 + Math.random() * 2;
+        const size = 5 + Math.random() * 8;
+        const color = colors[Math.floor(Math.random() * colors.length)];
+        return (
+          <div
+            key={i}
+            className={`absolute rounded-xs animate-confetti ${color}`}
+            style={{
+              left: `${left}%`,
+              top: `-20px`,
+              width: `${size}px`,
+              height: `${size}px`,
+              animationDelay: `${delay}s`,
+              animationDuration: `${duration}s`
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+};
+
+// --- Edit Student Modal ---
+function EditStudentModal({ student, onClose, showToast }) {
+  const [studentId, setStudentId] = useState(student.id);
+  const [name, setName] = useState(student.name);
+  const [homeroom, setHomeroom] = useState(student.homeroom);
+  const [grade, setGrade] = useState(student.grade);
+  const [pinCode, setPinCode] = useState(student.pinCode);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!studentId.trim() || !name.trim() || !homeroom.trim() || !grade.trim() || !pinCode.trim()) {
+      showToast("All fields are required.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.fetch(`/api/students/${student.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          id: studentId.trim(),
+          name: name.trim(),
+          homeroom: homeroom.trim(),
+          grade: grade.trim(),
+          pinCode: pinCode.trim()
+        })
+      });
+      showToast(`Student profile updated successfully!`);
+      onClose();
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to update student.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/45 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-100 shadow-xl space-y-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <h3 className="font-display font-black text-navy-955 text-base">Edit Student Credentials</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-705"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Student Full Name</label>
+            <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Login Student ID (Editable)</label>
+            <input type="text" required value={studentId} onChange={e => setStudentId(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Login PIN (4 digits)</label>
+            <input type="text" required maxLength={6} value={pinCode} onChange={e => setPinCode(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Homeroom</label>
+              <input type="text" required value={homeroom} onChange={e => setHomeroom(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Grade</label>
+              <input type="text" required value={grade} onChange={e => setGrade(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white">Cancel</button>
+            <button type="submit" disabled={loading} className="px-4 py-2 border rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">{loading ? 'Saving...' : 'Save Changes'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- Change Password Modal ---
+function ChangePasswordModal({ onClose, showToast }) {
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!currentPassword.trim() || !newPassword.trim()) {
+      showToast("All fields are required.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      showToast("New passwords do not match.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.fetch('/api/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword })
+      });
+      showToast(`Password updated successfully!`);
+      onClose();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to reset password.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/45 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-100 shadow-xl space-y-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <h3 className="font-display font-black text-navy-955 text-base">Reset Account Password</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-705"><X className="w-5 h-5" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Current Password</label>
+            <input type="password" required value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">New Password</label>
+            <input type="password" required value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-gray-500 mb-1">Confirm New Password</label>
+            <input type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <button type="button" onClick={onClose} className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white">Cancel</button>
+            <button type="submit" disabled={loading} className="px-4 py-2 border rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">{loading ? 'Updating...' : 'Update Password'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // --- Components ---
-function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp }) {
+function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword }) {
   const handleExport = () => {
-    let data = profile.role === 'admin' ? tickets : tickets.filter(t => t.teacherId === profile.id);
+    let data = profile.role === 'admin' ? tickets : tickets.filter(t => t.teacherEmail === profile.email);
     if (data.length === 0) return alert("No data to export.");
     let csv = "Date,Time,Teacher Name,Recipient,Recipient Type,Reason\n";
     data.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).forEach(t => {
@@ -686,17 +1243,26 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp }) {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Ticket className="w-8 h-8 text-green-300" />
-          <span className="font-bold text-xl tracking-tight">Green Tickets</span>
+          <span className="font-bold text-xl tracking-tight cursor-pointer" onClick={() => setActiveView('dashboard')}>Green Tickets</span>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="hidden sm:block text-sm font-medium bg-green-800 px-3 py-1 rounded-full">
+        <div className="flex items-center gap-2 md:gap-4">
+          <span className="hidden lg:block text-sm font-medium bg-green-800 px-3 py-1 rounded-full">
             {profile.name} ({profile.role})
           </span>
+          <button onClick={() => setActiveView('dashboard')} className={`flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium ${activeView === 'dashboard' ? 'bg-green-850' : ''}`}>
+            Dashboard
+          </button>
+          <button onClick={() => setActiveView('raffle')} className={`flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium ${activeView === 'raffle' ? 'bg-green-850' : ''}`}>
+            Weekly Raffle
+          </button>
           <button onClick={onHelp} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
             <HelpCircle className="w-4 h-4" /> Help
           </button>
           <button onClick={onRoleSwitch} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
             <Settings className="w-4 h-4" /> Role
+          </button>
+          <button onClick={onChangePassword} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
+            <Lock className="w-4 h-4" /> Password
           </button>
           <button onClick={handleExport} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
             <Download className="w-4 h-4" /> Export
@@ -942,8 +1508,162 @@ function Login({ onLoginSuccess, showToast }) {
   );
 }
 
+function MathSprintGame() {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [score, setScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(30);
+  const [num1, setNum1] = useState(0);
+  const [num2, setNum2] = useState(0);
+  const [op, setOp] = useState('+');
+  const [answer, setAnswer] = useState('');
+  const [highScore, setHighScore] = useState(() => Number(localStorage.getItem('math_sprint_highscore') || 0));
+  const [message, setMessage] = useState('');
+  const [correctAnswer, setCorrectAnswer] = useState(0);
+
+  const generateQuestion = () => {
+    const ops = ['+', '-', '*'];
+    const selectedOp = ops[Math.floor(Math.random() * ops.length)];
+    let n1, n2;
+    if (selectedOp === '*') {
+      n1 = Math.floor(Math.random() * 8) + 2;
+      n2 = Math.floor(Math.random() * 8) + 2;
+    } else {
+      n1 = Math.floor(Math.random() * 40) + 10;
+      n2 = Math.floor(Math.random() * 30) + 5;
+      if (n1 < n2) {
+        const temp = n1;
+        n1 = n2;
+        n2 = temp;
+      }
+    }
+    setNum1(n1);
+    setNum2(n2);
+    setOp(selectedOp);
+    let ans;
+    if (selectedOp === '+') ans = n1 + n2;
+    else if (selectedOp === '-') ans = n1 - n2;
+    else ans = n1 * n2;
+    setCorrectAnswer(ans);
+    setAnswer('');
+    setMessage('');
+  };
+
+  const startGame = () => {
+    setIsPlaying(true);
+    setScore(0);
+    setTimeLeft(30);
+    generateQuestion();
+  };
+
+  useEffect(() => {
+    if (!isPlaying) return;
+    if (timeLeft <= 0) {
+      setIsPlaying(false);
+      if (score > highScore) {
+        setHighScore(score);
+        localStorage.setItem('math_sprint_highscore', score);
+        setMessage('New Personal Best! 🎉');
+      } else {
+        setMessage('Game Over! Great job! 🌟');
+      }
+      return;
+    }
+    const timer = setTimeout(() => setTimeLeft(timeLeft - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [timeLeft, isPlaying, score, highScore]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const parsedAns = Number(answer.trim());
+    if (parsedAns === correctAnswer) {
+      setScore(s => s + 10);
+      setMessage('Correct! +10 pts 🌟');
+      setTimeout(generateQuestion, 500);
+    } else {
+      setMessage('Try again! ❌');
+    }
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col justify-between space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display font-bold text-navy-950 text-lg flex items-center gap-2">
+          <Gamepad2 className="w-5 h-5 text-purple-500" aria-hidden="true" />
+          <span>Brain Sprint Math Game</span>
+        </h2>
+        <span className="text-xs font-bold text-purple-600 bg-purple-50 px-2.5 py-1 rounded-full">High Score: {highScore} pts</span>
+      </div>
+      
+      {!isPlaying ? (
+        <div className="text-center py-6 space-y-4 flex-1 flex flex-col justify-center">
+          <p className="text-sm text-gray-500">Train your brain! Answer as many math equations as you can in 30 seconds!</p>
+          <button 
+            onClick={startGame}
+            className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 px-6 rounded-xl transition text-sm shadow-sm w-fit mx-auto cursor-pointer"
+          >
+            Start Game 🚀
+          </button>
+          {message && <div className="text-sm font-bold text-brand-600 animate-bounce">{message}</div>}
+        </div>
+      ) : (
+        <div className="space-y-4 flex-1 flex flex-col justify-between">
+          <div className="flex justify-between items-center text-sm font-bold text-gray-600">
+            <div>Score: <span className="text-purple-600">{score}</span></div>
+            <div className={`${timeLeft <= 5 ? 'text-red-500 animate-pulse' : 'text-gray-500'}`}>Time Left: {timeLeft}s</div>
+          </div>
+          <div className="bg-purple-50/50 p-6 rounded-2xl text-center border border-purple-100">
+            <div className="text-3xl font-black text-purple-900 font-display select-none">
+              {num1} {op === '*' ? '×' : op} {num2} = ?
+            </div>
+          </div>
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <input 
+              type="number"
+              required
+              autoFocus
+              value={answer}
+              onChange={e => setAnswer(e.target.value)}
+              placeholder="Your answer"
+              className="flex-1 p-3 border border-gray-300 rounded-xl text-center font-bold text-lg focus:ring-purple-500 focus:border-purple-500 outline-none"
+            />
+            <button type="submit" className="bg-purple-600 hover:bg-purple-700 text-white px-5 rounded-xl font-bold transition text-sm shadow-sm cursor-pointer">Submit</button>
+          </form>
+          {message && (
+            <div className={`text-center text-xs font-bold ${message.includes('Correct') ? 'text-green-600' : 'text-red-500'}`}>
+              {message}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StudentDashboard({ studentData, onSignOut }) {
   const { profile, tickets, spending, classGoal, gradeGoal, wallet, goldenCount, classTicketsEarned, gradeGoldenEarned } = studentData;
+  const [avatar, setAvatar] = useState(() => {
+    return localStorage.getItem(`avatar_${profile.name}`) || '🐼';
+  });
+  const [showAvatarModal, setShowAvatarModal] = useState(false);
+
+  const avatars = [
+    { emoji: '🐼', name: 'Friendly Panda' },
+    { emoji: '🦁', name: 'Brave Lion' },
+    { emoji: '🦊', name: 'Clever Fox' },
+    { emoji: '🦖', name: 'Super Dino' },
+    { emoji: '🦉', name: 'Wise Owl' },
+    { emoji: '🦄', name: 'Cosmic Unicorn' },
+    { emoji: '🐨', name: 'Happy Koala' },
+    { emoji: '🚀', name: 'Space Explorer' },
+    { emoji: '🐝', name: 'Busy Bee' },
+    { emoji: '🐸', name: 'Leaping Frog' },
+  ];
+
+  const handleSelectAvatar = (emoji) => {
+    setAvatar(emoji);
+    localStorage.setItem(`avatar_${profile.name}`, emoji);
+    setShowAvatarModal(false);
+  };
 
   const reasonCounts = { Respectful: 0, Responsible: 0, Determined: 0 };
   tickets.forEach(t => {
@@ -984,9 +1704,22 @@ function StudentDashboard({ studentData, onSignOut }) {
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto w-full space-y-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-extrabold text-navy-950 font-display">Welcome Back, {profile.name}!</h1>
-            <p className="text-gray-500 text-sm mt-1">Homeroom: <span className="font-bold text-navy-800">{profile.homeroom || 'N/A'}</span> • Grade: <span className="font-bold text-navy-800">{profile.grade || 'N/A'}</span></p>
+          <div className="flex items-center gap-4">
+            {/* Mascot Avatar Display */}
+            <div className="w-16 h-16 rounded-full bg-brand-100 flex items-center justify-center text-4xl shadow-inner border border-brand-200 flex-shrink-0 relative group">
+              <span className="select-none">{avatar}</span>
+              <button 
+                onClick={() => setShowAvatarModal(true)} 
+                title="Change Avatar"
+                className="absolute inset-0 bg-black/40 text-white text-[10px] font-black rounded-full opacity-0 group-hover:opacity-100 transition flex items-center justify-center cursor-pointer border-none outline-none"
+              >
+                EDIT
+              </button>
+            </div>
+            <div>
+              <h1 className="text-2xl font-extrabold text-navy-950 font-display">Welcome Back, {profile.name}!</h1>
+              <p className="text-gray-500 text-sm mt-1">Homeroom: <span className="font-bold text-navy-800">{profile.homeroom || 'N/A'}</span> • Grade: <span className="font-bold text-navy-800">{profile.grade || 'N/A'}</span></p>
+            </div>
           </div>
           <div className="bg-brand-50 border border-brand-100 px-6 py-4 rounded-xl flex items-center gap-4">
             <div className="bg-brand-600 p-2.5 rounded-xl text-white">
@@ -999,7 +1732,7 @@ function StudentDashboard({ studentData, onSignOut }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="font-display font-bold text-navy-950 text-lg flex items-center gap-2">
@@ -1061,6 +1794,9 @@ function StudentDashboard({ studentData, onSignOut }) {
               <div className="text-gray-400 text-sm text-center py-6">No grade-level golden ticket goal has been set by the administrator yet.</div>
             )}
           </div>
+
+          {/* Educational game for engagement */}
+          <MathSprintGame />
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1108,12 +1844,39 @@ function StudentDashboard({ studentData, onSignOut }) {
           </div>
         </div>
       </main>
+
+      {/* Avatar Modal */}
+      {showAvatarModal && (
+        <div className="fixed inset-0 bg-navy-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-100 shadow-xl space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-display font-black text-navy-950 text-base">Choose Your Mascot Avatar!</h3>
+              <button onClick={() => setShowAvatarModal(false)} className="text-gray-400 hover:text-gray-700 cursor-pointer"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="grid grid-cols-5 gap-3">
+              {avatars.map(av => (
+                <button
+                  key={av.emoji}
+                  onClick={() => handleSelectAvatar(av.emoji)}
+                  title={av.name}
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl border hover:bg-brand-50 hover:border-brand-500 transition duration-150 cursor-pointer ${avatar === av.emoji ? 'border-brand-600 bg-brand-50' : 'border-gray-200 bg-white'}`}
+                >
+                  {av.emoji}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-end pt-2">
+              <button onClick={() => setShowAvatarModal(false)} className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white cursor-pointer">Close</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent }) {
   const [modalData, setModalData] = useState(null);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [awardDate, setAwardDate] = useState('today'); // 'today', 'yesterday', 'other'
@@ -1245,12 +2008,32 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'tickets'), {
-        teacherId: user.uid, teacherName: profile.name,
-        recipient, recipientType: type, reason, timestamp: serverTimestamp(),
-        customDate: resolveSelectedDate()
-      });
-      showToast(`Ticket awarded to ${recipient}!`);
+      if (type === 'class') {
+        const className = recipient.split(' (Whole Class)')[0];
+        const classStudents = students.filter(s => s.homeroom === className);
+        const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
+        if (presentStudents.length === 0) {
+          showToast("No present students to award tickets to.");
+          setModalData(null);
+          setIsSubmitting(false);
+          return;
+        }
+        await Promise.all(presentStudents.map(student =>
+          addDoc(collection(db, 'tickets'), {
+            teacherId: user.uid, teacherName: profile.name,
+            recipient: student.name, recipientType: 'student', reason, timestamp: serverTimestamp(),
+            customDate: resolveSelectedDate()
+          })
+        ));
+        showToast(`Regular ticket awarded to ${presentStudents.length} present students in ${className}!`);
+      } else {
+        await addDoc(collection(db, 'tickets'), {
+          teacherId: user.uid, teacherName: profile.name,
+          recipient, recipientType: type, reason, timestamp: serverTimestamp(),
+          customDate: resolveSelectedDate()
+        });
+        showToast(`Ticket awarded to ${recipient}!`);
+      }
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
@@ -1699,11 +2482,6 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         </form>
       )}
 
-      <StudentSearch students={students} onSelect={setModalData} />
-
-      {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
-      <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
-
       {myStudents.length === 0 ? (
         <div className="bg-white p-8 rounded-xl border text-center text-gray-500">
           <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" aria-hidden="true" />
@@ -1715,10 +2493,18 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
           {myStudents.map(student => (
             <StudentTicketCard key={student} student={student}
               onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
-              balances={balances} onSpend={(s, spendable) => setSpendData({ student: s, spendable })} />
+              balances={balances} onSpend={(s, spendable) => setSpendData({ student: s, spendable })}
+              students={students} onEditStudent={onEditStudent} isAbsent={absentStudents.has(student)}
+              onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email} />
           ))}
         </div>
       )}
+
+      <div className="mt-8 border-t pt-8 space-y-6">
+        <StudentSearch students={students} onSelect={setModalData} />
+        {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
+        <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
+      </div>
 
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
       {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
@@ -1727,9 +2513,10 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances, absentStudents, onToggleAbsent, onEditStudent }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
+  const [spendData, setSpendData] = useState(null);
 
   const classes = useMemo(() => {
     const homerooms = students.map(s => s.homeroom).filter(Boolean);
@@ -1775,11 +2562,30 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'tickets'), {
-        teacherId: user.uid, teacherName: profile.name,
-        recipient, recipientType: type, reason, timestamp: serverTimestamp()
-      });
-      showToast(`Ticket awarded to ${recipient}!`);
+      if (type === 'class') {
+        const className = recipient.split(' (Whole Class)')[0];
+        const classStudents = students.filter(s => s.homeroom === className);
+        const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
+        if (presentStudents.length === 0) {
+          showToast("No present students to award tickets to.");
+          setModalData(null);
+          setIsSubmitting(false);
+          return;
+        }
+        await Promise.all(presentStudents.map(student =>
+          addDoc(collection(db, 'tickets'), {
+            teacherId: user.uid, teacherName: profile.name,
+            recipient: student.name, recipientType: 'student', reason, timestamp: serverTimestamp()
+          })
+        ));
+        showToast(`Regular ticket awarded to ${presentStudents.length} present students in ${className}!`);
+      } else {
+        await addDoc(collection(db, 'tickets'), {
+          teacherId: user.uid, teacherName: profile.name,
+          recipient, recipientType: type, reason, timestamp: serverTimestamp()
+        });
+        showToast(`Ticket awarded to ${recipient}!`);
+      }
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
@@ -1889,7 +2695,9 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
               {studentsInClass.map(student => (
                 <StudentTicketCard key={student} student={student}
                   onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
-                  balances={balances} />
+                  balances={balances} onSpend={(s, spendable) => setSpendData({ student: s, spendable })}
+                  students={students} onEditStudent={onEditStudent} isAbsent={absentStudents.has(student)}
+                  onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email} />
               ))}
             </div>
           )}
@@ -1897,12 +2705,13 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
       )}
 
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
+      {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
     </div>
   );
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, absentStudents, onToggleAbsent, onEditStudent }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1913,6 +2722,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [activityPage, setActivityPage] = useState(0);
   const [confirmDeleteProfile, setConfirmDeleteProfile] = useState(null);
   const [isDeletingProfile, setIsDeletingProfile] = useState(false);
+  const [spendData, setSpendData] = useState(null);
   const ITEMS_PER_PAGE = 25;
 
   // Grade Goals state
@@ -1974,11 +2784,30 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'tickets'), {
-        teacherId: user.uid, teacherName: profile.name,
-        recipient, recipientType: type, reason, timestamp: serverTimestamp()
-      });
-      showToast(`Ticket awarded to ${recipient}!`);
+      if (type === 'class') {
+        const className = recipient.split(' (Whole Class)')[0];
+        const classStudents = students.filter(s => s.homeroom === className);
+        const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
+        if (presentStudents.length === 0) {
+          showToast("No present students to award tickets to.");
+          setModalData(null);
+          setIsSubmitting(false);
+          return;
+        }
+        await Promise.all(presentStudents.map(student =>
+          addDoc(collection(db, 'tickets'), {
+            teacherId: user.uid, teacherName: profile.name,
+            recipient: student.name, recipientType: 'student', reason, timestamp: serverTimestamp()
+          })
+        ));
+        showToast(`Regular ticket awarded to ${presentStudents.length} present students in ${className}!`);
+      } else {
+        await addDoc(collection(db, 'tickets'), {
+          teacherId: user.uid, teacherName: profile.name,
+          recipient, recipientType: type, reason, timestamp: serverTimestamp()
+        });
+        showToast(`Ticket awarded to ${recipient}!`);
+      }
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
@@ -2253,7 +3082,9 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                   {studentsInClass.map(student => (
                     <StudentTicketCard key={student} student={student}
                       onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
-                      balances={balances} />
+                      balances={balances} onSpend={(s, spendable) => setSpendData({ student: s, spendable })}
+                      students={students} onEditStudent={onEditStudent} isAbsent={absentStudents.has(student)}
+                      onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email} />
                   ))}
                 </div>
               )}
@@ -2717,6 +3548,9 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           )}
         </div>
       ) : null}
+
+      {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
+      {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
     </div>
   );
 }
