@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download, LogOut,
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
-  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus
+  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings
 } from 'lucide-react';
 
 const API_URL = import.meta.env.DEV ? 'http://localhost:8080' : '';
@@ -182,6 +182,15 @@ export default function App() {
   // UI State
   const [toast, setToast] = useState({ visible: false, message: '' });
 
+  // Role Switching Modal State
+  const [showRoleSwitch, setShowRoleSwitch] = useState(false);
+  const [newRole, setNewRole] = useState(role || 'homeroom');
+  const [roleAdminPassword, setRoleAdminPassword] = useState('');
+  const [roleChangeLoading, setRoleChangeLoading] = useState(false);
+
+  // Help Modal State
+  const [showHelp, setShowHelp] = useState(false);
+
   // Expose triggerRefresh globally for the mock Firestore operations
   useEffect(() => {
     window.triggerRefresh = () => {
@@ -268,13 +277,35 @@ export default function App() {
     if (p.linkedTo === profile.email) myUids.add(p.email);
   });
 
+  const handleRoleChange = async () => {
+    if (!newRole) return;
+    setRoleChangeLoading(true);
+    try {
+      const data = await api.fetch('/api/auth/change-role', {
+        method: 'POST',
+        body: JSON.stringify({ newRole, adminPassword: newRole === 'admin' ? roleAdminPassword : undefined })
+      });
+      api.setToken(data.token);
+      setProfile(data.profile);
+      setRole(data.profile.role);
+      setShowRoleSwitch(false);
+      setRoleAdminPassword('');
+      setRefreshTrigger(prev => prev + 1);
+      showToast(`Role changed to ${newRole}!`);
+    } catch (e) {
+      showToast(e.message || 'Failed to change role.');
+    } finally {
+      setRoleChangeLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans text-gray-800">
-      <Navbar profile={profile} tickets={tickets} onSignOut={handleSignOut} />
+      <Navbar profile={profile} tickets={tickets} onSignOut={handleSignOut} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onHelp={() => setShowHelp(true)} />
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {role === 'admin' && (
-          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} />
+          <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} />
         )}
         {role === 'homeroom' && (
           <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} />
@@ -283,6 +314,40 @@ export default function App() {
           <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} />
         )}
       </main>
+
+      {/* Role Switch Modal */}
+      {showRoleSwitch && (
+        <div className="fixed inset-0 bg-navy-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-100 shadow-xl space-y-4">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-display font-black text-navy-950 text-base flex items-center gap-2"><Settings className="w-5 h-5 text-gray-400" /> Change Role</h3>
+              <button onClick={() => setShowRoleSwitch(false)} className="text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-sm text-gray-500">Current role: <span className="font-bold text-navy-950 capitalize">{role}</span></p>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">New Role</label>
+              <select value={newRole} onChange={e => setNewRole(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none bg-white">
+                <option value="homeroom">Homeroom Teacher</option>
+                <option value="specialist">Specialist</option>
+                <option value="admin">Administrator</option>
+              </select>
+            </div>
+            {newRole === 'admin' && (
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Admin Password Required</label>
+                <input type="password" value={roleAdminPassword} onChange={e => setRoleAdminPassword(e.target.value)} placeholder="Enter admin password" className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+              </div>
+            )}
+            <div className="flex gap-2 justify-end pt-2">
+              <button type="button" onClick={() => setShowRoleSwitch(false)} className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white">Cancel</button>
+              <button onClick={handleRoleChange} disabled={roleChangeLoading || newRole === role} className="px-4 py-2 border rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">{roleChangeLoading ? 'Changing...' : 'Switch Role'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Help Modal */}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
       {/* Toast Notification */}
       <div className={`fixed bottom-4 right-4 bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 transition-all duration-300 ${toast.visible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
@@ -599,7 +664,7 @@ function SpendPointsModal({ student, spendable, onClose, showToast }) {
 }
 
 // --- Components ---
-function Navbar({ profile, tickets, onSignOut }) {
+function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp }) {
   const handleExport = () => {
     let data = profile.role === 'admin' ? tickets : tickets.filter(t => t.teacherId === profile.id);
     if (data.length === 0) return alert("No data to export.");
@@ -627,6 +692,12 @@ function Navbar({ profile, tickets, onSignOut }) {
           <span className="hidden sm:block text-sm font-medium bg-green-800 px-3 py-1 rounded-full">
             {profile.name} ({profile.role})
           </span>
+          <button onClick={onHelp} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
+            <HelpCircle className="w-4 h-4" /> Help
+          </button>
+          <button onClick={onRoleSwitch} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
+            <Settings className="w-4 h-4" /> Role
+          </button>
           <button onClick={handleExport} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
             <Download className="w-4 h-4" /> Export
           </button>
@@ -652,6 +723,7 @@ function Login({ onLoginSuccess, showToast }) {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('homeroom');
+  const [adminPassword, setAdminPassword] = useState('');
 
   const handleStudentSubmit = async (e) => {
     e.preventDefault();
@@ -679,7 +751,7 @@ function Login({ onLoginSuccess, showToast }) {
       if (isRegistering) {
         await api.fetch('/api/auth/teacher/register', {
           method: 'POST',
-          body: JSON.stringify({ email, password, name, role })
+          body: JSON.stringify({ email, password, name, role, adminPassword: role === 'admin' ? adminPassword : undefined })
         });
         showToast("Registration successful! Logging in...");
       }
@@ -807,6 +879,20 @@ function Login({ onLoginSuccess, showToast }) {
                     <option value="admin">Administrator</option>
                   </select>
                 </div>
+                {role === 'admin' && (
+                  <div>
+                    <label htmlFor="admin-password" className="block text-sm font-bold text-gray-700">Admin Password</label>
+                    <input
+                      id="admin-password"
+                      type="password"
+                      required
+                      value={adminPassword}
+                      onChange={e => setAdminPassword(e.target.value)}
+                      className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                      placeholder="Enter admin password"
+                    />
+                  </div>
+                )}
               </>
             )}
             <div>
@@ -1666,17 +1752,14 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     setIsSubmitting(true);
     setSubmittingFor(recipient);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+      await addDoc(collection(db, 'tickets'), {
         teacherId: user.uid, teacherName: profile.name,
         recipient, recipientType: 'student', reason, timestamp: serverTimestamp()
       });
       showToast(`${reason} ticket awarded to ${recipient}!`);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      const code = e?.code || '';
-      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
-      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
-      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      showToast(`Error saving ticket. Please try again.`);
     } finally {
       setIsSubmitting(false);
       setSubmittingFor(null);
@@ -1692,7 +1775,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+      await addDoc(collection(db, 'tickets'), {
         teacherId: user.uid, teacherName: profile.name,
         recipient, recipientType: type, reason, timestamp: serverTimestamp()
       });
@@ -1700,10 +1783,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      const code = e?.code || '';
-      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
-      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
-      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      showToast(`Error saving ticket. Please try again.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -1711,7 +1791,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 
   const handleRemoveTicket = async (ticketId, recipient) => {
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
+      await deleteDoc(doc(db, 'tickets', ticketId));
       showToast(`Removed ticket from ${recipient}.`);
     } catch (e) {
       console.error("Error removing ticket:", e);
@@ -1725,7 +1805,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
       return;
     }
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
+      await addDoc(collection(db, 'goldenTickets'), {
         teacherId: user.uid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
@@ -1822,7 +1902,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1834,6 +1914,12 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [confirmDeleteProfile, setConfirmDeleteProfile] = useState(null);
   const [isDeletingProfile, setIsDeletingProfile] = useState(false);
   const ITEMS_PER_PAGE = 25;
+
+  // Grade Goals state
+  const [gradeGoalGrade, setGradeGoalGrade] = useState('');
+  const [gradeGoalGolden, setGradeGoalGolden] = useState(10);
+  const [gradeGoalReward, setGradeGoalReward] = useState('Ice Cream Party');
+  const [isSavingGradeGoal, setIsSavingGradeGoal] = useState(false);
 
   const reasons = { Respectful: 0, Responsible: 0, Determined: 0 };
   tickets.forEach(t => { if (reasons[t.reason] !== undefined) reasons[t.reason]++; });
@@ -1865,17 +1951,14 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     setIsSubmitting(true);
     setSubmittingFor(recipient);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+      await addDoc(collection(db, 'tickets'), {
         teacherId: user.uid, teacherName: profile.name,
         recipient, recipientType: 'student', reason, timestamp: serverTimestamp()
       });
       showToast(`${reason} ticket awarded to ${recipient}!`);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      const code = e?.code || '';
-      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
-      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
-      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      showToast(`Error saving ticket. Please try again.`);
     } finally {
       setIsSubmitting(false);
       setSubmittingFor(null);
@@ -1891,7 +1974,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     const { recipient, type } = modalData;
     setIsSubmitting(true);
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'tickets'), {
+      await addDoc(collection(db, 'tickets'), {
         teacherId: user.uid, teacherName: profile.name,
         recipient, recipientType: type, reason, timestamp: serverTimestamp()
       });
@@ -1899,10 +1982,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       setModalData(null);
     } catch (e) {
       console.error("Error saving ticket:", e);
-      const code = e?.code || '';
-      if (code === 'permission-denied') showToast("Permission denied. Try closing and reopening the app.");
-      else if (code === 'unavailable' || code === 'deadline-exceeded') showToast("Network issue. Please check your connection and try again.");
-      else showToast(`Error saving ticket (${e?.code || 'unknown'}). Please try again.`);
+      showToast(`Error saving ticket. Please try again.`);
     } finally {
       setIsSubmitting(false);
     }
@@ -1910,7 +1990,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
   const handleRemoveTicket = async (ticketId, recipient) => {
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'tickets', ticketId));
+      await deleteDoc(doc(db, 'tickets', ticketId));
       showToast(`Removed ticket from ${recipient}.`);
     } catch (e) {
       console.error("Error removing ticket:", e);
@@ -1922,27 +2002,19 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     if (!mergeSource || !mergeTarget || mergeSource === mergeTarget) return;
     setIsMerging(true);
     try {
-      const batch = writeBatch(db);
-      // Update all tickets from source to target
-      const sourceTickets = tickets.filter(t => t.recipient === mergeSource);
-      sourceTickets.forEach(t => {
-        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'tickets', t.id);
-        batch.update(ref, { recipient: mergeTarget });
+      await api.fetch('/api/roster/merge', {
+        method: 'POST',
+        body: JSON.stringify({ sourceName: mergeSource, targetName: mergeTarget })
       });
-      // Remove source student docs from roster
-      const sourceStudentDocs = students.filter(s => s.name === mergeSource);
-      sourceStudentDocs.forEach(s => {
-        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'students', s.id);
-        batch.delete(ref);
-      });
-      await batch.commit();
-      showToast(`Merged "${mergeSource}" into "${mergeTarget}". ${sourceTickets.length} ticket${sourceTickets.length !== 1 ? 's' : ''} reassigned.`);
+      const sourceTicketCount = tickets.filter(t => t.recipient === mergeSource).length;
+      showToast(`Merged "${mergeSource}" into "${mergeTarget}". ${sourceTicketCount} ticket${sourceTicketCount !== 1 ? 's' : ''} reassigned.`);
       setMergeSource('');
       setMergeTarget('');
       setConfirmMerge(false);
+      if (window.triggerRefresh) window.triggerRefresh();
     } catch (e) {
       console.error("Error merging students:", e);
-      showToast(`Error merging students (${e?.code || 'unknown'}).`);
+      showToast(e.message || "Error merging students.");
     }
     setIsMerging(false);
   };
@@ -1953,7 +2025,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       return;
     }
     try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'goldenTickets'), {
+      await addDoc(collection(db, 'goldenTickets'), {
         teacherId: user.uid, teacherName: profile.name,
         className: cls, timestamp: serverTimestamp()
       });
@@ -1966,7 +2038,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
   const handleRemoveGoldenTicket = async (ticketId, className) => {
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'goldenTickets', ticketId));
+      await deleteDoc(doc(db, 'goldenTickets', ticketId));
       showToast(`Removed Golden Ticket from ${className}'s class.`);
     } catch (e) {
       console.error("Error removing Golden Ticket:", e);
@@ -2054,22 +2126,13 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const handleDeleteProfile = async (profileToDelete) => {
     setIsDeletingProfile(true);
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', profileToDelete.id));
-      // Best-effort cleanup of linked device docs — failures are non-fatal
-      const linkedDevices = profiles.filter(p => p.linkedTo === profileToDelete.id);
-      await Promise.allSettled(linkedDevices.map(d =>
-        deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'users', d.id))
-      ));
+      await deleteDoc(doc(db, 'users', profileToDelete.email || profileToDelete.id));
       showToast(`Deleted profile for ${profileToDelete.name}.`);
       setConfirmDeleteProfile(null);
+      if (window.triggerRefresh) window.triggerRefresh();
     } catch (e) {
       console.error("Error deleting profile:", e);
-      const code = e?.code || '';
-      if (code === 'permission-denied') {
-        showToast("Permission denied. Check Firestore rules allow admin to delete user docs.");
-      } else {
-        showToast(`Error deleting profile (${code || 'unknown'}).`);
-      }
+      showToast("Error deleting profile.");
     }
     setIsDeletingProfile(false);
   };
@@ -2077,14 +2140,10 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const clearRoster = async () => {
     setIsClearing(true);
     try {
-      const batch = writeBatch(db);
-      students.forEach(s => {
-        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'students', s.id);
-        batch.delete(ref);
-      });
-      await batch.commit();
+      await api.fetch('/api/roster/clear', { method: 'POST' });
       showToast(`Cleared ${students.length} students from the roster.`);
       setConfirmClear(false);
+      if (window.triggerRefresh) window.triggerRefresh();
     } catch (e) {
       console.error(e);
       showToast("Error clearing roster.");
@@ -2102,6 +2161,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           <button onClick={() => setActiveTab('merge')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'merge' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Merge Students</button>
           <button onClick={() => setActiveTab('teachers')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'teachers' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Teachers{unusedProfiles.length > 0 && <span className="ml-1.5 bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 text-xs font-bold">{unusedProfiles.length}</span>}</button>
           <button onClick={() => setActiveTab('roster')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'roster' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Roster Sync (CSV)</button>
+          <button onClick={() => setActiveTab('gradeGoals')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'gradeGoals' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Grade Goals</button>
         </div>
       </div>
 
@@ -2529,7 +2589,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             })}
           </div>
         </div>
-      ) : (
+      ) : activeTab === 'roster' ? (
         <div className="bg-white p-6 rounded-xl shadow-sm border max-w-3xl">
           <h2 className="text-xl font-bold mb-2">Central Roster Import</h2>
           <p className="text-gray-600 text-sm mb-6">
@@ -2576,12 +2636,225 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             )}
           </div>
         </div>
-      )}
+      ) : activeTab === 'gradeGoals' ? (
+        <div className="max-w-2xl space-y-6">
+          <div className="bg-white p-6 rounded-xl shadow-sm border">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-3 bg-amber-100 rounded-full text-amber-600"><Star className="w-6 h-6" /></div>
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">Grade-Level Golden Ticket Goals</h2>
+                <p className="text-sm text-gray-500">Set grade-wide golden ticket goals visible to students and homeroom teachers.</p>
+              </div>
+            </div>
+
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!gradeGoalGrade) { showToast('Please select a grade.'); return; }
+              setIsSavingGradeGoal(true);
+              try {
+                await api.fetch('/api/grade-goals', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    grade: gradeGoalGrade,
+                    goalGolden: Number(gradeGoalGolden),
+                    rewardText: gradeGoalReward
+                  })
+                });
+                showToast(`Grade goal for ${gradeGoalGrade} saved!`);
+                if (window.triggerRefresh) window.triggerRefresh();
+              } catch (err) {
+                console.error(err);
+                showToast(err.message || 'Failed to save grade goal.');
+              } finally {
+                setIsSavingGradeGoal(false);
+              }
+            }} className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Grade</label>
+                <select value={gradeGoalGrade} onChange={e => setGradeGoalGrade(e.target.value)} className="w-full p-3 border border-gray-300 rounded-xl focus:ring-amber-500 focus:border-amber-500 outline-none bg-white">
+                  <option value="">Select a grade...</option>
+                  {[...new Set(students.map(s => s.grade).filter(Boolean))].sort().map(g => (
+                    <option key={g} value={g}>{g}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Golden Ticket Goal</label>
+                <input type="number" min="1" value={gradeGoalGolden} onChange={e => setGradeGoalGolden(e.target.value)} className="w-full p-3 border border-gray-300 rounded-xl focus:ring-amber-500 focus:border-amber-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Reward Description</label>
+                <input type="text" value={gradeGoalReward} onChange={e => setGradeGoalReward(e.target.value)} placeholder="e.g. Ice Cream Party" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-amber-500 focus:border-amber-500 outline-none" />
+              </div>
+              <button type="submit" disabled={isSavingGradeGoal || !gradeGoalGrade} className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl transition flex items-center gap-2">
+                <Star className="w-4 h-4" /> {isSavingGradeGoal ? 'Saving...' : 'Save Grade Goal'}
+              </button>
+            </form>
+          </div>
+
+          {/* Existing Grade Goals */}
+          {gradeGoals && gradeGoals.length > 0 && (
+            <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+              <div className="px-6 py-4 border-b bg-amber-50">
+                <h3 className="font-bold text-amber-800 flex items-center gap-2"><Star className="w-4 h-4" /> Current Grade Goals</h3>
+              </div>
+              <div className="divide-y">
+                {gradeGoals.map(g => (
+                  <div key={g.id || g.grade} className="px-6 py-4 flex items-center justify-between hover:bg-gray-50 transition">
+                    <div>
+                      <div className="font-bold text-gray-900">{g.grade}</div>
+                      <div className="text-sm text-gray-500">{g.rewardText} — Goal: {g.goalGolden} golden tickets</div>
+                    </div>
+                    <button onClick={() => {
+                      setGradeGoalGrade(g.grade);
+                      setGradeGoalGolden(g.goalGolden || 10);
+                      setGradeGoalReward(g.rewardText || '');
+                    }} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold px-3 py-1.5 rounded-lg transition">Edit</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 // --- Shared Modals ---
+function HelpModal({ onClose }) {
+  const [activeSection, setActiveSection] = useState('overview');
+  const sections = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'roles', label: 'Roles' },
+    { id: 'tickets', label: 'Tickets' },
+    { id: 'spending', label: 'Spending & Store' },
+    { id: 'goals', label: 'Goals' },
+    { id: 'students', label: 'Student Portal' },
+    { id: 'admin', label: 'Admin Tools' },
+  ];
+  return (
+    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+        <div className="p-5 border-b flex justify-between items-center bg-gradient-to-r from-green-500 to-green-600 text-white rounded-t-2xl">
+          <h2 className="text-xl font-black flex items-center gap-2"><HelpCircle className="w-6 h-6" /> Green Ticket Tracker Help</h2>
+          <button onClick={onClose} className="text-white/80 hover:text-white"><X className="w-6 h-6" /></button>
+        </div>
+        <div className="flex border-b overflow-x-auto flex-shrink-0">
+          {sections.map(s => (
+            <button key={s.id} onClick={() => setActiveSection(s.id)} className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 transition ${activeSection === s.id ? 'border-green-500 text-green-700 bg-green-50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="p-6 overflow-y-auto flex-1 text-sm text-gray-700 space-y-4">
+          {activeSection === 'overview' && (<>
+            <h3 className="text-lg font-black text-gray-900">Welcome to Green Ticket Tracker!</h3>
+            <p>This app helps teachers recognize and reward positive student behavior using a digital ticket system based on three core values:</p>
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+                <div className="text-2xl mb-1">🤝</div>
+                <div className="font-bold text-blue-800">Respectful</div>
+              </div>
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                <div className="text-2xl mb-1">📋</div>
+                <div className="font-bold text-amber-800">Responsible</div>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-center">
+                <div className="text-2xl mb-1">🔥</div>
+                <div className="font-bold text-purple-800">Determined</div>
+              </div>
+            </div>
+            <p>Students accumulate tickets which they can spend at the class store. Teachers can also track class-wide and grade-level goals.</p>
+          </>)}
+          {activeSection === 'roles' && (<>
+            <h3 className="text-lg font-black text-gray-900">User Roles</h3>
+            <div className="space-y-3">
+              <div className="bg-green-50 rounded-xl p-4 border border-green-200">
+                <div className="font-bold text-green-800 mb-1">🏠 Homeroom Teacher</div>
+                <p>Manages their own class. Can give tickets to students, track spending, set class ticket goals, use Display Mode for classroom view, and add students to their roster.</p>
+              </div>
+              <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                <div className="font-bold text-blue-800 mb-1">🎨 Specialist</div>
+                <p>Can give tickets and golden tickets to students across all homerooms. Sees all classes but only their own ticket activity. Great for art, music, PE, and other specialist teachers.</p>
+              </div>
+              <div className="bg-red-50 rounded-xl p-4 border border-red-200">
+                <div className="font-bold text-red-800 mb-1">🛡️ Administrator</div>
+                <p>Full access to all features: give tickets to any class, manage the student roster (CSV import), merge duplicate students, manage teacher profiles, set grade-level goals, and view all activity across the school. Requires an admin password to register.</p>
+              </div>
+            </div>
+            <p className="text-gray-500 italic text-xs">You can switch roles using the <strong>Role</strong> button in the navigation bar.</p>
+          </>)}
+          {activeSection === 'tickets' && (<>
+            <h3 className="text-lg font-black text-gray-900">Giving Tickets</h3>
+            <ul className="list-disc ml-5 space-y-2">
+              <li><strong>Individual students:</strong> Click on a student card to select a reason (Respectful, Responsible, or Determined).</li>
+              <li><strong>Whole class:</strong> Use the "Award Whole Class" button to give every student in a homeroom one ticket for the selected reason.</li>
+              <li><strong>Golden Tickets:</strong> Special class-wide awards tracked separately. They count toward grade-level goals.</li>
+              <li><strong>Quick tap:</strong> Tap the colored Respectful/Responsible/Determined circles on student cards for one-tap ticket giving.</li>
+            </ul>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-yellow-800 text-xs">
+              <strong>Tip:</strong> Each student's balance is shown on their card. Tickets earned are never subtracted — spending uses a separate "wallet" balance.
+            </div>
+          </>)}
+          {activeSection === 'spending' && (<>
+            <h3 className="text-lg font-black text-gray-900">Spending & Class Store</h3>
+            <p>Students earn a <strong>spendable balance</strong> from their tickets. Homeroom teachers can deduct points when students "buy" items from the class store.</p>
+            <ul className="list-disc ml-5 space-y-2">
+              <li>Tap the <strong>shopping bag icon</strong> on a student card to open the spend dialog.</li>
+              <li>Enter the cost and item name (e.g., "Pencil", "Extra recess").</li>
+              <li>The student's spendable balance updates automatically.</li>
+              <li>Spending does <strong>not</strong> affect goal progress — goals count lifetime tickets earned.</li>
+            </ul>
+          </>)}
+          {activeSection === 'goals' && (<>
+            <h3 className="text-lg font-black text-gray-900">Goals</h3>
+            <div className="space-y-3">
+              <div className="bg-green-50 rounded-xl p-4 border border-green-200">
+                <div className="font-bold text-green-800 mb-1">🎯 Class Ticket Goals</div>
+                <p>Set by homeroom teachers. Choose a ticket target and a reward (e.g., "50 tickets → Pajama Party"). Progress is visible to students in the student portal and in Display Mode.</p>
+              </div>
+              <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
+                <div className="font-bold text-amber-800 mb-1">⭐ Grade Golden Ticket Goals</div>
+                <p>Set by admins in the Grade Goals tab. Track how many golden tickets a grade-level has earned toward a grade-wide reward (e.g., "10 golden tickets → Field Trip").</p>
+              </div>
+            </div>
+          </>)}
+          {activeSection === 'students' && (<>
+            <h3 className="text-lg font-black text-gray-900">Student Portal</h3>
+            <p>Students can log in with their <strong>Student ID</strong> and <strong>PIN code</strong> (generated during roster import) to view:</p>
+            <ul className="list-disc ml-5 space-y-2">
+              <li>Their ticket balance and spending history</li>
+              <li>Class ticket goal progress</li>
+              <li>Grade-level golden ticket goal progress</li>
+              <li>Recent ticket activity</li>
+            </ul>
+            <p className="text-gray-500 text-xs italic">Student IDs and PINs are shown in the roster data. Teachers can share these with students as needed.</p>
+          </>)}
+          {activeSection === 'admin' && (<>
+            <h3 className="text-lg font-black text-gray-900">Admin Tools</h3>
+            <ul className="list-disc ml-5 space-y-2">
+              <li><strong>Overview:</strong> School-wide stats — total tickets, breakdowns by type/teacher/class, top students, and full activity log.</li>
+              <li><strong>Give Tickets:</strong> Award tickets to any class or student across the school.</li>
+              <li><strong>Merge Students:</strong> Combine duplicate student profiles. All tickets transfer to the target student.</li>
+              <li><strong>Teachers:</strong> View all registered teacher profiles. Delete unused profiles (0 tickets).</li>
+              <li><strong>Roster Sync (CSV):</strong> Bulk import students using CSV format (name, homeroom, grade). Clear the entire roster if needed.</li>
+              <li><strong>Grade Goals:</strong> Set grade-level golden ticket goals with reward descriptions.</li>
+            </ul>
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-blue-800 text-xs">
+              <strong>CSV Format:</strong> Header row must contain <code>name</code>, <code>homeroom</code>, and <code>grade</code>. Example:<br />
+              <code className="text-xs">name,homeroom,grade<br />Jane Doe, Mr. Smith, 3rd Grade</code>
+            </div>
+          </>)}
+        </div>
+        <div className="p-4 border-t bg-gray-50 flex justify-end rounded-b-2xl">
+          <button onClick={onClose} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-xl transition text-sm">Got it!</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function GiveTicketModal({ data, onClose, onSelect, isSubmitting }) {
   return (
     <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">

@@ -10,6 +10,7 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || 'rrd_ticket_tracker_secret_jwt_key_2026_change_in_production';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'data4life';
 const SPREADSHEET_ID = process.env.SPREADSHEET_ID;
 
 if (!SPREADSHEET_ID) {
@@ -319,9 +320,14 @@ app.post('/api/auth/teacher', async (req, res) => {
 
 // Teacher Self-Registration
 app.post('/api/auth/teacher/register', async (req, res) => {
-  const { email, password, name, role } = req.body;
+  const { email, password, name, role, adminPassword } = req.body;
   if (!email || !password || !name || !role) {
     return res.status(400).json({ message: 'All fields are required' });
+  }
+
+  // Require admin password when registering as admin
+  if (role === 'admin' && adminPassword !== ADMIN_PASSWORD) {
+    return res.status(403).json({ message: 'Invalid admin password. Contact your administrator for the correct password.' });
   }
 
   try {
@@ -344,6 +350,36 @@ app.post('/api/auth/teacher/register', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error during registration' });
+  }
+});
+
+// Change Role (authenticated users)
+app.post('/api/auth/change-role', authMiddleware, async (req, res) => {
+  const { newRole, adminPassword } = req.body;
+  if (!newRole || !['admin', 'homeroom', 'specialist'].includes(newRole)) {
+    return res.status(400).json({ message: 'Valid role required (admin, homeroom, or specialist).' });
+  }
+
+  // Require admin password when switching to admin
+  if (newRole === 'admin' && adminPassword !== ADMIN_PASSWORD) {
+    return res.status(403).json({ message: 'Invalid admin password.' });
+  }
+
+  try {
+    const users = await db.getRows('Users');
+    const user = users.find(u => u.email.toLowerCase() === req.user.email.toLowerCase());
+    if (!user) return res.status(404).json({ message: 'User profile not found.' });
+
+    // Update the role in the sheet
+    user.role = newRole;
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt'], user._rowNum, user);
+
+    // Issue a new JWT with the updated role
+    const token = jwt.sign({ email: user.email, role: newRole, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, profile: { email: user.email, name: user.name, role: newRole } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error changing role.' });
   }
 });
 
