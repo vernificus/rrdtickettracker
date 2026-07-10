@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download, LogOut,
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
-  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2
+  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv
 } from 'lucide-react';
 
 const API_URL = import.meta.env.DEV ? 'http://localhost:8080' : '';
@@ -119,10 +119,14 @@ const writeBatch = () => {
 
       const isUploadRoster = operations.every(op => op.type === 'set' && op.docRef.collection === 'students');
       if (isUploadRoster && operations.length > 0) {
-        const csvLines = operations.map(op => `${op.data.name},${op.data.homeroom},${op.data.grade || ''}`);
+        const studentList = operations.map(op => ({
+          name: op.data.name,
+          homeroom: op.data.homeroom,
+          grade: op.data.grade || 'N/A'
+        }));
         await api.fetch('/api/roster/upload', {
           method: 'POST',
-          body: JSON.stringify({ csvText: csvLines.join('\n') })
+          body: JSON.stringify({ students: studentList })
         });
         if (window.triggerRefresh) window.triggerRefresh();
         return;
@@ -325,13 +329,13 @@ export default function App() {
         ) : (
           <>
             {role === 'admin' && (
-              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
+              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
             )}
             {role === 'homeroom' && (
               <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
             )}
             {role === 'specialist' && (
-              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
+              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
             )}
           </>
         )}
@@ -561,7 +565,7 @@ function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor,
       {/* Header */}
       <div className="flex justify-between items-start gap-1">
         <div className="min-w-0">
-          <span className="font-display font-black text-navy-950 text-base leading-tight block truncate" title={student}>{student}</span>
+          <span className="font-display font-black text-navy-950 text-base leading-tight block" title={student}>{student}</span>
           {studentObj && (
             <span className="text-[10px] text-gray-400 block truncate">
               ID: {studentObj.id}
@@ -738,6 +742,181 @@ function SpendPointsModal({ student, spendable, onClose, showToast }) {
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// --- Class Display Mode (Projector/Fullscreen View) ---
+function ClassDisplayMode({ className, students, balances, classGoals = [], isSubmitting, handleGiveTicketDirect, onClose }) {
+  const [hideBalances, setHideBalances] = useState(false);
+  const [activeDisplayStudent, setActiveDisplayStudent] = useState(null);
+
+  const myStudents = useMemo(() => {
+    return [...students].sort();
+  }, [students]);
+
+  const currentGoal = useMemo(() => {
+    return classGoals.find(g => g.className === className);
+  }, [classGoals, className]);
+
+  const goalTarget = currentGoal?.goalTickets || 50;
+  const rewardText = currentGoal?.rewardText || 'Pajama Party';
+
+  const classTicketsEarned = useMemo(() => {
+    return myStudents.reduce((sum, studentName) => sum + (balances[studentName]?.earned || 0), 0);
+  }, [myStudents, balances]);
+
+  const goalProgress = Math.min(100, Math.round((classTicketsEarned / goalTarget) * 100));
+
+  // Find highest earner for crown calculation
+  let maxTickets = 0;
+  let topEarner = '';
+  myStudents.forEach(student => {
+    const bal = balances[student] || { earned: 0 };
+    if (bal.earned > maxTickets) {
+      maxTickets = bal.earned;
+      topEarner = student;
+    }
+  });
+
+  return (
+    <div className="fixed inset-0 bg-[#0b3c29] text-white flex flex-col font-sans z-50 p-4 pb-6 overflow-hidden animate-fade-in text-navy-950">
+      {/* Display Mode Header Banner */}
+      <header className="bg-[#05281a] border-b border-[#0f4630] px-6 py-3 flex justify-between items-center rounded-t-3xl text-white flex-shrink-0">
+        <div>
+          <h1 className="text-xl font-extrabold tracking-tight font-display text-white">
+            {className}&apos;s Roadrunners
+          </h1>
+          <p className="text-[#a3d9c1] text-[10px]">Tap a student to award a ticket!</p>
+        </div>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setHideBalances(!hideBalances)}
+            className="flex items-center gap-1.5 border border-white/20 hover:bg-white/10 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer"
+          >
+            {hideBalances ? 'Show Balances' : 'Hide Balances'}
+          </button>
+
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 border border-white/20 hover:bg-white/10 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" />
+            Exit
+          </button>
+        </div>
+      </header>
+
+      {/* Compact Class Goal Card */}
+      <div className="max-w-7xl mx-auto w-full px-6 pt-3 flex-shrink-0">
+        <div className="bg-white border border-gray-150 p-3 rounded-xl shadow-xs flex items-center justify-between text-navy-950">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-700">
+              <Star className="w-4 h-4 fill-current" />
+            </div>
+            <div>
+              <h3 className="font-display font-black text-brand-800 text-sm">Class Goal: {rewardText}</h3>
+              <div className="w-32 bg-gray-100 rounded-full h-1.5 overflow-hidden mt-1">
+                <div className="bg-brand-500 h-full rounded-full transition-all duration-500" style={{ width: `${goalProgress}%` }} />
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-brand-700 font-black uppercase tracking-wider">{goalProgress}%</span>
+            <div className="font-display font-black text-brand-800 text-base">
+              {classTicketsEarned} / {goalTarget}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Roster Grid (Responsive, Auto-Fit, Horizontal Layout) */}
+      <div className="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5 content-start overflow-y-auto mt-4 pb-4">
+        {myStudents.map(student => {
+          const bal = balances[student] || { earned: 0, spent: 0 };
+          const spendable = Math.max(0, bal.earned - bal.spent);
+          const isTop = student === topEarner && maxTickets > 0;
+          return (
+            <button
+              key={student}
+              onClick={() => setActiveDisplayStudent(student)}
+              className="bg-white border border-gray-150 rounded-xl shadow-xs hover:shadow-sm transition duration-150 relative flex items-center justify-between px-4 py-2.5 cursor-pointer group text-navy-950"
+            >
+              <div className="flex items-center gap-2 min-w-0 pr-2">
+                {isTop && (
+                  <div className="bg-yellow-400 text-amber-955 p-1 rounded-lg flex-shrink-0">
+                    <Crown className="w-3.5 h-3.5 fill-current text-amber-955" />
+                  </div>
+                )}
+                
+                <span className="font-display font-black text-navy-950 text-left group-hover:text-brand-600 transition leading-tight text-sm truncate" title={student}>
+                  {student}
+                </span>
+              </div>
+
+              <div className="w-10 h-10 bg-brand-700 text-white rounded-full flex items-center justify-center font-black text-base shadow-inner border-2 border-brand-100 flex-shrink-0">
+                {hideBalances ? '?' : spendable}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Display Mode Award Modal */}
+      {activeDisplayStudent && (
+        <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-navy-950">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full border border-gray-100 shadow-2xl flex flex-col items-center space-y-6">
+            <div className="text-center">
+              <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                AWARD A GREEN TICKET TO
+              </span>
+              <h2 className="text-4xl font-display font-black text-navy-950">
+                {activeDisplayStudent}
+              </h2>
+            </div>
+
+            <div className="w-full flex flex-col gap-3">
+              <button
+                disabled={isSubmitting}
+                onClick={async () => {
+                  await handleGiveTicketDirect(activeDisplayStudent, 'Respectful');
+                  setActiveDisplayStudent(null);
+                }}
+                className="w-full py-4 border border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 text-xl font-bold rounded-2xl transition disabled:opacity-50 cursor-pointer"
+              >
+                Respectful
+              </button>
+              <button
+                disabled={isSubmitting}
+                onClick={async () => {
+                  await handleGiveTicketDirect(activeDisplayStudent, 'Responsible');
+                  setActiveDisplayStudent(null);
+                }}
+                className="w-full py-4 border border-amber-200 text-amber-700 bg-amber-50/50 hover:bg-amber-50 text-xl font-bold rounded-2xl transition disabled:opacity-50 cursor-pointer"
+              >
+                Responsible
+              </button>
+              <button
+                disabled={isSubmitting}
+                onClick={async () => {
+                  await handleGiveTicketDirect(activeDisplayStudent, 'Determined');
+                  setActiveDisplayStudent(null);
+                }}
+                className="w-full py-4 border border-purple-200 text-purple-700 bg-purple-50/50 hover:bg-purple-50 text-xl font-bold rounded-2xl transition disabled:opacity-50 cursor-pointer"
+              >
+                Determined
+              </button>
+            </div>
+
+            <button
+              onClick={() => setActiveDisplayStudent(null)}
+              className="text-gray-400 hover:text-gray-700 font-bold text-sm pt-2 cursor-pointer border-none outline-none bg-transparent"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1421,7 +1600,7 @@ function Login({ onLoginSuccess, showToast }) {
             {isRegistering && (
               <>
                 <div>
-                  <label htmlFor="teacher-name" className="block text-sm font-bold text-gray-700">Full Name</label>
+                  <label htmlFor="teacher-name" className="block text-sm font-bold text-gray-700">Last Name</label>
                   <input
                     id="teacher-name"
                     type="text"
@@ -1429,7 +1608,7 @@ function Login({ onLoginSuccess, showToast }) {
                     value={name}
                     onChange={e => setName(e.target.value)}
                     className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
-                    placeholder="e.g. Mr. Smith"
+                    placeholder="e.g. Smith"
                   />
                 </div>
                 <div>
@@ -1952,7 +2131,9 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
   }, [currentGoal]);
 
-  const classTicketsEarned = myTickets.length;
+  const classTicketsEarned = useMemo(() => {
+    return myStudents.reduce((sum, studentName) => sum + (balances[studentName]?.earned || 0), 0);
+  }, [myStudents, balances]);
   const goalProgress = Math.min(100, Math.round((classTicketsEarned / goalTarget) * 100));
 
   // Calculate Tickets Spent
@@ -2093,169 +2274,16 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   const myClassGolden = goldenTickets.filter(g => g.className === profile.name).length;
 
   if (isDisplayMode) {
-    // Find highest earner for crown calculation
-    let maxTickets = 0;
-    let topEarner = '';
-    myStudents.forEach(student => {
-      const bal = balances[student] || { earned: 0 };
-      if (bal.earned > maxTickets) {
-        maxTickets = bal.earned;
-        topEarner = student;
-      }
-    });
-
     return (
-      <div className="min-h-screen bg-[#0b3c29] text-white flex flex-col font-sans rounded-3xl shadow-xl overflow-hidden pb-8">
-        {/* Display Mode Header Banner */}
-        <header className="bg-[#05281a] border-b border-[#0f4630] p-6 flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-extrabold tracking-tight font-display text-white">
-              {profile.name}&apos;s Roadrunners
-            </h1>
-            <p className="text-[#a3d9c1] text-xs mt-1">Tap a student to award a ticket!</p>
-          </div>
-          <div className="flex items-center gap-3">
-            {/* Total Class Tickets count badge */}
-            <div className="bg-[#eab308] text-[#1c1917] font-black px-4 py-2 rounded-2xl flex items-center gap-1.5 shadow-sm text-sm">
-              <Star className="w-4 h-4 fill-[#1c1917] text-[#1c1917]" />
-              <span>{classTicketsEarned}</span>
-            </div>
-            
-            <button
-              onClick={() => setHideBalances(!hideBalances)}
-              className="flex items-center gap-2 border border-white/20 hover:bg-white/10 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition"
-            >
-              {hideBalances ? 'Show Balances' : 'Hide Balances'}
-            </button>
-
-            <button
-              onClick={() => setIsDisplayMode(false)}
-              className="flex items-center gap-2 border border-white/20 hover:bg-white/10 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition"
-            >
-              <X className="w-4 h-4" />
-              Exit
-            </button>
-          </div>
-        </header>
-
-        {/* Class Goal Card */}
-        <div className="max-w-7xl mx-auto w-full px-6 pt-6">
-          <div className="bg-white border border-gray-150 p-5 rounded-2xl shadow-md flex flex-col md:flex-row items-center gap-4 justify-between text-navy-950">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-brand-50 flex items-center justify-center text-brand-700">
-                <Star className="w-6 h-6 fill-current" />
-              </div>
-              <div>
-                <h3 className="font-display font-black text-brand-800 text-lg">Class Goal: {rewardText}</h3>
-                <p className="text-xs text-brand-700 font-bold uppercase tracking-wider mt-0.5">
-                  {goalProgress}% OF THE WAY THERE — KEEP EARNING, ROADRUNNERS!
-                </p>
-              </div>
-            </div>
-            <div className="text-right font-display font-black text-brand-800 text-2xl">
-              {classTicketsEarned} / {goalTarget}
-            </div>
-          </div>
-          {/* Progress bar container */}
-          <div className="mt-4 bg-white border border-gray-150 p-2.5 rounded-2xl shadow-md">
-            <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden flex items-center p-0.5">
-              <div className="bg-brand-500 h-full rounded-full transition-all duration-500" style={{ width: `${goalProgress}%` }} />
-            </div>
-          </div>
-        </div>
-
-        {/* Roster Grid */}
-        <div className="flex-1 max-w-7xl mx-auto w-full p-6 grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6 overflow-y-auto max-h-[60vh]">
-          {myStudents.map(student => {
-            const bal = balances[student] || { earned: 0, spent: 0 };
-            const spendable = Math.max(0, bal.earned - bal.spent);
-            const isTop = student === topEarner && maxTickets > 0;
-            return (
-              <button
-                key={student}
-                onClick={() => setActiveDisplayStudent(student)}
-                className="bg-white border border-gray-150 p-6 rounded-3xl shadow-md hover:shadow-lg transition duration-200 relative flex flex-col items-center justify-center space-y-3 cursor-pointer group"
-              >
-                {/* Crown Icon for top earner */}
-                {isTop && (
-                  <div className="absolute top-4 left-4 bg-yellow-400 text-amber-950 p-1.5 rounded-xl shadow-sm">
-                    <Crown className="w-4 h-4 fill-current" />
-                  </div>
-                )}
-                
-                <span className="text-xl font-display font-black text-navy-950 text-center truncate w-full group-hover:text-brand-600 transition">
-                  {student}
-                </span>
-
-                {/* Big Green Circle */}
-                <div className="w-20 h-20 bg-brand-700 text-white rounded-full flex items-center justify-center font-black text-3xl shadow-inner border-4 border-brand-100 transition-transform group-hover:scale-105">
-                  {hideBalances ? '?' : spendable}
-                </div>
-
-                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
-                  Tickets to Spend
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Display Mode Award Modal */}
-        {activeDisplayStudent && (
-          <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
-            <div className="bg-white rounded-3xl p-8 max-w-md w-full border border-gray-100 shadow-2xl flex flex-col items-center space-y-6">
-              <div className="text-center">
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">
-                  AWARD A GREEN TICKET TO
-                </span>
-                <h2 className="text-4xl font-display font-black text-navy-950">
-                  {activeDisplayStudent}
-                </h2>
-              </div>
-
-              <div className="w-full flex flex-col gap-3">
-                <button
-                  disabled={isSubmitting}
-                  onClick={async () => {
-                    await handleGiveTicketDirect(activeDisplayStudent, 'Respectful');
-                    setActiveDisplayStudent(null);
-                  }}
-                  className="w-full py-4 border border-blue-200 text-blue-700 bg-blue-50/50 hover:bg-blue-50 text-xl font-bold rounded-2xl transition disabled:opacity-50"
-                >
-                  Respectful
-                </button>
-                <button
-                  disabled={isSubmitting}
-                  onClick={async () => {
-                    await handleGiveTicketDirect(activeDisplayStudent, 'Responsible');
-                    setActiveDisplayStudent(null);
-                  }}
-                  className="w-full py-4 border border-amber-200 text-amber-700 bg-amber-50/50 hover:bg-amber-50 text-xl font-bold rounded-2xl transition disabled:opacity-50"
-                >
-                  Responsible
-                </button>
-                <button
-                  disabled={isSubmitting}
-                  onClick={async () => {
-                    await handleGiveTicketDirect(activeDisplayStudent, 'Determined');
-                    setActiveDisplayStudent(null);
-                  }}
-                  className="w-full py-4 border border-purple-200 text-purple-700 bg-purple-50/50 hover:bg-purple-50 text-xl font-bold rounded-2xl transition disabled:opacity-50"
-                >
-                  Determined
-                </button>
-              </div>
-
-              <button
-                onClick={() => setActiveDisplayStudent(null)}
-                className="text-gray-400 hover:text-gray-750 font-bold text-sm pt-2"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
+      <ClassDisplayMode
+        className={profile.name}
+        students={myStudents}
+        balances={balances}
+        classGoals={classGoals}
+        isSubmitting={isSubmitting}
+        handleGiveTicketDirect={handleGiveTicketDirect}
+        onClose={() => setIsDisplayMode(false)}
+      />
     );
   }
 
@@ -2513,10 +2541,11 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances, absentStudents, onToggleAbsent, onEditStudent }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
   const [spendData, setSpendData] = useState(null);
+  const [isDisplayMode, setIsDisplayMode] = useState(false);
 
   const classes = useMemo(() => {
     const homerooms = students.map(s => s.homeroom).filter(Boolean);
@@ -2624,6 +2653,20 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 
   const myTickets = tickets.filter(t => myUids.has(t.teacherId));
 
+  if (isDisplayMode) {
+    return (
+      <ClassDisplayMode
+        className={selectedClass}
+        students={studentsInClass}
+        balances={balances}
+        classGoals={classGoals}
+        isSubmitting={isSubmitting}
+        handleGiveTicketDirect={handleGiveTicketDirect}
+        onClose={() => setIsDisplayMode(false)}
+      />
+    );
+  }
+
   return (
     <div className="space-y-6">
       {!selectedClass ? (
@@ -2659,12 +2702,21 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
         </>
       ) : (
         <>
-          <div className="flex items-center gap-4 mb-6">
-            <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600"><ChevronLeft className="w-6 h-6" /></button>
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">{selectedClass}&apos;s Class</h1>
-              <p className="text-gray-500">Award the whole class, or pick a student.</p>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            <div className="flex items-center gap-4">
+              <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600"><ChevronLeft className="w-6 h-6" /></button>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">{selectedClass}&apos;s Class</h1>
+                <p className="text-gray-500">Award the whole class, or pick a student.</p>
+              </div>
             </div>
+            <button
+              onClick={() => setIsDisplayMode(true)}
+              className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center"
+            >
+              <Tv className="w-4.5 h-4.5" />
+              Class Display Mode
+            </button>
           </div>
           <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -2711,7 +2763,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, absentStudents, onToggleAbsent, onEditStudent }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -2723,6 +2775,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [confirmDeleteProfile, setConfirmDeleteProfile] = useState(null);
   const [isDeletingProfile, setIsDeletingProfile] = useState(false);
   const [spendData, setSpendData] = useState(null);
+  const [showManualPaste, setShowManualPaste] = useState(false);
+  const [isDisplayMode, setIsDisplayMode] = useState(false);
   const ITEMS_PER_PAGE = 25;
 
   // Grade Goals state
@@ -2875,46 +2929,87 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     }
   };
 
-  const processCSV = async () => {
-    if (!csvText.trim()) return;
-    setIsProcessing(true);
+  const mapHeader = (header) => {
+    const normalized = header.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (['name', 'studentname', 'fullname', 'student', 'names'].includes(normalized)) return 'name';
+    if (['homeroom', 'classroom', 'room', 'class', 'teacher', 'homeroomteacher'].includes(normalized)) return 'homeroom';
+    if (['grade', 'gradelevel', 'year', 'level'].includes(normalized)) return 'grade';
+    return null;
+  };
 
-    const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    if (lines.length < 2) {
+  const parseCSVLine = (text, delimiter = ',') => {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === delimiter && !inQuotes) {
+        result.push(current.trim().replace(/^"|"$/g, ''));
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current.trim().replace(/^"|"$/g, ''));
+    return result;
+  };
+
+  const processCSVContent = async (text) => {
+    setIsProcessing(true);
+    const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (rawLines.length < 2) {
       showToast("CSV must contain a header row and at least one student row.");
       setIsProcessing(false);
       return;
     }
 
-    // Parse headers (case-insensitive)
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-    const nameIndex = headers.indexOf('name');
-    const homeroomIndex = headers.indexOf('homeroom');
-    const gradeIndex = headers.indexOf('grade');
+    // Auto-detect delimiter
+    const firstLine = rawLines[0];
+    const commaCount = (firstLine.match(/,/g) || []).length;
+    const semiCount = (firstLine.match(/;/g) || []).length;
+    const tabCount = (firstLine.match(/\t/g) || []).length;
+    
+    let delimiter = ',';
+    if (semiCount > commaCount && semiCount > tabCount) delimiter = ';';
+    else if (tabCount > commaCount && tabCount > semiCount) delimiter = '\t';
 
-    if (nameIndex === -1 || homeroomIndex === -1 || gradeIndex === -1) {
-      showToast("CSV header must contain 'name', 'homeroom', and 'grade'.");
+    const headerRow = parseCSVLine(firstLine, delimiter);
+    let nameIndex = -1;
+    let homeroomIndex = -1;
+    let gradeIndex = -1;
+
+    headerRow.forEach((h, index) => {
+      const mapped = mapHeader(h);
+      if (mapped === 'name') nameIndex = index;
+      else if (mapped === 'homeroom') homeroomIndex = index;
+      else if (mapped === 'grade') gradeIndex = index;
+    });
+
+    if (nameIndex === -1 || homeroomIndex === -1) {
+      showToast(`Missing headers. We need columns matching Name and Homeroom. Found columns: [${headerRow.join(', ')}].`);
       setIsProcessing(false);
       return;
     }
 
     const parsedStudents = [];
     let hasError = false;
-    for (let i = 1; i < lines.length; i++) {
-      const parts = lines[i].split(',').map(p => p.trim());
-      if (parts.length < Math.max(nameIndex, homeroomIndex, gradeIndex) + 1) continue;
+    for (let i = 1; i < rawLines.length; i++) {
+      const parts = parseCSVLine(rawLines[i], delimiter);
+      if (parts.length <= Math.max(nameIndex, homeroomIndex)) continue;
       
       const name = parts[nameIndex];
       const homeroom = parts[homeroomIndex];
-      const grade = parts[gradeIndex];
+      const grade = gradeIndex !== -1 ? parts[gradeIndex] : 'N/A';
       
-      if (!name || !homeroom || !grade) {
-        showToast(`Line ${i + 1} is missing a required value (Name, Homeroom, or Grade).`);
+      if (!name || !homeroom) {
+        showToast(`Line ${i + 1} has missing name or homeroom.`);
         hasError = true;
         break;
       }
       
-      parsedStudents.push({ name, homeroom, grade });
+      parsedStudents.push({ name, homeroom, grade: grade || 'N/A' });
     }
 
     if (hasError || parsedStudents.length === 0) {
@@ -2930,12 +3025,29 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       });
       await batch.commit();
       setCsvText('');
-      showToast(`Successfully imported ${parsedStudents.length} students.`);
+      showToast(`Successfully imported ${parsedStudents.length} students!`);
+      if (window.triggerRefresh) window.triggerRefresh();
     } catch (e) {
       console.error(e);
       showToast("Error processing CSV.");
     }
     setIsProcessing(false);
+  };
+
+  const processCSV = () => {
+    if (!csvText.trim()) return;
+    processCSVContent(csvText);
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target.result;
+      processCSVContent(text);
+    };
+    reader.readAsText(file);
   };
 
   const teacherTicketCounts = useMemo(() => {
@@ -2979,6 +3091,20 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     }
     setIsClearing(false);
   };
+
+  if (isDisplayMode && selectedClass) {
+    return (
+      <ClassDisplayMode
+        className={selectedClass}
+        students={studentsInClass}
+        balances={balances}
+        classGoals={classGoals}
+        isSubmitting={isSubmitting}
+        handleGiveTicketDirect={handleGiveTicketDirect}
+        onClose={() => setIsDisplayMode(false)}
+      />
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -3024,12 +3150,21 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             </>
           ) : (
             <>
-              <div className="flex items-center gap-4 mb-2">
-                <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600"><ChevronLeft className="w-6 h-6" /></button>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">{selectedClass}&apos;s Class</h2>
-                  <p className="text-gray-500 text-sm">Award the whole class or pick a student.</p>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
+                <div className="flex items-center gap-4">
+                  <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600"><ChevronLeft className="w-6 h-6" /></button>
+                  <div>
+                    <h2 className="text-xl font-bold text-gray-900">{selectedClass}&apos;s Class</h2>
+                    <p className="text-gray-500 text-sm">Award the whole class or pick a student.</p>
+                  </div>
                 </div>
+                <button
+                  onClick={() => setIsDisplayMode(true)}
+                  className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center"
+                >
+                  <Tv className="w-4.5 h-4.5" />
+                  Class Display Mode
+                </button>
               </div>
               <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -3421,26 +3556,64 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           </div>
         </div>
       ) : activeTab === 'roster' ? (
-        <div className="bg-white p-6 rounded-xl shadow-sm border max-w-3xl">
-          <h2 className="text-xl font-bold mb-2">Central Roster Import</h2>
-          <p className="text-gray-600 text-sm mb-6">
-            Paste data from Excel/Sheets to populate the central database. A header row is required and must contain columns: <strong>name</strong>, <strong>homeroom</strong>, and <strong>grade</strong>. All columns are required.
-            <br /><em>Example: <br />name,homeroom,grade<br />Jane Doe, Mr. Smith, 3rd Grade <br />John Smith, Ms. Davis, 4th Grade</em>
-          </p>
+        <div className="bg-white p-6 rounded-xl shadow-sm border max-w-3xl space-y-6">
+          <div>
+            <h2 className="text-xl font-bold mb-1">Central Roster Import</h2>
+            <p className="text-gray-500 text-sm">
+              Upload a student roster CSV file to sync the school database. Column headers will be automatically mapped to student details.
+            </p>
+          </div>
 
-          <textarea
-            rows="10"
-            value={csvText}
-            onChange={(e) => setCsvText(e.target.value)}
-            className="w-full border-gray-300 rounded-lg p-4 font-mono text-sm bg-gray-50 focus:border-green-500 focus:ring-green-500 border mb-4"
-            placeholder={"name,homeroom,grade\nJane Doe, Mr. Smith, 3rd Grade\nJohn Smith, Ms. Davis, 4th Grade"}
-          />
-          <button
-            onClick={processCSV}
-            disabled={isProcessing || !csvText}
-            className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl transition flex items-center gap-2">
-            {isProcessing ? 'Processing...' : 'Upload & Sync Database'}
-          </button>
+          {/* Drag & Drop File Upload Zone */}
+          <div className="border-2 border-dashed border-gray-300 hover:border-green-500 rounded-2xl p-8 text-center transition bg-slate-50/50 cursor-pointer relative group">
+            <input 
+              type="file" 
+              accept=".csv" 
+              onChange={handleFileChange}
+              disabled={isProcessing}
+              className="absolute inset-0 opacity-0 cursor-pointer" 
+            />
+            <div className="space-y-2 pointer-events-none">
+              <div className="w-12 h-12 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto group-hover:scale-105 transition-transform">
+                <Download className="w-6 h-6" />
+              </div>
+              <div className="font-bold text-navy-950 text-sm">
+                {isProcessing ? 'Processing file...' : 'Drag and drop your roster CSV file here, or click to browse'}
+              </div>
+              <div className="text-xs text-gray-400">Supported format: CSV (.csv) containing columns like Name, Homeroom, Grade</div>
+            </div>
+          </div>
+
+          <div className="text-center">
+            <button
+              onClick={() => setShowManualPaste(!showManualPaste)}
+              type="button"
+              className="text-xs text-brand-600 hover:underline font-bold"
+            >
+              {showManualPaste ? 'Hide manual paste options' : 'Or paste CSV data manually'}
+            </button>
+          </div>
+
+          {showManualPaste && (
+            <div className="space-y-4 pt-4 border-t animate-fade-in">
+              <p className="text-xs text-gray-500">
+                Paste your CSV content below. Must include column headers matching <strong>name</strong>, <strong>homeroom</strong>, and <strong>grade</strong>.
+              </p>
+              <textarea
+                rows="6"
+                value={csvText}
+                onChange={(e) => setCsvText(e.target.value)}
+                className="w-full border-gray-300 rounded-lg p-4 font-mono text-sm bg-gray-50 focus:border-green-500 focus:ring-green-500 border"
+                placeholder={"name,homeroom,grade\nJane Doe, Mr. Smith, 3rd Grade\nJohn Smith, Ms. Davis, 4th Grade"}
+              />
+              <button
+                onClick={processCSV}
+                disabled={isProcessing || !csvText.trim()}
+                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-2.5 px-6 rounded-xl transition flex items-center gap-2 text-sm shadow-sm">
+                {isProcessing ? 'Processing...' : 'Upload & Sync Paste Data'}
+              </button>
+            </div>
+          )}
 
           <div className="mt-8 pt-6 border-t">
             <h3 className="font-bold text-gray-800 mb-2">Current Database Status</h3>

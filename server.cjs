@@ -197,6 +197,26 @@ class GoogleSheetsDb {
     }
   }
 
+  async appendRows(sheetName, headers, rowObjects) {
+    try {
+      const allValues = rowObjects.map(rowObj => {
+        return headers.map(h => {
+          const key = h.charAt(0).toLowerCase() + h.slice(1);
+          return rowObj[key] !== undefined ? rowObj[key] : '';
+        });
+      });
+      await this.sheets.spreadsheets.values.append({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A1`,
+        valueInputOption: 'USER_ENTERED',
+        resource: { values: allValues }
+      });
+    } catch (e) {
+      console.error(`Error appending multiple rows to sheet ${sheetName}:`, e.message);
+      throw e;
+    }
+  }
+
   async updateRow(sheetName, headers, rowNum, rowObj) {
     try {
       const values = headers.map(h => {
@@ -806,48 +826,93 @@ app.post('/api/grade-goals', authMiddleware, async (req, res) => {
 // Roster Upload (Admin only)
 app.post('/api/roster/upload', authMiddleware, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
-  const { csvText } = req.body;
-  if (!csvText) return res.status(400).json({ message: 'CSV text is required' });
+  const { csvText, students } = req.body;
 
   try {
-    const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    let parsedRows = [];
+    if (students && Array.isArray(students)) {
+      parsedRows = students;
+    } else {
+      if (!csvText) return res.status(400).json({ message: 'CSV text or students array is required' });
+      const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+      for (const line of lines) {
+        const parts = [];
+        let current = '';
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const char = line[i];
+          if (char === '"') {
+            inQuotes = !inQuotes;
+          } else if (char === ',' && !inQuotes) {
+            parts.push(current.trim());
+            current = '';
+          } else {
+            current += char;
+          }
+        }
+        parts.push(current.trim());
+        if (parts.length < 2 || !parts[0] || !parts[1]) {
+          return res.status(400).json({ message: 'Invalid roster upload format. Each student must have a name and homeroom.' });
+        }
+        parsedRows.push({
+          name: parts[0],
+          homeroom: parts[1],
+          grade: parts[2] || 'N/A'
+        });
+      }
+    }
+
     const uploaded = [];
     const studentsSheet = await db.getRows('Students');
 
-    for (const line of lines) {
-      const parts = line.split(',').map(p => p.trim());
-      if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) {
-        return res.status(400).json({ message: 'Invalid roster upload format. Each student must have a name, homeroom, and grade.' });
+    for (const s of parsedRows) {
+      const name = s.name;
+      const homeroom = s.homeroom;
+      const grade = s.grade || 'N/A';
+
+      // Check if student with same name already exists (case-insensitive, whitespace-trimmed)
+      const existing = studentsSheet.find(x => x.name && x.name.trim().toLowerCase() === name.trim().toLowerCase());
+
+      if (existing) {
+        // Update homeroom and grade if different, preserving existing id and pinCode
+        if (existing.homeroom !== homeroom || existing.grade !== grade) {
+          existing.homeroom = homeroom;
+          existing.grade = grade;
+          await db.updateRow('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], existing._rowNum, existing);
+        }
+        uploaded.push(existing);
+      } else {
+        const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+        // Generate a Student ID format: LASTNAME-FIRSTNAME or FIRSTNAME-LASTNAME (sanitized uppercase)
+        let baseId = name.toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-');
+        if (baseId.startsWith('-')) baseId = baseId.slice(1);
+        if (baseId.endsWith('-')) baseId = baseId.slice(0, -1);
+
+        let studentId = baseId;
+        let counter = 1;
+        const idExists = (id) => studentsSheet.some(x => x.id === id) || uploaded.some(x => x.id === id);
+        while (idExists(studentId)) {
+          studentId = `${baseId}-${counter}`;
+          counter++;
+        }
+
+        const newStudent = {
+          id: studentId,
+          name,
+          homeroom,
+          grade,
+          pinCode
+        };
+
+        uploaded.push(newStudent);
       }
-      const name = parts[0];
-      const homeroom = parts[1];
-      const grade = parts[2];
+    }
 
-      const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
-
-      // Generate a Student ID format: LASTNAME-FIRSTNAME or FIRSTNAME-LASTNAME (sanitized uppercase)
-      let baseId = name.toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-');
-      if (baseId.startsWith('-')) baseId = baseId.slice(1);
-      if (baseId.endsWith('-')) baseId = baseId.slice(0, -1);
-
-      let studentId = baseId;
-      let counter = 1;
-      const idExists = (id) => studentsSheet.some(s => s.id === id) || uploaded.some(s => s.id === id);
-      while (idExists(studentId)) {
-        studentId = `${baseId}-${counter}`;
-        counter++;
-      }
-
-      const newStudent = {
-        id: studentId,
-        name,
-        homeroom,
-        grade,
-        pinCode
-      };
-
-      await db.appendRow('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], newStudent);
-      uploaded.push(newStudent);
+    // Append only the newly created student rows
+    const newStudentsToAppend = uploaded.filter(x => !studentsSheet.some(s => s.id === x.id));
+    if (newStudentsToAppend.length > 0) {
+      await db.appendRows('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], newStudentsToAppend);
     }
 
     res.json(uploaded);
