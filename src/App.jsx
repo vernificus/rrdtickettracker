@@ -226,7 +226,9 @@ export default function App() {
         return;
       }
       try {
-        setLoading(true);
+        if (!profile) {
+          setLoading(true);
+        }
         const data = await api.fetch('/api/initial-data');
         setProfile(data.profile);
         setRole(data.role);
