@@ -3962,7 +3962,7 @@ function GiveTicketModal({ data, onClose, onSelect, isSubmitting }) {
 
 function PrintableLoginCards({ students, onClose }) {
   return (
-    <div className="fixed inset-0 bg-white z-[9999] overflow-y-auto p-8 font-sans print:p-0 print:absolute print:inset-0 text-gray-900">
+    <div className="printable-cards-wrapper fixed inset-0 bg-white z-[9999] overflow-y-auto p-8 font-sans text-gray-900">
       <div className="max-w-4xl mx-auto print:max-w-full">
         {/* Control bar (hidden when printing) */}
         <div className="flex justify-between items-center mb-8 border-b pb-4 print:hidden">
@@ -3989,17 +3989,24 @@ function PrintableLoginCards({ students, onClose }) {
         {/* CSS Print Styles */}
         <style dangerouslySetInnerHTML={{__html: `
           @media print {
-            body * {
-              visibility: hidden;
+            /* Hide the main app layouts completely to prevent height clipping and pagination blank space */
+            #root > div > nav,
+            #root > div > main,
+            #root > div > footer,
+            .print\\:hidden {
+              display: none !important;
             }
-            .printable-cards-container, .printable-cards-container * {
-              visibility: visible;
-            }
-            .printable-cards-container {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 100%;
+            /* Reset the print preview container structure so it functions like a standard flow page document */
+            .printable-cards-wrapper {
+              position: static !important;
+              inset: auto !important;
+              width: 100% !important;
+              height: auto !important;
+              min-height: auto !important;
+              overflow: visible !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              background: transparent !important;
             }
             .print\\:break-inside-avoid {
               break-inside: avoid;
