@@ -1,0 +1,41 @@
+{
+  "Users": [
+    {
+      "email": "admin@example.com",
+      "name": "AdminTeacher",
+      "role": "admin",
+      "createdAt": "2026-07-10T13:47:26.525Z",
+      "_rowNum": 2
+    },
+    {
+      "email": "teacher1@example.com",
+      "name": "Teacher1",
+      "role": "homeroom",
+      "createdAt": "2026-07-10T14:04:54.104Z",
+      "_rowNum": 3
+    }
+  ],
+  "Students": [
+    {
+      "id": "STUDENT-ONE",
+      "name": "Student One",
+      "homeroom": "Smith",
+      "grade": "3rd Grade",
+      "pinCode": "2945",
+      "_rowNum": 2
+    },
+    {
+      "id": "STUDENT-TWO",
+      "name": "Student Two",
+      "homeroom": "Mr. Smith",
+      "grade": "3rd Grade",
+      "pinCode": "8181",
+      "_rowNum": 3
+    }
+  ],
+  "Tickets": [],
+  "GoldenTickets": [],
+  "Spending": [],
+  "ClassGoals": [],
+  "GradeGoals": []
+}

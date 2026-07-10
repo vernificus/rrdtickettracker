@@ -49,9 +49,40 @@ class GoogleSheetsDb {
   constructor(spreadsheetId) {
     this.spreadsheetId = spreadsheetId;
     this.sheets = null;
+    this.useFallback = false;
+    this.fallbackDb = {
+      Users: [],
+      Students: [],
+      Tickets: [],
+      GoldenTickets: [],
+      Spending: [],
+      ClassGoals: [],
+      GradeGoals: []
+    };
+  }
+
+  loadFallback() {
+    const filePath = path.join(__dirname, 'db_local.json');
+    if (fs.existsSync(filePath)) {
+      try {
+        this.fallbackDb = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      } catch (e) {
+        console.error("Failed to read local fallback db:", e.message);
+      }
+    }
+  }
+
+  saveFallback() {
+    const filePath = path.join(__dirname, 'db_local.json');
+    try {
+      fs.writeFileSync(filePath, JSON.stringify(this.fallbackDb, null, 2), 'utf8');
+    } catch (e) {
+      console.error("Failed to write local fallback db:", e.message);
+    }
   }
 
   async init() {
+    this.loadFallback();
     let auth;
 
     // 1. Try GOOGLE_PRIVATE_KEY and GOOGLE_SERVICE_ACCOUNT_EMAIL
@@ -83,14 +114,25 @@ class GoogleSheetsDb {
 
     // 3. Fallback to ADC
     if (!auth) {
-      auth = new google.auth.GoogleAuth({
-        scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-      });
-      console.log("Authenticated Google Sheets API using Application Default Credentials (ADC)");
+      try {
+        auth = new google.auth.GoogleAuth({
+          scopes: ['https://www.googleapis.com/auth/spreadsheets'],
+        });
+        console.log("Authenticated Google Sheets API using Application Default Credentials (ADC)");
+      } catch (e) {
+        console.warn("ADC not available, switching to local JSON database fallback:", e.message);
+        this.useFallback = true;
+        return;
+      }
     }
 
-    this.sheets = google.sheets({ version: 'v4', auth });
-    await this.ensureTables();
+    try {
+      this.sheets = google.sheets({ version: 'v4', auth });
+      await this.ensureTables();
+    } catch (e) {
+      console.warn("Google Sheets connection failed, switching to local JSON database fallback:", e.message);
+      this.useFallback = true;
+    }
   }
 
   async ensureTables() {
@@ -153,10 +195,15 @@ class GoogleSheetsDb {
     } catch (e) {
       console.error("Error communicating with Google Sheets:", e.message);
       console.error("Make sure your Sheet is shared with the service account and SPREADSHEET_ID is correct.");
+      console.warn("Switching to local JSON database fallback.");
+      this.useFallback = true;
     }
   }
 
   async getRows(sheetName) {
+    if (this.useFallback) {
+      return this.fallbackDb[sheetName] || [];
+    }
     try {
       const res = await this.sheets.spreadsheets.values.get({
         spreadsheetId: this.spreadsheetId,
@@ -180,6 +227,14 @@ class GoogleSheetsDb {
   }
 
   async appendRow(sheetName, headers, rowObj) {
+    if (this.useFallback) {
+      if (!this.fallbackDb[sheetName]) this.fallbackDb[sheetName] = [];
+      const _rowNum = this.fallbackDb[sheetName].length + 2;
+      const copy = { ...rowObj, _rowNum };
+      this.fallbackDb[sheetName].push(copy);
+      this.saveFallback();
+      return;
+    }
     try {
       const values = headers.map(h => {
         const key = h.charAt(0).toLowerCase() + h.slice(1);
@@ -198,6 +253,16 @@ class GoogleSheetsDb {
   }
 
   async appendRows(sheetName, headers, rowObjects) {
+    if (this.useFallback) {
+      if (!this.fallbackDb[sheetName]) this.fallbackDb[sheetName] = [];
+      rowObjects.forEach(rowObj => {
+        const _rowNum = this.fallbackDb[sheetName].length + 2;
+        const copy = { ...rowObj, _rowNum };
+        this.fallbackDb[sheetName].push(copy);
+      });
+      this.saveFallback();
+      return;
+    }
     try {
       const allValues = rowObjects.map(rowObj => {
         return headers.map(h => {
@@ -218,6 +283,15 @@ class GoogleSheetsDb {
   }
 
   async updateRow(sheetName, headers, rowNum, rowObj) {
+    if (this.useFallback) {
+      const list = this.fallbackDb[sheetName] || [];
+      const idx = list.findIndex(r => r._rowNum === rowNum);
+      if (idx !== -1) {
+        list[idx] = { ...list[idx], ...rowObj };
+        this.saveFallback();
+      }
+      return;
+    }
     try {
       const values = headers.map(h => {
         const key = h.charAt(0).toLowerCase() + h.slice(1);
@@ -236,6 +310,17 @@ class GoogleSheetsDb {
   }
 
   async deleteRow(sheetName, rowNum) {
+    if (this.useFallback) {
+      let list = this.fallbackDb[sheetName] || [];
+      list = list.filter(r => r._rowNum !== rowNum);
+      // Re-assign rowNums to keep consistency
+      list.forEach((r, idx) => {
+        r._rowNum = idx + 2;
+      });
+      this.fallbackDb[sheetName] = list;
+      this.saveFallback();
+      return;
+    }
     try {
       const ssMeta = await this.sheets.spreadsheets.get({ spreadsheetId: this.spreadsheetId });
       const sheet = ssMeta.data.sheets.find(s => s.properties.title === sheetName);
@@ -865,6 +950,17 @@ app.post('/api/roster/upload', authMiddleware, async (req, res) => {
     const uploaded = [];
     const studentsSheet = await db.getRows('Students');
 
+    // Helper: generate next available short numeric student ID (e.g. 1001, 1002...)
+    const generateNumericId = () => {
+      const allIds = new Set([
+        ...studentsSheet.map(x => x.id),
+        ...uploaded.map(x => x.id)
+      ]);
+      let num = 1001;
+      while (allIds.has(String(num))) num++;
+      return String(num);
+    };
+
     for (const s of parsedRows) {
       const name = s.name;
       const homeroom = s.homeroom;
@@ -883,19 +979,7 @@ app.post('/api/roster/upload', authMiddleware, async (req, res) => {
         uploaded.push(existing);
       } else {
         const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
-
-        // Generate a Student ID format: LASTNAME-FIRSTNAME or FIRSTNAME-LASTNAME (sanitized uppercase)
-        let baseId = name.toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-');
-        if (baseId.startsWith('-')) baseId = baseId.slice(1);
-        if (baseId.endsWith('-')) baseId = baseId.slice(0, -1);
-
-        let studentId = baseId;
-        let counter = 1;
-        const idExists = (id) => studentsSheet.some(x => x.id === id) || uploaded.some(x => x.id === id);
-        while (idExists(studentId)) {
-          studentId = `${baseId}-${counter}`;
-          counter++;
-        }
+        const studentId = generateNumericId();
 
         const newStudent = {
           id: studentId,
@@ -938,16 +1022,11 @@ app.post('/api/students', authMiddleware, async (req, res) => {
     }
 
     const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
-    let baseId = name.toUpperCase().replace(/[^A-Z0-9]/g, '-').replace(/-+/g, '-');
-    if (baseId.startsWith('-')) baseId = baseId.slice(1);
-    if (baseId.endsWith('-')) baseId = baseId.slice(0, -1);
-
-    let studentId = baseId;
-    let counter = 1;
-    while (studentsSheet.some(s => s.id === studentId)) {
-      studentId = `${baseId}-${counter}`;
-      counter++;
-    }
+    // Generate next available short numeric student ID (e.g. 1001, 1002...)
+    const allExistingIds = new Set(studentsSheet.map(s => s.id));
+    let numId = 1001;
+    while (allExistingIds.has(String(numId))) numId++;
+    const studentId = String(numId);
 
     const newStudent = {
       id: studentId,

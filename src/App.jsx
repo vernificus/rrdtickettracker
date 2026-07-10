@@ -201,6 +201,7 @@ export default function App() {
   const [editStudentData, setEditStudentData] = useState(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' or 'raffle'
+  const [studentsToPrint, setStudentsToPrint] = useState(null);
 
   // Expose triggerRefresh globally for the mock Firestore operations
   useEffect(() => {
@@ -225,6 +226,7 @@ export default function App() {
         return;
       }
       try {
+        setLoading(true);
         const data = await api.fetch('/api/initial-data');
         setProfile(data.profile);
         setRole(data.role);
@@ -329,13 +331,13 @@ export default function App() {
         ) : (
           <>
             {role === 'admin' && (
-              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
+              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} />
             )}
             {role === 'homeroom' && (
-              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
+              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} />
             )}
             {role === 'specialist' && (
-              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} />
+              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} />
             )}
           </>
         )}
@@ -384,6 +386,8 @@ export default function App() {
 
       {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+
+      {studentsToPrint && <PrintableLoginCards students={studentsToPrint} onClose={() => setStudentsToPrint(null)} />}
 
       {/* Toast Notification */}
       <div className={`fixed bottom-4 right-4 bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 transition-all duration-300 ${toast.visible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
@@ -1563,15 +1567,16 @@ function Login({ onLoginSuccess, showToast }) {
         {activeTab === 'student' ? (
           <form className="mt-6 space-y-4" onSubmit={handleStudentSubmit}>
             <div>
-              <label htmlFor="student-id" className="block text-sm font-bold text-gray-700">Student ID</label>
+              <label htmlFor="student-id" className="block text-sm font-bold text-gray-700">Student Number</label>
               <input
                 id="student-id"
                 type="text"
+                inputMode="numeric"
                 required
                 value={studentId}
                 onChange={e => setStudentId(e.target.value)}
-                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
-                placeholder="e.g. ALICE-101"
+                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition text-center text-lg font-bold tracking-widest"
+                placeholder="e.g. 1001"
               />
             </div>
             <div>
@@ -2055,7 +2060,7 @@ function StudentDashboard({ studentData, onSignOut }) {
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards }) {
   const [modalData, setModalData] = useState(null);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [awardDate, setAwardDate] = useState('today'); // 'today', 'yesterday', 'other'
@@ -2110,6 +2115,10 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     const custom = profile.customStudents || [];
     return [...new Set([...central, ...custom])].sort();
   }, [students, profile]);
+
+  const myStudentObjects = useMemo(() => {
+    return students.filter(s => myStudents.includes(s.name));
+  }, [students, myStudents]);
 
   const myTickets = useMemo(() => {
     return tickets.filter(t => myUids.has(t.teacherEmail));
@@ -2331,8 +2340,23 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         {/* Display Mode Button */}
         <div className="flex items-center gap-3 w-full md:w-auto justify-end">
           <button
+            type="button"
+            onClick={() => {
+              if (myStudentObjects.length === 0) {
+                showToast("No students in your class to print cards for.");
+                return;
+              }
+              onPrintLoginCards(myStudentObjects);
+            }}
+            className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-4 rounded-xl shadow-sm border border-gray-200 transition text-sm cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-gray-500" />
+            <span>Print Login Cards</span>
+          </button>
+
+          <button
             onClick={() => setIsDisplayMode(true)}
-            className="flex items-center gap-2 bg-brand-700 hover:bg-brand-800 text-white font-bold py-2.5 px-5 rounded-xl shadow-sm border border-brand-850 transition"
+            className="flex items-center gap-2 bg-brand-700 hover:bg-brand-800 text-white font-bold py-2.5 px-5 rounded-xl shadow-sm border border-brand-850 transition text-sm"
           >
             <Shield className="w-5 h-5 text-brand-200" />
             <span>Display Mode</span>
@@ -2541,7 +2565,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
   const [spendData, setSpendData] = useState(null);
@@ -2555,6 +2579,11 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
   const studentsInClass = useMemo(() => {
     if (!selectedClass) return [];
     return students.filter(s => s.homeroom === selectedClass).map(s => s.name).sort();
+  }, [selectedClass, students]);
+
+  const classStudentObjects = useMemo(() => {
+    if (!selectedClass) return [];
+    return students.filter(s => s.homeroom === selectedClass);
   }, [selectedClass, students]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -2710,13 +2739,30 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
                 <p className="text-gray-500">Award the whole class, or pick a student.</p>
               </div>
             </div>
-            <button
-              onClick={() => setIsDisplayMode(true)}
-              className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center"
-            >
-              <Tv className="w-4.5 h-4.5" />
-              Class Display Mode
-            </button>
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  if (classStudentObjects.length === 0) {
+                    showToast("No students in this class to print cards for.");
+                    return;
+                  }
+                  onPrintLoginCards(classStudentObjects);
+                }}
+                className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-4 rounded-xl shadow-sm border border-gray-200 transition text-sm cursor-pointer"
+              >
+                <Download className="w-4 h-4 text-gray-500" />
+                <span>Print Login Cards</span>
+              </button>
+
+              <button
+                onClick={() => setIsDisplayMode(true)}
+                className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center"
+              >
+                <Tv className="w-4.5 h-4.5" />
+                Class Display Mode
+              </button>
+            </div>
           </div>
           <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-3">
@@ -2763,7 +2809,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -2796,6 +2842,11 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const studentsInClass = useMemo(() => {
     if (!selectedClass) return [];
     return students.filter(s => s.homeroom === selectedClass).map(s => s.name).sort();
+  }, [selectedClass, students]);
+
+  const classStudentObjects = useMemo(() => {
+    if (!selectedClass) return [];
+    return students.filter(s => s.homeroom === selectedClass);
   }, [selectedClass, students]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -3158,13 +3209,30 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                     <p className="text-gray-500 text-sm">Award the whole class or pick a student.</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setIsDisplayMode(true)}
-                  className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center"
-                >
-                  <Tv className="w-4.5 h-4.5" />
-                  Class Display Mode
-                </button>
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (classStudentObjects.length === 0) {
+                        showToast("No students in this class to print cards for.");
+                        return;
+                      }
+                      onPrintLoginCards(classStudentObjects);
+                    }}
+                    className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-4 rounded-xl shadow-sm border border-gray-200 transition text-sm cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-gray-500" />
+                    <span>Print Login Cards</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsDisplayMode(true)}
+                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center"
+                  >
+                    <Tv className="w-4.5 h-4.5" />
+                    Class Display Mode
+                  </button>
+                </div>
               </div>
               <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
@@ -3884,6 +3952,93 @@ function GiveTicketModal({ data, onClose, onSelect, isSubmitting }) {
               {isSubmitting ? 'Saving...' : 'Determined'} <span className="text-purple-400">&#x1F525;</span>
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PrintableLoginCards({ students, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-white z-[9999] overflow-y-auto p-8 font-sans print:p-0 print:absolute print:inset-0 text-gray-900">
+      <div className="max-w-4xl mx-auto print:max-w-full">
+        {/* Control bar (hidden when printing) */}
+        <div className="flex justify-between items-center mb-8 border-b pb-4 print:hidden">
+          <div>
+            <h2 className="text-xl font-bold text-navy-950">Student Login Cards Preview</h2>
+            <p className="text-sm text-gray-500">Each card contains the student's name, ID, PIN, and instructions. Cut them out to distribute.</p>
+          </div>
+          <div className="flex gap-3">
+            <button
+              onClick={() => window.print()}
+              className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 px-6 rounded-xl transition shadow-sm text-sm cursor-pointer"
+            >
+              Print Now
+            </button>
+            <button
+              onClick={onClose}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-750 font-bold py-2 px-6 rounded-xl transition text-sm cursor-pointer"
+            >
+              Close Preview
+            </button>
+          </div>
+        </div>
+
+        {/* CSS Print Styles */}
+        <style dangerouslySetInnerHTML={{__html: `
+          @media print {
+            body * {
+              visibility: hidden;
+            }
+            .printable-cards-container, .printable-cards-container * {
+              visibility: visible;
+            }
+            .printable-cards-container {
+              position: absolute;
+              left: 0;
+              top: 0;
+              width: 100%;
+            }
+            .print\\:break-inside-avoid {
+              break-inside: avoid;
+              page-break-inside: avoid;
+            }
+          }
+        `}} />
+
+        {/* Cards Grid */}
+        <div className="printable-cards-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 print:grid-cols-2 print:gap-4">
+          {students.map(student => (
+            <div key={student.id} className="border-2 border-dashed border-brand-400 p-6 rounded-2xl bg-white shadow-xs flex flex-col justify-between min-h-[180px] print:break-inside-avoid relative overflow-hidden text-navy-950">
+              {/* Decorative Corner accent */}
+              <div className="absolute top-0 right-0 bg-brand-100 text-brand-700 font-black px-3 py-1 rounded-bl-xl text-[10px] tracking-wider print:border-l print:border-b print:border-brand-350 uppercase">
+                Student Ticket Portal
+              </div>
+              
+              <div>
+                <span className="text-xxs font-bold text-gray-400 uppercase tracking-widest block mb-1">Student Name</span>
+                <h3 className="text-lg font-black text-navy-950 leading-tight mb-3">{student.name}</h3>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mb-3">
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Student Number</span>
+                  <code className="text-xs font-black text-slate-800 font-mono select-all">{student.id}</code>
+                </div>
+                <div>
+                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">4-Digit PIN</span>
+                  <code className="text-xs font-black text-brand-650 font-mono tracking-widest">{student.pinCode}</code>
+                </div>
+              </div>
+
+              <div className="text-[9px] text-gray-500 leading-normal border-t pt-2.5">
+                <span className="font-bold text-navy-950 block mb-0.5">How to log in:</span>
+                1. Go to the ticket tracker website.<br />
+                2. Select "Student Portal".<br />
+                3. Enter your Student Number and 4-Digit PIN.
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>
