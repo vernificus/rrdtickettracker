@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="One-page how-to guide for teachers using the Roadrunner Green Ticket Tracker." />
+<link rel="icon" type="image/svg+xml" href="/vite.svg" />
+<title>Green Tickets Teacher Guide</title>
+</head>
+<body>
+<style>
+  :root {
+    --paper:      #f5f8f6;
+    --card:       #ffffff;
+    --ink:        #0c1f18;
+    --ink-soft:   #4d635a;
+    --rule:       #d3ddd8;
+    --brand:      #047857;
+    --brand-deep: #024e39;
+    --brand-wash: #e6f4ec;
+    --gold:       #b45309;
+    --gold-wash:  #fdf3e0;
+    --respect:    #1d4ed8;
+    --respons:    #b45309;
+    --determ:     #6d28d9;
+    --shadow:     0 1px 2px rgba(12, 31, 24, .06), 0 8px 24px -18px rgba(12, 31, 24, .5);
+    --display: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+    --body: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --micro: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:      #0a1712;
+      --card:       #10221b;
+      --ink:        #e7f0ea;
+      --ink-soft:   #9db3a8;
+      --rule:       #23392f;
+      --brand:      #34d399;
+      --brand-deep: #6ee7b7;
+      --brand-wash: #16302479;
+      --gold:       #fbbf24;
+      --gold-wash:  #2a210c;
+      --respect:    #93b4ff;
+      --respons:    #f0b45f;
+      --determ:     #c4a8ff;
+      --shadow:     0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -18px rgba(0, 0, 0, .9);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --paper:      #0a1712;
+    --card:       #10221b;
+    --ink:        #e7f0ea;
+    --ink-soft:   #9db3a8;
+    --rule:       #23392f;
+    --brand:      #34d399;
+    --brand-deep: #6ee7b7;
+    --brand-wash: #16302479;
+    --gold:       #fbbf24;
+    --gold-wash:  #2a210c;
+    --respect:    #93b4ff;
+    --respons:    #f0b45f;
+    --determ:     #c4a8ff;
+    --shadow:     0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -18px rgba(0, 0, 0, .9);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 14px;
+    line-height: 1.5;
+    margin: 0;
+    padding: 28px 20px 48px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet {
+    max-width: 1080px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  /* ---- masthead ---- */
+  .masthead {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px 24px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--brand);
+  }
+  .masthead h1 {
+    font-family: var(--display);
+    font-size: 33px;
+    line-height: 1.05;
+    font-weight: 600;
+    letter-spacing: -.015em;
+    margin: 4px 0 0;
+    text-wrap: balance;
+  }
+  .eyebrow {
+    font-family: var(--micro);
+    font-size: 10px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--brand);
+    margin: 0;
+  }
+  .standfirst {
+    margin: 0;
+    max-width: 46ch;
+    font-size: 13px;
+    color: var(--ink-soft);
+  }
+
+  /* ---- values strip ---- */
+  .values {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .values li {
+    font-family: var(--micro);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .04em;
+    padding: 4px 10px;
+    border: 1px solid currentColor;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .values .v-respect { color: var(--respect); }
+  .values .v-respons { color: var(--respons); }
+  .values .v-determ  { color: var(--determ); }
+
+  /* ---- columns ---- */
+  .grid {
+    columns: 2;
+    column-gap: 16px;
+  }
+  @media (max-width: 760px) {
+    .grid { columns: 1; }
+  }
+
+  section {
+    background: var(--card);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 16px 18px 18px;
+    margin: 0 0 16px;
+    box-shadow: var(--shadow);
+    break-inside: avoid;
+  }
+
+  h2 {
+    font-family: var(--display);
+    font-size: 17px;
+    font-weight: 600;
+    margin: 0 0 4px;
+    letter-spacing: -.01em;
+  }
+  .note {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+
+  /* ---- setup steps: a real sequence, so it's numbered ---- */
+  ol.steps {
+    list-style: none;
+    counter-reset: step;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+  }
+  ol.steps li {
+    counter-increment: step;
+    display: grid;
+    grid-template-columns: 22px 1fr;
+    gap: 10px;
+    font-size: 13px;
+  }
+  ol.steps li::before {
+    content: counter(step);
+    font-family: var(--micro);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    background: var(--brand-wash);
+    border-radius: 5px;
+    height: 20px;
+    display: grid;
+    place-items: center;
+  }
+  ol.steps strong { display: block; }
+
+  /* ---- reference rows: not a sequence, so no numbers ---- */
+  dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: minmax(96px, auto) 1fr;
+    gap: 8px 14px;
+    font-size: 13px;
+    align-items: baseline;
+  }
+  dt {
+    font-weight: 600;
+    color: var(--brand-deep);
+  }
+  dd { margin: 0; }
+
+  ul.plain {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 13px;
+  }
+  ul.plain li {
+    padding-left: 15px;
+    position: relative;
+  }
+  ul.plain li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: .55em;
+    width: 6px;
+    height: 6px;
+    border-radius: 2px;
+    background: var(--brand);
+  }
+
+  .btn {
+    font-family: var(--micro);
+    font-size: 11.5px;
+    font-weight: 600;
+    background: var(--brand-wash);
+    color: var(--brand-deep);
+    border-radius: 4px;
+    padding: 1px 5px;
+    white-space: nowrap;
+  }
+
+  .callout {
+    margin-top: 12px;
+    border-left: 3px solid var(--gold);
+    background: var(--gold-wash);
+    color: var(--ink);
+    padding: 9px 12px;
+    border-radius: 0 6px 6px 0;
+    font-size: 12.5px;
+  }
+  .callout strong { color: var(--gold); }
+
+  .navbar-map {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: 12.5px;
+  }
+  .navbar-map li {
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    padding: 6px 9px;
+    background: var(--paper);
+  }
+  .navbar-map b {
+    font-family: var(--micro);
+    font-size: 11px;
+    color: var(--brand-deep);
+    display: block;
+  }
+
+  footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 8px 20px;
+    border-top: 1px solid var(--rule);
+    padding-top: 10px;
+    font-size: 11.5px;
+    color: var(--ink-soft);
+  }
+  footer .brandline { font-family: var(--micro); letter-spacing: .1em; text-transform: uppercase; }
+
+  .print-btn {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--card);
+    background: var(--brand);
+    border: none;
+    border-radius: 6px;
+    padding: 7px 14px;
+    cursor: pointer;
+  }
+  .print-btn:hover { background: var(--brand-deep); }
+  .print-btn:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  @media print {
+    @page { margin: 10mm; }
+    body { background: #fff; color: #000; padding: 0; font-size: 7.6pt; line-height: 1.32; }
+    .sheet { gap: 7px; max-width: none; }
+    .masthead { padding-bottom: 7px; }
+    .masthead h1 { font-size: 17pt; margin-top: 1px; }
+    .standfirst { font-size: 8pt; max-width: 60ch; }
+    .eyebrow { font-size: 6.6pt; }
+    .values li { font-size: 7pt; padding: 2px 7px; }
+    .grid { columns: 2; column-gap: 7px; }
+    section { margin: 0 0 7px; padding: 7px 9px 8px; box-shadow: none; border-radius: 5px; }
+    h2 { font-size: 9.6pt; margin-bottom: 1px; }
+    .note { font-size: 7pt; margin-bottom: 5px; }
+    dl, ul.plain, ol.steps li, .navbar-map { font-size: 7.5pt; }
+    dl { gap: 5px 10px; }
+    ol.steps { gap: 5px; }
+    ul.plain { gap: 4px; }
+    .navbar-map { gap: 4px 5px; }
+    .navbar-map li { padding: 4px 6px; }
+    .btn { font-size: 7pt; }
+    .callout { margin-top: 6px; padding: 4px 7px; font-size: 7.2pt; }
+    footer { padding-top: 6px; font-size: 7pt; }
+    .print-btn { display: none; }
+  }
+</style>
+
+<div class="sheet">
+
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Roadrunner Ticket Tracker</p>
+      <h1>Green Tickets: Teacher Guide</h1>
+      <p class="standfirst">Everything you need to hand out tickets, run the class store, and get your students logged in — on one page.</p>
+    </div>
+    <ul class="values">
+      <li class="v-respect">Respectful</li>
+      <li class="v-respons">Responsible</li>
+      <li class="v-determ">Determined</li>
+    </ul>
+  </header>
+
+  <div class="grid">
+
+    <section>
+      <h2>Start of year setup</h2>
+      <p class="note">Do these four in order, once.</p>
+      <ol class="steps">
+        <li><span><strong>Make your account.</strong> Open the tracker, choose <span class="btn">Teacher Access</span>, then <em>Need an account? Register here</em>. Enter your last name exactly as it appears in the roster's homeroom column, pick your role, and set a password.</span></li>
+        <li><span><strong>Check your roster.</strong> Homeroom teachers land on <em>My Class Roster</em>. If it's empty, your last name doesn't match the roster — ask an admin to fix it, or use <span class="btn">Add Student</span> for a late arrival.</span></li>
+        <li><span><strong>Set your class goal.</strong> On the <em>My Class Ticket Goal</em> card, click the shield icon, enter a ticket target and the reward, then <span class="btn">Save Goal</span>. Students see the progress bar too.</span></li>
+        <li><span><strong>Hand out logins.</strong> <span class="btn">Print Login Cards</span> → <span class="btn">Print Now</span> gives you a cut-apart card per student with their number and PIN.</span></li>
+      </ol>
+    </section>
+
+    <section>
+      <h2>Every day</h2>
+      <p class="note">All of this lives on the student cards.</p>
+      <dl>
+        <dt>Give a ticket</dt>
+        <dd>Tap <em>Respectful</em>, <em>Responsible</em>, or <em>Determined</em> on the student's card. It saves the moment you tap.</dd>
+        <dt>Backdate it</dt>
+        <dd>Set <em>Award Date</em> to Today, Yesterday, or a specific date <em>before</em> you tap.</dd>
+        <dt>Attendance</dt>
+        <dd>Tap the <em>Present</em> chip to flip a student to <em>Absent</em>. Absent students can't be awarded or spend, and whole-class awards skip them.</dd>
+        <dt>Golden Ticket</dt>
+        <dd>The gold banner awards your whole class at once and counts toward your grade level's goal.</dd>
+        <dt>Class store</dt>
+        <dd><em>Spend</em> under a balance → enter the number of tickets and what they bought → <span class="btn">Confirm Spend</span>.</dd>
+        <dt>Another class</dt>
+        <dd><em>Search Any Student</em> at the bottom finds anyone in the school, then you pick a reason.</dd>
+        <dt>Undo</dt>
+        <dd>Delete a mistake from the <em>Recent Tickets</em> list at the bottom of your dashboard.</dd>
+      </dl>
+      <div class="callout"><strong>Specialists:</strong> pick a class first, then use <em>Award Whole Class</em> to give every present student one ticket.</div>
+    </section>
+
+    <section>
+      <h2>Reading a student card</h2>
+      <ul class="plain">
+        <li>The green circle is the <strong>spendable</strong> balance: everything earned school-wide, minus everything spent.</li>
+        <li>The <strong>R / S / D</strong> chips count only the tickets <em>you</em> gave — another teacher's tickets won't show there.</li>
+        <li>Goal progress counts <strong>lifetime tickets earned</strong>, so spending at the store never sets your class back.</li>
+        <li>The gear icon opens a student's login number, PIN, homeroom, and grade — that's where you fix a forgotten PIN.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>Display Mode &amp; the raffle</h2>
+      <ul class="plain">
+        <li><strong>Display Mode</strong> fills the screen with your roster for the projector. Tap a name, pick a value, done. <span class="btn">Hide Balances</span> swaps every number for a “?” when you'd rather the class not compare. <span class="btn">Exit</span> returns to your dashboard.</li>
+        <li><strong>Weekly Raffle</strong> lives in the top bar. Choose students or teachers, a window of one week, one month, or all time, narrow to a grade or homeroom if you like, then draw. Every ticket earned is one entry, so busy earners have better odds.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>The top bar</h2>
+      <ul class="navbar-map">
+        <li><b>Dashboard</b>Your roster and ticket tools</li>
+        <li><b>Weekly Raffle</b>Draw a winner from recent tickets</li>
+        <li><b>Help</b>In-app version of this guide</li>
+        <li><b>Role</b>Switch between homeroom, specialist, and admin</li>
+        <li><b>Password</b>Change your own password</li>
+        <li><b>Export</b>Download your ticket history as a spreadsheet</li>
+        <li><b>Sign Out</b>Leave the shared device signed out</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>What students see</h2>
+      <p class="note">Student Portal tab · student number + 4-digit PIN</p>
+      <ul class="plain">
+        <li>Their spendable balance and the full history of what they earned and spent.</li>
+        <li>Progress bars for your class goal and their grade's Golden Ticket goal.</li>
+        <li>A mascot avatar they pick, and a timed math game for early finishers.</li>
+      </ul>
+    </section>
+
+    <section>
+      <h2>If something looks wrong</h2>
+      <dl>
+        <dt>Empty roster</dt>
+        <dd>Your registered last name doesn't match the homeroom name on the roster. An admin can correct either one.</dd>
+        <dt>Wrong student</dt>
+        <dd>Remove the ticket in <em>Recent Tickets</em>, then award the right student.</dd>
+        <dt>Spend is greyed out</dt>
+        <dd>The balance is zero, or the student is marked absent.</dd>
+        <dt>Missing tools</dt>
+        <dd>Roster imports, merging duplicate students, and grade goals are admin-only — switch with <span class="btn">Role</span> (needs the admin password).</dd>
+      </dl>
+    </section>
+
+  </div>
+
+  <footer>
+    <span class="brandline">Earn tickets · Build community</span>
+    <button type="button" class="print-btn" onclick="window.print()">Print this page</button>
+  </footer>
+
+</div>
+</body>
+</html>
