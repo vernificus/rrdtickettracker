@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Accessibility & Utility Animations */
 @keyframes confetti-fall {
   0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
   100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
@@ -28,4 +29,82 @@
 .animate-marquee {
   animation: marquee 10s linear infinite;
 }
+
+/* WCAG 2.1 AA Focus Rings & Accessibility Overrides */
+*:focus-visible {
+  outline: 3px solid #047857 !important;
+  outline-offset: 3px !important;
+}
+
+/* Font Scaling Classes */
+.text-scale-100 {
+  font-size: 100%;
+}
+.text-scale-115 {
+  font-size: 115%;
+}
+.text-scale-130 {
+  font-size: 130%;
+}
+
+/* High Contrast Mode (Section 508 / WCAG AAA Contrast Enhancements) */
+body.high-contrast {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+}
+
+body.high-contrast header,
+body.high-contrast nav,
+body.high-contrast main,
+body.high-contrast footer,
+body.high-contrast div,
+body.high-contrast section,
+body.high-contrast article {
+  border-color: #ffffff !important;
+}
+
+body.high-contrast button {
+  border: 2px solid #ffffff !important;
+  background-color: #000000 !important;
+  color: #ffff00 !important;
+  font-weight: 800 !important;
+}
+
+body.high-contrast button:hover,
+body.high-contrast button:focus {
+  background-color: #ffff00 !important;
+  color: #000000 !important;
+}
+
+body.high-contrast input,
+body.high-contrast select,
+body.high-contrast textarea {
+  background-color: #000000 !important;
+  color: #ffffff !important;
+  border: 2px solid #ffff00 !important;
+}
+
+body.high-contrast a {
+  color: #ffff00 !important;
+  text-decoration: underline !important;
+}
+
+/* Reduced Motion Override */
+body.reduced-motion *,
+body.reduced-motion *::before,
+body.reduced-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+
 

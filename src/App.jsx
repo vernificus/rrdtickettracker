@@ -2,10 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Ticket, Users, Shield, Palette, Download, LogOut,
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
-  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv
+  Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv,
+  Eye, Smartphone, Contrast, ShieldCheck, Share, ZoomIn, Volume2, ArrowUpDown, Layers, Shuffle, CheckSquare, Square
 } from 'lucide-react';
 
-const API_URL = import.meta.env.DEV ? 'http://localhost:8080' : '';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : '');
 
 const api = {
   token: localStorage.getItem('token'),
@@ -26,11 +27,25 @@ const api = {
       ...options,
       headers
     });
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.message || `API error (${res.status})`);
+
+    const contentType = res.headers.get('content-type') || '';
+    const text = await res.text();
+
+    if (contentType.includes('text/html') || text.trim().startsWith('<!DOCTYPE') || text.trim().startsWith('<html')) {
+      throw new Error(`API Connection Error: Received HTML instead of JSON from backend. Please ensure node server.cjs is running on port 8080 or check backend deployment.`);
     }
-    return res.json();
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch (e) {
+      throw new Error(`API Parse Error: Server response was not valid JSON (${e.message})`);
+    }
+
+    if (!res.ok) {
+      throw new Error(data.message || `API error (${res.status})`);
+    }
+    return data;
   }
 };
 
@@ -55,6 +70,68 @@ const doc = (dbOrColl, ...paths) => {
   return { collection: collectionName, id };
 };
 
+// --- Audio Synthesizer helper for Web Audio API Chimes ---
+const playTicketSound = (type = 'ticket') => {
+  if (localStorage.getItem('accessibility_sound') === 'false') return;
+
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+
+    if (ctx.state === 'suspended') {
+      ctx.resume();
+    }
+
+    if (type === 'golden') {
+      // Golden Ticket Sparkle Fanfare (C5 -> E5 -> G5 -> C6 -> E6)
+      const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.18, ctx.currentTime + idx * 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.08 + 0.35);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + idx * 0.08);
+        osc.stop(ctx.currentTime + idx * 0.08 + 0.38);
+      });
+    } else if (type === 'spend') {
+      // Reward redemption / spend chime
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(880, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(440, ctx.currentTime + 0.22);
+      gain.gain.setValueAtTime(0.2, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.22);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.24);
+    } else {
+      // Standard Green Ticket Chime (E5 -> G5 -> C6)
+      const notes = [659.25, 783.99, 1046.50];
+      notes.forEach((freq, idx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.2, ctx.currentTime + idx * 0.09);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + idx * 0.09 + 0.28);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(ctx.currentTime + idx * 0.09);
+        osc.stop(ctx.currentTime + idx * 0.09 + 0.32);
+      });
+    }
+  } catch (e) {
+    // Audio Context uninitialized or muted
+  }
+};
+
 const addDoc = async (collOrName, data) => {
   const collName = typeof collOrName === 'object' && collOrName.path ? collOrName.path : collOrName;
   const payload = { ...data };
@@ -71,6 +148,11 @@ const addDoc = async (collOrName, data) => {
     method: 'POST',
     body: JSON.stringify(payload)
   });
+
+  if (collName === 'tickets') playTicketSound('ticket');
+  else if (collName === 'goldenTickets') playTicketSound('golden');
+  else if (collName === 'spending') playTicketSound('spend');
+
   if (window.triggerRefresh) window.triggerRefresh();
   return { id: result.id };
 };
@@ -152,6 +234,63 @@ const serverTimestamp = () => {
   return new Date().toISOString();
 };
 
+// --- Name & Roster Sorting Helpers (First Name, Last Name, Most Tickets) ---
+const getFirstName = (fullName) => {
+  if (!fullName) return '';
+  const parts = fullName.trim().split(/\s+/);
+  return parts[0];
+};
+
+const getLastName = (fullName) => {
+  if (!fullName) return '';
+  const parts = fullName.trim().split(/\s+/);
+  return parts.length > 1 ? parts[parts.length - 1] : parts[0];
+};
+
+const sortStudentNames = (namesList, sortBy = 'firstName', balances = {}) => {
+  return [...namesList].sort((a, b) => {
+    if (sortBy === 'lastName') {
+      const lastA = getLastName(a).toLowerCase();
+      const lastB = getLastName(b).toLowerCase();
+      if (lastA !== lastB) return lastA.localeCompare(lastB);
+      return getFirstName(a).toLowerCase().localeCompare(getFirstName(b).toLowerCase());
+    } else if (sortBy === 'tickets') {
+      const countA = balances[a]?.earned || 0;
+      const countB = balances[b]?.earned || 0;
+      if (countA !== countB) return countB - countA;
+      return a.localeCompare(b);
+    } else {
+      const firstA = getFirstName(a).toLowerCase();
+      const firstB = getFirstName(b).toLowerCase();
+      if (firstA !== firstB) return firstA.localeCompare(firstB);
+      return getLastName(a).toLowerCase().localeCompare(getLastName(b).toLowerCase());
+    }
+  });
+};
+
+const sortStudentObjects = (studentsList, sortBy = 'firstName', balances = {}) => {
+  return [...studentsList].sort((a, b) => {
+    const nameA = a.name || '';
+    const nameB = b.name || '';
+    if (sortBy === 'lastName') {
+      const lastA = getLastName(nameA).toLowerCase();
+      const lastB = getLastName(nameB).toLowerCase();
+      if (lastA !== lastB) return lastA.localeCompare(lastB);
+      return getFirstName(nameA).toLowerCase().localeCompare(getFirstName(nameB).toLowerCase());
+    } else if (sortBy === 'tickets') {
+      const countA = balances[nameA]?.earned || 0;
+      const countB = balances[nameB]?.earned || 0;
+      if (countA !== countB) return countB - countA;
+      return nameA.localeCompare(nameB);
+    } else {
+      const firstA = getFirstName(nameA).toLowerCase();
+      const firstB = getFirstName(nameB).toLowerCase();
+      if (firstA !== firstB) return firstA.localeCompare(firstB);
+      return getLastName(nameA).toLowerCase().localeCompare(getLastName(nameB).toLowerCase());
+    }
+  });
+};
+
 // --- Helper to convert ISO dates into Firestore-like Timestamp objects ---
 const formatTicket = (t) => {
   const date = t.timestamp ? new Date(t.timestamp) : new Date();
@@ -203,6 +342,69 @@ export default function App() {
   const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' or 'raffle'
   const [studentsToPrint, setStudentsToPrint] = useState(null);
 
+  // Accessibility state
+  const [highContrast, setHighContrast] = useState(() => localStorage.getItem('accessibility_highcontrast') === 'true');
+  const [fontScale, setFontScale] = useState(() => localStorage.getItem('accessibility_fontscale') || '100');
+  const [reducedMotion, setReducedMotion] = useState(() => localStorage.getItem('accessibility_reducedmotion') === 'true');
+  const [soundEnabled, setSoundEnabled] = useState(() => localStorage.getItem('accessibility_sound') !== 'false');
+  const [showAccessibilityModal, setShowAccessibilityModal] = useState(false);
+  const [ariaAnnouncement, setAriaAnnouncement] = useState('');
+
+  // PWA Install state
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallModal, setShowInstallModal] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(false);
+
+  useEffect(() => {
+    if (highContrast) {
+      document.body.classList.add('high-contrast');
+      localStorage.setItem('accessibility_highcontrast', 'true');
+    } else {
+      document.body.classList.remove('high-contrast');
+      localStorage.setItem('accessibility_highcontrast', 'false');
+    }
+  }, [highContrast]);
+
+  useEffect(() => {
+    document.body.classList.remove('text-scale-100', 'text-scale-115', 'text-scale-130');
+    document.body.classList.add(`text-scale-${fontScale}`);
+    localStorage.setItem('accessibility_fontscale', fontScale);
+  }, [fontScale]);
+
+  useEffect(() => {
+    if (reducedMotion) {
+      document.body.classList.add('reduced-motion');
+      localStorage.setItem('accessibility_reducedmotion', 'true');
+    } else {
+      document.body.classList.remove('reduced-motion');
+      localStorage.setItem('accessibility_reducedmotion', 'false');
+    }
+  }, [reducedMotion]);
+
+  useEffect(() => {
+    localStorage.setItem('accessibility_sound', soundEnabled ? 'true' : 'false');
+  }, [soundEnabled]);
+
+  useEffect(() => {
+    const userAgent = window.navigator.userAgent.toLowerCase();
+    const isIosDevice = /iphone|ipad|ipod/.test(userAgent) || (window.navigator.platform === 'MacIntel' && window.navigator.maxTouchPoints > 1);
+    setIsIOS(isIosDevice);
+
+    const isInStandalone = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+    setIsStandalone(isInStandalone);
+
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
   // Expose triggerRefresh globally for the mock Firestore operations
   useEffect(() => {
     window.triggerRefresh = () => {
@@ -215,6 +417,7 @@ export default function App() {
 
   const showToast = (message) => {
     setToast({ visible: true, message });
+    setAriaAnnouncement(message);
     setTimeout(() => setToast({ visible: false, message: '' }), 3000);
   };
 
@@ -266,24 +469,96 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 text-green-600">
-        <Ticket className="w-12 h-12 animate-bounce mb-4" />
-        <h2 className="text-xl font-bold text-gray-700">Loading Tracker...</h2>
+      <div className="min-h-screen flex flex-col items-center justify-center bg-emerald-900 text-white p-4">
+        <Ticket className="w-16 h-16 animate-bounce text-amber-300 mb-4" />
+        <h2 className="text-2xl font-extrabold font-display">Loading Rolling Ridge Tracker...</h2>
+        <p className="text-xs text-emerald-200 mt-2">Section 508 & VA State Public Schools Compliant</p>
       </div>
     );
   }
 
   if (!profile) {
-    return <Login onLoginSuccess={(prof, token) => {
-      api.setToken(token);
-      setProfile(prof);
-      setRole(prof.role);
-      setRefreshTrigger(prev => prev + 1);
-    }} showToast={showToast} />;
+    return (
+      <>
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-3 focus:bg-emerald-800 focus:text-amber-300 focus:font-bold focus:rounded-xl focus:shadow-2xl focus:ring-4 focus:ring-amber-300 focus:outline-none">
+          Skip to Main Content
+        </a>
+        <div aria-live="polite" aria-atomic="true" className="sr-only">{ariaAnnouncement}</div>
+        <Login 
+          onLoginSuccess={(prof, token) => {
+            api.setToken(token);
+            setProfile(prof);
+            setRole(prof.role);
+            setRefreshTrigger(prev => prev + 1);
+          }} 
+          showToast={showToast} 
+          onOpenAccessibility={() => setShowAccessibilityModal(true)}
+          onOpenInstall={() => setShowInstallModal(true)}
+          isStandalone={isStandalone}
+        />
+        <AccessibilityModal
+          isOpen={showAccessibilityModal}
+          onClose={() => setShowAccessibilityModal(false)}
+          highContrast={highContrast}
+          setHighContrast={setHighContrast}
+          fontScale={fontScale}
+          setFontScale={setFontScale}
+          reducedMotion={reducedMotion}
+          setReducedMotion={setReducedMotion}
+          soundEnabled={soundEnabled}
+          setSoundEnabled={setSoundEnabled}
+        />
+        <PWAInstallModal
+          isOpen={showInstallModal}
+          onClose={() => setShowInstallModal(false)}
+          deferredPrompt={deferredPrompt}
+          isIOS={isIOS}
+          isStandalone={isStandalone}
+        />
+      </>
+    );
   }
 
   if (role === 'student' && studentData) {
-    return <StudentDashboard studentData={studentData} onSignOut={handleSignOut} />;
+    return (
+      <>
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-3 focus:bg-emerald-800 focus:text-amber-300 focus:font-bold focus:rounded-xl focus:shadow-2xl focus:ring-4 focus:ring-amber-300 focus:outline-none">
+          Skip to Main Content
+        </a>
+        <div aria-live="polite" aria-atomic="true" className="sr-only">{ariaAnnouncement}</div>
+        <StudentDashboard 
+          studentData={studentData} 
+          onSignOut={handleSignOut} 
+          onOpenAccessibility={() => setShowAccessibilityModal(true)}
+          onOpenInstall={() => setShowInstallModal(true)}
+          isStandalone={isStandalone}
+        />
+        <AppFooter 
+          onOpenAccessibility={() => setShowAccessibilityModal(true)}
+          onOpenInstall={() => setShowInstallModal(true)}
+          isStandalone={isStandalone}
+        />
+        <AccessibilityModal
+          isOpen={showAccessibilityModal}
+          onClose={() => setShowAccessibilityModal(false)}
+          highContrast={highContrast}
+          setHighContrast={setHighContrast}
+          fontScale={fontScale}
+          setFontScale={setFontScale}
+          reducedMotion={reducedMotion}
+          setReducedMotion={setReducedMotion}
+          soundEnabled={soundEnabled}
+          setSoundEnabled={setSoundEnabled}
+        />
+        <PWAInstallModal
+          isOpen={showInstallModal}
+          onClose={() => setShowInstallModal(false)}
+          deferredPrompt={deferredPrompt}
+          isIOS={isIOS}
+          isStandalone={isStandalone}
+        />
+      </>
+    );
   }
 
   // Calculate myUids for ticket filter mapping
@@ -325,9 +600,27 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans text-gray-800">
-      <Navbar profile={profile} tickets={tickets} onSignOut={handleSignOut} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onHelp={() => setShowHelp(true)} activeView={activeView} setActiveView={setActiveView} onChangePassword={() => setShowChangePassword(true)} />
+      <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-3 focus:bg-emerald-800 focus:text-amber-300 focus:font-bold focus:rounded-xl focus:shadow-2xl focus:ring-4 focus:ring-amber-300 focus:outline-none">
+        Skip to Main Content
+      </a>
 
-      <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+      <div aria-live="polite" aria-atomic="true" className="sr-only">{ariaAnnouncement}</div>
+
+      <Navbar 
+        profile={profile} 
+        tickets={tickets} 
+        onSignOut={handleSignOut} 
+        onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} 
+        onHelp={() => setShowHelp(true)} 
+        activeView={activeView} 
+        setActiveView={setActiveView} 
+        onChangePassword={() => setShowChangePassword(true)} 
+        onOpenAccessibility={() => setShowAccessibilityModal(true)}
+        onOpenInstall={() => setShowInstallModal(true)}
+        isStandalone={isStandalone}
+      />
+
+      <main id="main-content" tabIndex="-1" role="main" aria-label="Main Application Content" className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {activeView === 'raffle' ? (
           <RaffleDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} />
         ) : (
@@ -345,18 +638,30 @@ export default function App() {
         )}
       </main>
 
+      <AppFooter 
+        onOpenAccessibility={() => setShowAccessibilityModal(true)}
+        onOpenInstall={() => setShowInstallModal(true)}
+        isStandalone={isStandalone}
+      />
+
       {/* Role Switch Modal */}
       {showRoleSwitch && (
-        <div className="fixed inset-0 bg-navy-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+        <div 
+          className="fixed inset-0 bg-navy-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="role-modal-title"
+          onKeyDown={(e) => { if (e.key === 'Escape') setShowRoleSwitch(false); }}
+        >
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-150 shadow-xl space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-display font-black text-navy-950 text-base flex items-center gap-2"><Settings className="w-5 h-5 text-gray-400" /> Change Role</h3>
-              <button onClick={() => setShowRoleSwitch(false)} className="text-gray-400 hover:text-gray-700"><X className="w-5 h-5" /></button>
+              <h3 id="role-modal-title" className="font-display font-black text-navy-950 text-base flex items-center gap-2"><Settings className="w-5 h-5 text-gray-400" /> Change Role</h3>
+              <button onClick={() => setShowRoleSwitch(false)} className="text-gray-400 hover:text-gray-700 p-2 min-h-[44px] min-w-[44px] flex items-center justify-center" aria-label="Close Role Switch Modal"><X className="w-5 h-5" /></button>
             </div>
             <p className="text-sm text-gray-500">Current role: <span className="font-bold text-navy-950 capitalize">{role}</span></p>
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">New Role</label>
-              <select value={newRole} onChange={e => setNewRole(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none bg-white">
+              <label htmlFor="role-select" className="block text-xs font-bold text-gray-500 mb-1">New Role</label>
+              <select id="role-select" value={newRole} onChange={e => setNewRole(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-emerald-500 focus:border-emerald-500 outline-none bg-white">
                 <option value="homeroom">Homeroom Teacher</option>
                 <option value="specialist">Specialist</option>
                 <option value="admin">Administrator</option>
@@ -364,13 +669,13 @@ export default function App() {
             </div>
             {newRole === 'admin' && (
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Admin Password Required</label>
-                <input type="password" value={roleAdminPassword} onChange={e => setRoleAdminPassword(e.target.value)} placeholder="Enter admin password" className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+                <label htmlFor="role-admin-pwd" className="block text-xs font-bold text-gray-500 mb-1">Admin Password Required</label>
+                <input id="role-admin-pwd" type="password" value={roleAdminPassword} onChange={e => setRoleAdminPassword(e.target.value)} placeholder="Enter admin password" className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-emerald-500 focus:border-emerald-500 outline-none" />
               </div>
             )}
             <div className="flex gap-2 justify-end pt-2">
-              <button type="button" onClick={() => setShowRoleSwitch(false)} className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white">Cancel</button>
-              <button onClick={handleRoleChange} disabled={roleChangeLoading || newRole === role} className="px-4 py-2 border rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">{roleChangeLoading ? 'Changing...' : 'Switch Role'}</button>
+              <button type="button" onClick={() => setShowRoleSwitch(false)} className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white min-h-[44px]">Cancel</button>
+              <button onClick={handleRoleChange} disabled={roleChangeLoading || newRole === role} className="px-4 py-2 border rounded-xl text-sm font-bold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 min-h-[44px]">{roleChangeLoading ? 'Changing...' : 'Switch Role'}</button>
             </div>
           </div>
         </div>
@@ -389,11 +694,33 @@ export default function App() {
       {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
+      {/* Accessibility & PWA Modals */}
+      <AccessibilityModal
+        isOpen={showAccessibilityModal}
+        onClose={() => setShowAccessibilityModal(false)}
+        highContrast={highContrast}
+        setHighContrast={setHighContrast}
+        fontScale={fontScale}
+        setFontScale={setFontScale}
+        reducedMotion={reducedMotion}
+        setReducedMotion={setReducedMotion}
+        soundEnabled={soundEnabled}
+        setSoundEnabled={setSoundEnabled}
+      />
+
+      <PWAInstallModal
+        isOpen={showInstallModal}
+        onClose={() => setShowInstallModal(false)}
+        deferredPrompt={deferredPrompt}
+        isIOS={isIOS}
+        isStandalone={isStandalone}
+      />
+
       {studentsToPrint && <PrintableLoginCards students={studentsToPrint} onClose={() => setStudentsToPrint(null)} />}
 
       {/* Toast Notification */}
-      <div className={`fixed bottom-4 right-4 bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 transition-all duration-300 ${toast.visible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
-        <CheckCircle2 className="w-5 h-5 text-green-400" />
+      <div className={`fixed bottom-4 right-4 bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 transition-all duration-300 z-50 ${toast.visible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`} role="status" aria-live="polite">
+        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
         <span>{toast.message}</span>
       </div>
     </div>
@@ -537,7 +864,7 @@ function StudentSearch({ students, onSelect }) {
 }
 
 // --- Student Ticket Card (Inline ticket giving) ---
-function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor, balances, onSpend, students = [], onEditStudent, isAbsent, onToggleAbsent, tickets = [], teacherEmail }) {
+function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor, balances, onSpend, students = [], onEditStudent, isAbsent, onToggleAbsent, tickets = [], teacherEmail, isMultiSelectMode, isSelected, onToggleSelect }) {
   const bal = balances[student] || { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
   const spendable = Math.max(0, bal.earned - bal.spent);
   const isBusy = isSubmitting && submittingFor === student;
@@ -567,16 +894,27 @@ function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor,
   const earned = teacherCounts.Respectful + teacherCounts.Responsible + teacherCounts.Determined;
 
   return (
-    <div className={`bg-white rounded-3xl p-4 border shadow-sm flex flex-col justify-between space-y-3 hover:shadow-md transition duration-200 ${isAbsent ? 'opacity-55 border-red-200 bg-red-50/20' : 'border-gray-150'}`}>
+    <div className={`bg-white rounded-3xl p-4 border shadow-sm flex flex-col justify-between space-y-3 hover:shadow-md transition duration-200 ${isSelected ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/20' : ''} ${isAbsent ? 'opacity-55 border-red-200 bg-red-50/20' : 'border-gray-150'}`}>
       {/* Header */}
       <div className="flex justify-between items-start gap-1">
-        <div className="min-w-0">
-          <span className="font-display font-black text-navy-950 text-base leading-tight block" title={student}>{student}</span>
-          {studentObj && (
-            <span className="text-[10px] text-gray-400 block truncate">
-              ID: {studentObj.id}
-            </span>
+        <div className="flex items-center gap-2 min-w-0">
+          {isMultiSelectMode && (
+            <input
+              type="checkbox"
+              checked={!!isSelected}
+              onChange={onToggleSelect}
+              className="w-4.5 h-4.5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer flex-shrink-0"
+              aria-label={`Select ${student}`}
+            />
           )}
+          <div className="min-w-0">
+            <span className="font-display font-black text-navy-950 text-base leading-tight block truncate" title={student}>{student}</span>
+            {studentObj && (
+              <span className="text-[10px] text-gray-400 block truncate">
+                ID: {studentObj.id}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {studentObj && onEditStudent && (
@@ -756,10 +1094,11 @@ function SpendPointsModal({ student, spendable, onClose, showToast }) {
 function ClassDisplayMode({ className, students, balances, classGoals = [], isSubmitting, handleGiveTicketDirect, onClose }) {
   const [hideBalances, setHideBalances] = useState(false);
   const [activeDisplayStudent, setActiveDisplayStudent] = useState(null);
+  const [sortBy, setSortBy] = useState('lastName');
 
   const myStudents = useMemo(() => {
-    return [...students].sort();
-  }, [students]);
+    return sortStudentNames(students, sortBy, balances);
+  }, [students, sortBy, balances]);
 
   const currentGoal = useMemo(() => {
     return classGoals.find(g => g.className === className);
@@ -796,6 +1135,22 @@ function ClassDisplayMode({ className, students, balances, classGoals = [], isSu
           <p className="text-[#a3d9c1] text-[10px]">Tap a student to award a ticket!</p>
         </div>
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 bg-[#093322] border border-[#145339] px-2.5 py-1.5 rounded-lg text-white">
+            <label htmlFor="display-sort" className="text-[10px] font-bold text-gray-300 flex items-center gap-1 cursor-pointer">
+              <ArrowUpDown className="w-3 h-3 text-emerald-400" /> Sort:
+            </label>
+            <select
+              id="display-sort"
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              className="text-[10px] font-bold text-white bg-transparent outline-none cursor-pointer"
+            >
+              <option value="lastName" className="bg-gray-900">Last Name (A-Z)</option>
+              <option value="firstName" className="bg-gray-900">First Name (A-Z)</option>
+              <option value="tickets" className="bg-gray-900">Most Tickets</option>
+            </select>
+          </div>
+
           <button
             onClick={() => setHideBalances(!hideBalances)}
             className="flex items-center gap-1.5 border border-white/20 hover:bg-white/10 text-white text-[10px] font-bold px-3 py-1.5 rounded-lg transition cursor-pointer"
@@ -1405,8 +1760,333 @@ function ChangePasswordModal({ onClose, showToast }) {
   );
 }
 
+// --- Accessibility & PWA Components ---
+function AccessibilityModal({ isOpen, onClose, highContrast, setHighContrast, fontScale, setFontScale, reducedMotion, setReducedMotion, soundEnabled, setSoundEnabled }) {
+  if (!isOpen) return null;
+
+  return (
+    <div 
+      className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="accessibility-modal-title"
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+    >
+      <div className="bg-white text-gray-900 rounded-3xl p-6 sm:p-8 max-w-lg w-full border border-emerald-200 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center border-b border-gray-200 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-emerald-100 p-2.5 rounded-2xl text-emerald-700">
+              <Eye className="w-6 h-6" aria-hidden="true" />
+            </div>
+            <div>
+              <h2 id="accessibility-modal-title" className="font-display font-extrabold text-gray-900 text-xl">
+                Accessibility Settings
+              </h2>
+              <p className="text-xs text-gray-600 font-medium">Section 508 & VA State Public Schools Compliant</p>
+            </div>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition min-h-[44px] min-w-[44px] flex items-center justify-center"
+            aria-label="Close Accessibility Settings Modal"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Display Adjustments */}
+        <div className="space-y-4">
+          <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider flex items-center gap-2">
+            <Contrast className="w-4 h-4 text-emerald-600" /> Display & Sound Controls
+          </h3>
+
+          {/* Sound Effects Toggle */}
+          <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-2xl border border-gray-200">
+            <div>
+              <label htmlFor="sound-effects-toggle" className="font-bold text-sm text-gray-900 block cursor-pointer flex items-center gap-2">
+                <Volume2 className="w-4 h-4 text-emerald-600" /> Ticket Audio Chimes
+              </label>
+              <p className="text-xs text-gray-600">Play pleasant sound effects when tickets are awarded</p>
+            </div>
+            <button
+              id="sound-effects-toggle"
+              type="button"
+              role="switch"
+              aria-checked={soundEnabled}
+              onClick={() => {
+                const nextState = !soundEnabled;
+                setSoundEnabled(nextState);
+                if (nextState) playTicketSound('ticket');
+              }}
+              className={`relative inline-flex h-7 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-emerald-500 ${soundEnabled ? 'bg-emerald-600' : 'bg-gray-300'}`}
+            >
+              <span className="sr-only">Toggle Sound Effects</span>
+              <span className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${soundEnabled ? 'translate-x-7' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
+          {/* High Contrast Toggle */}
+          <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-2xl border border-gray-200">
+            <div>
+              <label htmlFor="high-contrast-toggle" className="font-bold text-sm text-gray-900 block cursor-pointer">
+                High Contrast Mode (WCAG AAA)
+              </label>
+              <p className="text-xs text-gray-600">Enhanced black & gold contrast for low vision users</p>
+            </div>
+            <button
+              id="high-contrast-toggle"
+              type="button"
+              role="switch"
+              aria-checked={highContrast}
+              onClick={() => setHighContrast(!highContrast)}
+              className={`relative inline-flex h-7 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-emerald-500 ${highContrast ? 'bg-emerald-600' : 'bg-gray-300'}`}
+            >
+              <span className="sr-only">Toggle High Contrast Mode</span>
+              <span className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${highContrast ? 'translate-x-7' : 'translate-x-0'}`} />
+            </button>
+          </div>
+
+          {/* Font Scaling */}
+          <div className="p-3.5 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="font-bold text-sm text-gray-900 block">
+                Text Scaling (Font Size)
+              </label>
+              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">{fontScale}%</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { scale: '100', label: '100% (Normal)' },
+                { scale: '115', label: '115% (Large)' },
+                { scale: '130', label: '130% (XL)' }
+              ].map(opt => (
+                <button
+                  key={opt.scale}
+                  type="button"
+                  onClick={() => setFontScale(opt.scale)}
+                  aria-pressed={fontScale === opt.scale}
+                  className={`py-2 px-3 rounded-xl text-xs font-bold transition min-h-[44px] flex items-center justify-center ${fontScale === opt.scale ? 'bg-emerald-700 text-white shadow-md' : 'bg-white text-gray-700 border border-gray-200 hover:bg-gray-100'}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Reduced Motion */}
+          <div className="flex items-center justify-between p-3.5 bg-gray-50 rounded-2xl border border-gray-200">
+            <div>
+              <label htmlFor="reduced-motion-toggle" className="font-bold text-sm text-gray-900 block cursor-pointer">
+                Reduce Animations & Motion
+              </label>
+              <p className="text-xs text-gray-600">Disables background movement and floating effects</p>
+            </div>
+            <button
+              id="reduced-motion-toggle"
+              type="button"
+              role="switch"
+              aria-checked={reducedMotion}
+              onClick={() => setReducedMotion(!reducedMotion)}
+              className={`relative inline-flex h-7 w-14 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-emerald-500 ${reducedMotion ? 'bg-emerald-600' : 'bg-gray-300'}`}
+            >
+              <span className="sr-only">Toggle Reduced Motion</span>
+              <span className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${reducedMotion ? 'translate-x-7' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        </div>
+
+        {/* Virginia Public Schools & Section 508 Statement */}
+        <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2 text-xs text-emerald-950">
+          <div className="flex items-center gap-2 font-bold text-emerald-900 text-sm">
+            <ShieldCheck className="w-5 h-5 text-emerald-700" />
+            <span>Public Schools Accessibility Statement</span>
+          </div>
+          <p className="leading-relaxed">
+            Rolling Ridge Elementary School (Loudoun County Public Schools) is dedicated to ensuring digital accessibility for all students, staff, and families. This application complies with <strong>Section 508 of the Rehabilitation Act</strong>, <strong>ADA Title II regulations</strong> (WCAG 2.1 Level AA), and <strong>Virginia State IT Accessibility Guidelines (VITA SEC508 / VA Code § 2.2-3500)</strong>.
+          </p>
+          <p className="text-[11px] text-emerald-800">
+            Need accommodations or assistance? Please contact the Rolling Ridge Elementary administrative team or LCPS Assistive Technology Services.
+          </p>
+        </div>
+
+        <div className="flex justify-end pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold rounded-xl text-sm transition shadow-md min-h-[44px]"
+          >
+            Close & Save Preferences
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PWAInstallModal({ isOpen, onClose, deferredPrompt, isIOS, isStandalone }) {
+  if (!isOpen) return null;
+
+  const handleInstallClick = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choiceResult = await deferredPrompt.userChoice;
+      if (choiceResult && choiceResult.outcome === 'accepted') {
+        console.log('User accepted PWA install prompt');
+      }
+      onClose();
+    }
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="install-modal-title"
+      onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+    >
+      <div className="bg-white text-gray-900 rounded-3xl p-6 sm:p-8 max-w-lg w-full border border-emerald-200 shadow-2xl space-y-6 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center border-b border-gray-200 pb-4">
+          <div className="flex items-center gap-3">
+            <img src="/favicon.svg" alt="Rolling Ridge Elementary School Crest" className="w-10 h-10 rounded-xl shadow-sm border border-emerald-300" />
+            <div>
+              <h2 id="install-modal-title" className="font-display font-extrabold text-gray-900 text-xl">
+                Install RRD Ticket App
+              </h2>
+              <p className="text-xs text-emerald-700 font-bold">Use as a full App on iPad, iPhone & Android</p>
+            </div>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition min-h-[44px] min-w-[44px] flex items-center justify-center"
+            aria-label="Close Install App Modal"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {isStandalone ? (
+          <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 p-5 rounded-2xl text-center space-y-2">
+            <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto" />
+            <h3 className="font-bold text-lg">App Already Installed!</h3>
+            <p className="text-xs text-emerald-800">
+              You are currently using the official Rolling Ridge Elementary installed Web App.
+            </p>
+          </div>
+        ) : isIOS ? (
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-amber-900 text-xs flex items-start gap-3">
+              <Smartphone className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold text-sm block">iPad & iPhone Installation (Safari)</span>
+                Follow the steps below to add the Rolling Ridge Green Ticket Tracker icon to your iPad or iPhone Home Screen.
+              </div>
+            </div>
+
+            <ol className="space-y-3 text-sm text-gray-700">
+              <li className="flex items-start gap-3 bg-gray-50 p-3 rounded-2xl border border-gray-200">
+                <span className="bg-emerald-700 text-white font-extrabold text-xs rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">1</span>
+                <div>
+                  Tap the <strong className="text-emerald-800">Share</strong> icon <Share className="w-4 h-4 inline-block text-emerald-700" /> at the top or bottom of your Safari browser bar.
+                </div>
+              </li>
+              <li className="flex items-start gap-3 bg-gray-50 p-3 rounded-2xl border border-gray-200">
+                <span className="bg-emerald-700 text-white font-extrabold text-xs rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">2</span>
+                <div>
+                  Scroll down the menu options and tap <strong className="text-emerald-800">Add to Home Screen</strong> <Plus className="w-4 h-4 inline-block text-emerald-700" />.
+                </div>
+              </li>
+              <li className="flex items-start gap-3 bg-gray-50 p-3 rounded-2xl border border-gray-200">
+                <span className="bg-emerald-700 text-white font-extrabold text-xs rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
+                <div>
+                  Tap <strong className="text-emerald-800">Add</strong> in the top right corner. The Rolling Ridge Roadrunner logo will appear on your Home Screen!
+                </div>
+              </li>
+            </ol>
+          </div>
+        ) : (
+          <div className="space-y-4 text-center">
+            <div className="bg-emerald-50 border border-emerald-200 p-6 rounded-2xl space-y-3">
+              <Smartphone className="w-12 h-12 text-emerald-600 mx-auto animate-bounce" />
+              <h3 className="font-extrabold text-gray-900 text-lg">Instant One-Click App Install</h3>
+              <p className="text-xs text-gray-600">
+                Install the Rolling Ridge Green Ticket Tracker app for quick access, full screen experience, and offline capability.
+              </p>
+              {deferredPrompt ? (
+                <button
+                  type="button"
+                  onClick={handleInstallClick}
+                  className="w-full py-3.5 px-6 bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold rounded-2xl shadow-lg transition flex items-center justify-center gap-2 text-base min-h-[44px]"
+                >
+                  <Smartphone className="w-5 h-5" /> Install App Now
+                </button>
+              ) : (
+                <div className="text-xs text-gray-600 bg-white p-3 rounded-xl border border-gray-200 text-left space-y-1">
+                  <p className="font-bold text-gray-800">Manual Install Instructions:</p>
+                  <p>1. Open your browser menu (⋮ or tap options).</p>
+                  <p>2. Tap <strong>Install app</strong> or <strong>Add to Home screen</strong>.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="flex justify-end pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-6 py-2.5 bg-gray-200 hover:bg-gray-300 text-gray-800 font-bold rounded-xl text-sm transition min-h-[44px]"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppFooter({ onOpenAccessibility, onOpenInstall, isStandalone }) {
+  return (
+    <footer role="contentinfo" className="bg-emerald-950 text-emerald-200 py-6 px-4 border-t border-emerald-800 text-xs">
+      <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-center md:text-left">
+        <div className="flex items-center gap-3">
+          <img src="/favicon.svg" alt="Rolling Ridge Roadrunners" className="w-8 h-8 rounded-lg border border-emerald-600" />
+          <div>
+            <p className="font-extrabold text-white text-sm">Rolling Ridge Elementary School</p>
+            <p className="text-emerald-300 text-[11px]">PBIS Green Ticket Tracker • Loudoun County Public Schools (LCPS)</p>
+          </div>
+        </div>
+
+        <div className="flex items-center flex-wrap justify-center gap-4 text-xs font-semibold">
+          <button 
+            type="button"
+            onClick={onOpenAccessibility}
+            className="text-amber-300 hover:text-white underline transition flex items-center gap-1 min-h-[44px]"
+            aria-label="Section 508 and Virginia Public Schools Accessibility Compliance"
+          >
+            <Eye className="w-4 h-4 inline" /> Accessibility & Section 508
+          </button>
+
+          {!isStandalone && (
+            <button 
+              type="button"
+              onClick={onOpenInstall}
+              className="text-amber-300 hover:text-white underline transition flex items-center gap-1 min-h-[44px]"
+              aria-label="Install App on iPad, iPhone, or Android"
+            >
+              <Smartphone className="w-4 h-4 inline" /> Install App
+            </button>
+          )}
+
+          <span className="text-emerald-400">Section 508 & VA State Compliant</span>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
 // --- Components ---
-function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword }) {
+function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword, onOpenAccessibility, onOpenInstall, isStandalone }) {
   const handleExport = () => {
     let data = profile.role === 'admin' ? tickets : tickets.filter(t => t.teacherEmail === profile.email);
     if (data.length === 0) return alert("No data to export.");
@@ -1424,44 +2104,91 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
   };
 
   return (
-    <nav className="bg-green-700 text-white shadow-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Ticket className="w-8 h-8 text-green-300" />
-          <span className="font-bold text-xl tracking-tight cursor-pointer" onClick={() => setActiveView('dashboard')}>Green Tickets</span>
+    <header role="banner">
+      <nav className="bg-emerald-800 text-white shadow-lg" aria-label="Main Navigation">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <img src="/favicon.svg" alt="Rolling Ridge Elementary School Crest" className="w-9 h-9 rounded-lg shadow-sm border border-emerald-400" />
+            <span 
+              className="font-extrabold text-lg sm:text-xl tracking-tight cursor-pointer flex items-center gap-1.5 hover:text-amber-200 transition" 
+              onClick={() => setActiveView('dashboard')}
+              tabIndex={0}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveView('dashboard'); }}
+              role="button"
+              aria-label="Go to Dashboard"
+            >
+              Rolling Ridge <span className="text-amber-300 font-black">Tickets</span>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 sm:gap-2">
+            <span className="hidden xl:block text-xs font-bold bg-emerald-950/70 border border-emerald-600 px-3 py-1.5 rounded-full text-emerald-100">
+              {profile.name} ({profile.role})
+            </span>
+
+            <button 
+              onClick={() => setActiveView('dashboard')} 
+              aria-label="View Main Dashboard"
+              aria-current={activeView === 'dashboard' ? 'page' : undefined}
+              className={`flex items-center gap-1.5 hover:bg-emerald-700 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] ${activeView === 'dashboard' ? 'bg-emerald-950 text-amber-300 border border-amber-300/40 shadow-inner' : ''}`}
+            >
+              Dashboard
+            </button>
+
+            <button 
+              onClick={() => setActiveView('raffle')} 
+              aria-label="View Weekly Raffle"
+              aria-current={activeView === 'raffle' ? 'page' : undefined}
+              className={`flex items-center gap-1.5 hover:bg-emerald-700 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] ${activeView === 'raffle' ? 'bg-emerald-950 text-amber-300 border border-amber-300/40 shadow-inner' : ''}`}
+            >
+              Weekly Raffle
+            </button>
+
+            <button 
+              onClick={onOpenAccessibility} 
+              aria-label="Accessibility Settings (Section 508 and WCAG)"
+              title="Accessibility Settings"
+              className="flex items-center gap-1 bg-emerald-900/60 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]"
+            >
+              <Eye className="w-4 h-4 text-amber-300" aria-hidden="true" />
+              <span className="hidden lg:inline">Accessibility</span>
+            </button>
+
+            {!isStandalone && (
+              <button 
+                onClick={onOpenInstall} 
+                aria-label="Install RRD Ticket Tracker App on iPad, iPhone or Android"
+                title="Install App"
+                className="flex items-center gap-1 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black px-2.5 py-2 rounded-xl transition text-xs sm:text-sm shadow-md min-h-[44px]"
+              >
+                <Smartphone className="w-4 h-4" aria-hidden="true" />
+                <span className="hidden md:inline">Install App</span>
+              </button>
+            )}
+
+            <button onClick={onHelp} aria-label="Open Help" className="hidden md:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
+              <HelpCircle className="w-4 h-4" aria-hidden="true" /> <span className="hidden lg:inline">Help</span>
+            </button>
+
+            <button onClick={onRoleSwitch} aria-label="Switch Role" className="hidden lg:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
+              <Settings className="w-4 h-4" aria-hidden="true" /> <span className="hidden lg:inline">Role</span>
+            </button>
+
+            <button onClick={handleExport} aria-label="Export Ticket Data as CSV" className="hidden sm:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
+              <Download className="w-4 h-4" aria-hidden="true" /> <span className="hidden lg:inline">Export</span>
+            </button>
+
+            <button onClick={onSignOut} aria-label="Sign Out" className="flex items-center gap-1 bg-emerald-900 hover:bg-emerald-950 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
+              <LogOut className="w-4 h-4" aria-hidden="true" /> <span className="hidden sm:inline">Sign Out</span>
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 md:gap-4">
-          <span className="hidden lg:block text-sm font-medium bg-green-800 px-3 py-1 rounded-full">
-            {profile.name} ({profile.role})
-          </span>
-          <button onClick={() => setActiveView('dashboard')} className={`flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium ${activeView === 'dashboard' ? 'bg-green-850' : ''}`}>
-            Dashboard
-          </button>
-          <button onClick={() => setActiveView('raffle')} className={`flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium ${activeView === 'raffle' ? 'bg-green-850' : ''}`}>
-            Weekly Raffle
-          </button>
-          <button onClick={onHelp} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
-            <HelpCircle className="w-4 h-4" /> Help
-          </button>
-          <button onClick={onRoleSwitch} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
-            <Settings className="w-4 h-4" /> Role
-          </button>
-          <button onClick={onChangePassword} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
-            <Lock className="w-4 h-4" /> Password
-          </button>
-          <button onClick={handleExport} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
-            <Download className="w-4 h-4" /> Export
-          </button>
-          <button onClick={onSignOut} className="flex items-center gap-2 hover:bg-green-600 px-3 py-1.5 rounded transition text-sm font-medium">
-            <LogOut className="w-4 h-4" /> Sign Out
-          </button>
-        </div>
-      </div>
-    </nav>
+      </nav>
+    </header>
   );
 }
 
-function Login({ onLoginSuccess, showToast }) {
+function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, isStandalone }) {
   const [activeTab, setActiveTab] = useState('student'); // 'student' or 'teacher'
   const [isRegistering, setIsRegistering] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -1521,55 +2248,83 @@ function Login({ onLoginSuccess, showToast }) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-paper px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-3xl shadow-xl border border-brand-100">
-        <div className="text-center">
+    <div className="min-h-screen flex flex-col items-center justify-between bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-900 px-4 py-8 text-gray-900">
+      <div className="w-full max-w-md flex justify-end gap-2 mb-4">
+        <button
+          type="button"
+          onClick={onOpenAccessibility}
+          className="bg-emerald-950/80 hover:bg-emerald-950 text-amber-300 border border-amber-300/40 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 min-h-[44px]"
+          aria-label="Accessibility Options and Section 508 Statement"
+        >
+          <Eye className="w-4 h-4" aria-hidden="true" />
+          <span>Accessibility</span>
+        </button>
+
+        {!isStandalone && (
+          <button
+            type="button"
+            onClick={onOpenInstall}
+            className="bg-amber-400 hover:bg-amber-300 text-emerald-950 font-extrabold px-3.5 py-2 rounded-xl text-xs transition shadow-md flex items-center gap-1.5 min-h-[44px]"
+            aria-label="Install RRD Ticket Tracker App on iPad, iPhone or Android"
+          >
+            <Smartphone className="w-4 h-4" aria-hidden="true" />
+            <span>Install App</span>
+          </button>
+        )}
+      </div>
+
+      <div className="max-w-md w-full space-y-6 bg-white p-8 rounded-3xl shadow-2xl border border-emerald-100">
+        <div className="text-center space-y-2">
           <div className="flex justify-center">
-            <div className="bg-brand-100 p-3 rounded-2xl">
-              <Ticket className="w-10 h-10 text-brand-600 animate-pulse" aria-hidden="true" />
-            </div>
+            <img src="/favicon.svg" alt="Rolling Ridge Elementary School Crest" className="w-20 h-20 rounded-2xl shadow-lg border-2 border-emerald-500" />
           </div>
-          <h2 className="mt-4 text-3xl font-extrabold text-navy-900 font-display">Roadrunner Tracker</h2>
-          <p className="mt-2 text-sm text-gray-500">Earn Tickets. Build Community.</p>
+          <h1 className="mt-2 text-2xl sm:text-3xl font-black text-gray-900 font-display tracking-tight">
+            Rolling Ridge <span className="text-emerald-700">Tickets</span>
+          </h1>
+          <p className="text-xs font-bold text-emerald-800 uppercase tracking-widest">
+            PBIS Green Ticket Tracker • LCPS
+          </p>
         </div>
 
         {/* Tab Toggle */}
-        <div role="tablist" className="flex bg-gray-100 p-1 rounded-xl">
+        <div role="tablist" aria-label="Portal Types" className="flex bg-emerald-50 p-1.5 rounded-2xl border border-emerald-200">
           <button
+            type="button"
             role="tab"
             aria-selected={activeTab === 'student'}
             onClick={() => { setActiveTab('student'); setError(''); }}
-            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'student' ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 hover:text-navy-900'}`}
+            className={`flex-1 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all min-h-[44px] ${activeTab === 'student' ? 'bg-emerald-700 text-white shadow-md' : 'text-emerald-900 hover:text-emerald-950'}`}
           >
             Student Portal
           </button>
           <button
+            type="button"
             role="tab"
             aria-selected={activeTab === 'teacher'}
             onClick={() => { setActiveTab('teacher'); setError(''); }}
-            className={`flex-1 py-2 text-sm font-bold rounded-lg transition-all ${activeTab === 'teacher' ? 'bg-brand-600 text-white shadow-sm' : 'text-gray-500 hover:text-navy-900'}`}
+            className={`flex-1 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all min-h-[44px] ${activeTab === 'teacher' ? 'bg-emerald-700 text-white shadow-md' : 'text-emerald-900 hover:text-emerald-950'}`}
           >
             Teacher Access
           </button>
         </div>
 
         {error && (
-          <div className="bg-red-50 border-l-4 border-red-400 p-4 rounded-md" role="alert">
+          <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-xl shadow-xs" role="alert">
             <div className="flex">
               <div className="flex-shrink-0">
-                <AlertTriangle className="h-5 w-5 text-red-400" aria-hidden="true" />
+                <AlertTriangle className="h-5 w-5 text-red-500" aria-hidden="true" />
               </div>
               <div className="ml-3">
-                <p className="text-sm text-red-700">{error}</p>
+                <p className="text-xs font-bold text-red-800">{error}</p>
               </div>
             </div>
           </div>
         )}
 
         {activeTab === 'student' ? (
-          <form className="mt-6 space-y-4" onSubmit={handleStudentSubmit}>
+          <form className="mt-4 space-y-4" onSubmit={handleStudentSubmit}>
             <div>
-              <label htmlFor="student-id" className="block text-sm font-bold text-gray-700">Student Number</label>
+              <label htmlFor="student-id" className="block text-xs font-bold text-gray-700 mb-1">Student ID Number</label>
               <input
                 id="student-id"
                 type="text"
@@ -1577,12 +2332,12 @@ function Login({ onLoginSuccess, showToast }) {
                 required
                 value={studentId}
                 onChange={e => setStudentId(e.target.value)}
-                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition text-center text-lg font-bold tracking-widest"
+                className="w-full p-3.5 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-center text-lg font-bold tracking-widest min-h-[44px]"
                 placeholder="e.g. 1001"
               />
             </div>
             <div>
-              <label htmlFor="student-pin" className="block text-sm font-bold text-gray-700">4-Digit PIN</label>
+              <label htmlFor="student-pin" className="block text-xs font-bold text-gray-700 mb-1">4-Digit PIN</label>
               <input
                 id="student-pin"
                 type="password"
@@ -1590,41 +2345,41 @@ function Login({ onLoginSuccess, showToast }) {
                 required
                 value={pinCode}
                 onChange={e => setPinCode(e.target.value)}
-                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition tracking-widest text-center text-lg font-bold"
+                className="w-full p-3.5 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition tracking-widest text-center text-lg font-bold min-h-[44px]"
                 placeholder="••••"
               />
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-xl text-white bg-brand-600 hover:bg-brand-700 focus:outline-none transition disabled:opacity-50 mt-6"
+              className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-base font-extrabold rounded-2xl text-white bg-emerald-700 hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition shadow-lg disabled:opacity-50 mt-6 min-h-[44px]"
             >
-              {loading ? 'Logging in...' : 'Log In'}
+              {loading ? 'Logging in...' : 'Log In to Student Portal'}
             </button>
           </form>
         ) : (
-          <form className="mt-6 space-y-4" onSubmit={handleTeacherSubmit}>
+          <form className="mt-4 space-y-4" onSubmit={handleTeacherSubmit}>
             {isRegistering && (
               <>
                 <div>
-                  <label htmlFor="teacher-name" className="block text-sm font-bold text-gray-700">Last Name</label>
+                  <label htmlFor="teacher-name" className="block text-xs font-bold text-gray-700 mb-1">Last Name</label>
                   <input
                     id="teacher-name"
                     type="text"
                     required
                     value={name}
                     onChange={e => setName(e.target.value)}
-                    className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                    className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
                     placeholder="e.g. Smith"
                   />
                 </div>
                 <div>
-                  <label htmlFor="teacher-role" className="block text-sm font-bold text-gray-700">Role</label>
+                  <label htmlFor="teacher-role" className="block text-xs font-bold text-gray-700 mb-1">Role</label>
                   <select
                     id="teacher-role"
                     value={role}
                     onChange={e => setRole(e.target.value)}
-                    className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition bg-white"
+                    className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition bg-white text-sm font-semibold min-h-[44px]"
                   >
                     <option value="homeroom">Homeroom Teacher</option>
                     <option value="specialist">Specialist</option>
@@ -1633,14 +2388,14 @@ function Login({ onLoginSuccess, showToast }) {
                 </div>
                 {role === 'admin' && (
                   <div>
-                    <label htmlFor="admin-password" className="block text-sm font-bold text-gray-700">Admin Password</label>
+                    <label htmlFor="admin-password" className="block text-xs font-bold text-gray-700 mb-1">Admin Password</label>
                     <input
                       id="admin-password"
                       type="password"
                       required
                       value={adminPassword}
                       onChange={e => setAdminPassword(e.target.value)}
-                      className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                      className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
                       placeholder="Enter admin password"
                     />
                   </div>
@@ -1648,47 +2403,52 @@ function Login({ onLoginSuccess, showToast }) {
               </>
             )}
             <div>
-              <label htmlFor="teacher-email" className="block text-sm font-bold text-gray-700">Email Address</label>
+              <label htmlFor="teacher-email" className="block text-xs font-bold text-gray-700 mb-1">School Email Address</label>
               <input
                 id="teacher-email"
                 type="email"
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
-                placeholder="teacher@school.edu"
+                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                placeholder="teacher@lcps.org"
               />
             </div>
             <div>
-              <label htmlFor="teacher-password" className="block text-sm font-bold text-gray-700">Password</label>
+              <label htmlFor="teacher-password" className="block text-xs font-bold text-gray-700 mb-1">Password</label>
               <input
                 id="teacher-password"
                 type="password"
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="mt-1 w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
+                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
                 placeholder="••••••••"
               />
             </div>
             <button
               type="submit"
               disabled={loading}
-              className="w-full flex justify-center py-3 px-4 border border-transparent text-sm font-bold rounded-xl text-white bg-brand-600 hover:bg-brand-700 focus:outline-none transition disabled:opacity-50 mt-6"
+              className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-base font-extrabold rounded-2xl text-white bg-emerald-700 hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition shadow-lg disabled:opacity-50 mt-6 min-h-[44px]"
             >
-              {loading ? 'Processing...' : isRegistering ? 'Register & Log In' : 'Log In'}
+              {loading ? 'Processing...' : isRegistering ? 'Register & Log In' : 'Log In to Teacher Portal'}
             </button>
             <div className="text-center mt-4">
               <button
                 type="button"
                 onClick={() => setIsRegistering(!isRegistering)}
-                className="text-xs text-brand-600 hover:underline font-semibold"
+                className="text-xs text-emerald-700 hover:underline font-bold py-2 px-3 rounded-lg"
               >
-                {isRegistering ? 'Already have an account? Log in instead' : 'Need an account? Register here'}
+                {isRegistering ? 'Already have an account? Log in instead' : 'Need a teacher account? Register here'}
               </button>
             </div>
           </form>
         )}
+      </div>
+
+      <div className="mt-8 text-center text-xs text-emerald-200/90 font-medium max-w-sm">
+        <p>Rolling Ridge Elementary School • Loudoun County Public Schools</p>
+        <p className="text-[11px] text-emerald-300 mt-1">Section 508 & Virginia State Accessible Web Application</p>
       </div>
     </div>
   );
@@ -1825,7 +2585,7 @@ function MathSprintGame() {
   );
 }
 
-function StudentDashboard({ studentData, onSignOut }) {
+function StudentDashboard({ studentData, onSignOut, onOpenAccessibility, onOpenInstall, isStandalone }) {
   const { profile, tickets, spending, classGoal, gradeGoal, wallet, goldenCount, classTicketsEarned, gradeGoldenEarned } = studentData;
   const [avatar, setAvatar] = useState(() => {
     return localStorage.getItem(`avatar_${profile.name}`) || '🐼';
@@ -1866,27 +2626,52 @@ function StudentDashboard({ studentData, onSignOut }) {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col font-sans text-gray-800">
-      <nav className="bg-brand-700 text-white shadow-md" aria-label="Main Navigation">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16">
-            <div className="flex items-center gap-3">
-              <Ticket className="w-8 h-8 text-brand-200" aria-hidden="true" />
-              <span className="font-display font-bold text-xl tracking-tight">Roadrunner Student Portal</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="text-sm font-semibold text-brand-100 hidden sm:inline">Hello, {profile.name}</span>
-              <button
-                onClick={onSignOut}
-                aria-label="Sign Out"
-                className="flex items-center gap-1 bg-brand-800 hover:bg-brand-900 px-3 py-1.5 rounded-lg text-xs font-bold transition"
-              >
-                <LogOut className="w-4 h-4" aria-hidden="true" />
-                <span>Sign Out</span>
-              </button>
+      <header role="banner">
+        <nav className="bg-emerald-800 text-white shadow-lg" aria-label="Student Navigation">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div className="flex items-center justify-between h-16">
+              <div className="flex items-center gap-3">
+                <img src="/favicon.svg" alt="Rolling Ridge Elementary Crest" className="w-9 h-9 rounded-lg shadow-sm border border-emerald-400" />
+                <span className="font-display font-extrabold text-lg sm:text-xl tracking-tight">Rolling Ridge <span className="text-amber-300">Student Portal</span></span>
+              </div>
+              <div className="flex items-center gap-2 sm:gap-3">
+                <span className="text-xs sm:text-sm font-semibold text-emerald-100 hidden md:inline">Hello, {profile.name}</span>
+                
+                <button
+                  type="button"
+                  onClick={onOpenAccessibility}
+                  aria-label="Accessibility Settings"
+                  className="flex items-center gap-1 bg-emerald-900/70 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 px-2.5 py-2 rounded-xl text-xs font-bold transition min-h-[44px]"
+                >
+                  <Eye className="w-4 h-4 text-amber-300" aria-hidden="true" />
+                  <span className="hidden sm:inline">Accessibility</span>
+                </button>
+
+                {!isStandalone && (
+                  <button
+                    type="button"
+                    onClick={onOpenInstall}
+                    aria-label="Install App"
+                    className="flex items-center gap-1 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-extrabold px-2.5 py-2 rounded-xl text-xs transition shadow-md min-h-[44px]"
+                  >
+                    <Smartphone className="w-4 h-4" aria-hidden="true" />
+                    <span className="hidden sm:inline">Install App</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={onSignOut}
+                  aria-label="Sign Out"
+                  className="flex items-center gap-1 bg-emerald-900 hover:bg-emerald-950 px-3 py-2 rounded-xl text-xs font-bold transition min-h-[44px]"
+                >
+                  <LogOut className="w-4 h-4" aria-hidden="true" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </nav>
+        </nav>
+      </header>
 
       <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-5xl mx-auto w-full space-y-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -2061,6 +2846,375 @@ function StudentDashboard({ studentData, onSignOut }) {
   );
 }
 
+// --- Group Management Modal ---
+function GroupManagementModal({ isOpen, onClose, students, customGroups = [], onSaveGroup, onDeleteGroup, onSelectGroupMembers, onAwardGroupTickets }) {
+  const [newGroupName, setNewGroupName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState(new Set());
+  const [isCreating, setIsCreating] = useState(false);
+
+  if (!isOpen) return null;
+
+  const toggleMember = (name) => {
+    setSelectedMembers(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const handleCreateGroup = (e) => {
+    e.preventDefault();
+    if (!newGroupName.trim() || selectedMembers.size === 0) return;
+    onSaveGroup({
+      id: Date.now().toString(),
+      name: newGroupName.trim(),
+      members: Array.from(selectedMembers)
+    });
+    setNewGroupName('');
+    setSelectedMembers(new Set());
+    setIsCreating(false);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-3xl p-6 max-w-xl w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center border-b pb-3">
+          <div className="flex items-center gap-2">
+            <div className="bg-emerald-100 p-2 rounded-xl text-emerald-700">
+              <Layers className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-display font-extrabold text-gray-900 text-lg">Custom Student Groups</h2>
+              <p className="text-xs text-gray-500">Create groups for tables, reading teams, or projects</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px]">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Existing Groups List */}
+        {customGroups.length > 0 && (
+          <div className="space-y-3">
+            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Your Saved Groups</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {customGroups.map(grp => (
+                <div key={grp.id} className="bg-gray-50 border border-gray-200 rounded-2xl p-3.5 flex flex-col justify-between space-y-2">
+                  <div>
+                    <div className="flex justify-between items-start">
+                      <span className="font-bold text-gray-900 text-sm">{grp.name}</span>
+                      <button onClick={() => onDeleteGroup(grp.id)} className="text-gray-400 hover:text-red-600 p-1">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-500 mt-1">{grp.members.length} members ({grp.members.slice(0, 3).join(', ')}{grp.members.length > 3 ? '...' : ''})</p>
+                  </div>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      onClick={() => { onSelectGroupMembers(grp.members); onClose(); }}
+                      className="flex-1 py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition"
+                    >
+                      Select Members
+                    </button>
+                    <button
+                      onClick={() => { onAwardGroupTickets(grp.members, grp.name); onClose(); }}
+                      className="flex-1 py-1.5 px-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition"
+                    >
+                      Award Ticket
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Create Group Form */}
+        {!isCreating ? (
+          <button
+            onClick={() => setIsCreating(true)}
+            className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-2xl font-bold text-sm transition flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Create New Group
+          </button>
+        ) : (
+          <form onSubmit={handleCreateGroup} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
+            <h4 className="font-bold text-sm text-gray-900">Create New Group</h4>
+            <div>
+              <label htmlFor="group-name-input" className="block text-xs font-bold text-gray-600 mb-1">Group Name</label>
+              <input
+                id="group-name-input"
+                type="text"
+                required
+                placeholder="e.g. Table 1 / Reading Group Blue"
+                value={newGroupName}
+                onChange={e => setNewGroupName(e.target.value)}
+                className="w-full p-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+              />
+            </div>
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="block text-xs font-bold text-gray-600">Select Group Members ({selectedMembers.size})</label>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (selectedMembers.size === students.length) setSelectedMembers(new Set());
+                    else setSelectedMembers(new Set(students));
+                  }}
+                  className="text-xs text-emerald-700 font-bold hover:underline"
+                >
+                  {selectedMembers.size === students.length ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-xl bg-white p-2 divide-y divide-gray-100">
+                {students.map(sName => (
+                  <label key={sName} className="flex items-center gap-2.5 p-2 hover:bg-gray-50 rounded-lg cursor-pointer text-xs font-medium text-gray-800">
+                    <input
+                      type="checkbox"
+                      checked={selectedMembers.has(sName)}
+                      onChange={() => toggleMember(sName)}
+                      className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
+                    />
+                    <span>{sName}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border rounded-xl text-xs font-bold text-gray-600 bg-white">Cancel</button>
+              <button type="submit" disabled={!newGroupName.trim() || selectedMembers.size === 0} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold disabled:opacity-50">Save Group</button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Automatic Group Generator Modal ("Specific Numbers in Groups") ---
+function GroupGeneratorModal({ isOpen, onClose, students, absentStudents = new Set(), onSelectGroupMembers, onAwardGroupTickets, onSaveGroup }) {
+  const [splitMode, setSplitMode] = useState('size'); // 'size' (per group) or 'count' (total groups)
+  const [groupVal, setGroupVal] = useState(3);
+  const [excludeAbsent, setExcludeAbsent] = useState(true);
+  const [generatedGroups, setGeneratedGroups] = useState([]);
+
+  if (!isOpen) return null;
+
+  const eligibleStudents = students.filter(s => !(excludeAbsent && absentStudents.has(s)));
+
+  const handleGenerate = () => {
+    if (eligibleStudents.length === 0) return;
+    const shuffled = [...eligibleStudents].sort(() => Math.random() - 0.5);
+    const groups = [];
+
+    if (splitMode === 'size') {
+      const size = Math.max(1, Number(groupVal));
+      for (let i = 0; i < shuffled.length; i += size) {
+        groups.push({
+          id: `gen-${Date.now()}-${i}`,
+          name: `Group ${groups.length + 1}`,
+          members: shuffled.slice(i, i + size)
+        });
+      }
+    } else {
+      const count = Math.max(1, Number(groupVal));
+      for (let i = 0; i < count; i++) {
+        groups.push({
+          id: `gen-${Date.now()}-${i}`,
+          name: `Group ${i + 1}`,
+          members: []
+        });
+      }
+      shuffled.forEach((st, idx) => {
+        groups[idx % count].members.push(st);
+      });
+    }
+
+    setGeneratedGroups(groups.filter(g => g.members.length > 0));
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-3xl p-6 max-w-2xl w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center border-b pb-3">
+          <div className="flex items-center gap-2">
+            <div className="bg-emerald-100 p-2 rounded-xl text-emerald-700">
+              <Shuffle className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-display font-extrabold text-gray-900 text-lg">Automatic Group Generator</h2>
+              <p className="text-xs text-gray-500">Split your class into teams with specific group sizes</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px]">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Generator Controls */}
+        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label htmlFor="group-split-mode" className="block text-xs font-bold text-gray-600 mb-1">Group By</label>
+              <select
+                id="group-split-mode"
+                value={splitMode}
+                onChange={e => setSplitMode(e.target.value)}
+                className="w-full p-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-800 bg-white"
+              >
+                <option value="size">Students per Group (e.g. 3 per group)</option>
+                <option value="count">Total Number of Groups (e.g. 4 groups)</option>
+              </select>
+            </div>
+            <div>
+              <label htmlFor="group-val-input" className="block text-xs font-bold text-gray-600 mb-1">
+                {splitMode === 'size' ? 'Number of Students per Group' : 'Total Groups to Create'}
+              </label>
+              <input
+                id="group-val-input"
+                type="number"
+                min="1"
+                max={eligibleStudents.length || 30}
+                value={groupVal}
+                onChange={e => setGroupVal(Number(e.target.value))}
+                className="w-full p-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-800 bg-white"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700">
+              <input
+                type="checkbox"
+                checked={excludeAbsent}
+                onChange={e => setExcludeAbsent(e.target.checked)}
+                className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
+              />
+              <span>Exclude absent students ({absentStudents.size} absent)</span>
+            </label>
+            <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
+              {eligibleStudents.length} Students Active
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleGenerate}
+            className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-extrabold text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+          >
+            <Shuffle className="w-4 h-4" /> Generate Random Groups
+          </button>
+        </div>
+
+        {/* Generated Teams Grid */}
+        {generatedGroups.length > 0 && (
+          <div className="space-y-3 pt-2">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Generated Teams ({generatedGroups.length})</h3>
+              <button
+                type="button"
+                onClick={() => {
+                  generatedGroups.forEach(g => onSaveGroup({ id: Date.now().toString() + Math.random(), name: g.name, members: g.members }));
+                  onClose();
+                }}
+                className="text-xs text-emerald-700 font-extrabold hover:underline cursor-pointer"
+              >
+                Save All as Saved Groups
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {generatedGroups.map(grp => (
+                <div key={grp.id} className="bg-emerald-50/50 border border-emerald-200 rounded-2xl p-4 space-y-3">
+                  <div className="flex justify-between items-start">
+                    <span className="font-extrabold text-emerald-950 text-base">{grp.name}</span>
+                    <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">{grp.members.length} students</span>
+                  </div>
+                  <ul className="text-xs text-gray-700 space-y-1 list-disc list-inside">
+                    {grp.members.map(m => <li key={m} className="font-medium">{m}</li>)}
+                  </ul>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => { onSelectGroupMembers(grp.members); onClose(); }}
+                      className="flex-1 py-1.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      Select Team
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { onAwardGroupTickets(grp.members, grp.name); onClose(); }}
+                      className="flex-1 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      Award Team
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Floating Batch Action Toolbar ---
+function BatchActionToolbar({ selectedCount, totalCount, onSelectAll, onDeselectAll, onAwardBatch, isSubmitting, onCreateGroupFromSelected }) {
+  if (selectedCount === 0) return null;
+
+  return (
+    <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-navy-950 text-white px-6 py-3.5 rounded-2xl shadow-2xl z-40 border border-emerald-500/40 flex items-center gap-4 flex-wrap animate-slide-up max-w-4xl w-[92%] justify-between">
+      <div className="flex items-center gap-3">
+        <span className="bg-emerald-600 text-white font-extrabold px-3 py-1 rounded-full text-xs">
+          {selectedCount} Selected
+        </span>
+        <button
+          onClick={selectedCount === totalCount ? onDeselectAll : onSelectAll}
+          className="text-xs font-bold text-emerald-300 hover:text-white underline cursor-pointer"
+        >
+          {selectedCount === totalCount ? 'Deselect All' : 'Select All'}
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-bold text-gray-300 mr-1">Award Ticket to All Selected:</span>
+        <button
+          disabled={isSubmitting}
+          onClick={() => onAwardBatch('Respectful')}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-xs transition disabled:opacity-50 cursor-pointer"
+        >
+          +1 Respectful
+        </button>
+        <button
+          disabled={isSubmitting}
+          onClick={() => onAwardBatch('Responsible')}
+          className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs rounded-xl shadow-xs transition disabled:opacity-50 cursor-pointer"
+        >
+          +1 Responsible
+        </button>
+        <button
+          disabled={isSubmitting}
+          onClick={() => onAwardBatch('Determined')}
+          className="px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl shadow-xs transition disabled:opacity-50 cursor-pointer"
+        >
+          +1 Determined
+        </button>
+
+        {onCreateGroupFromSelected && (
+          <button
+            onClick={onCreateGroupFromSelected}
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-xs transition flex items-center gap-1 cursor-pointer"
+          >
+            <Layers className="w-3.5 h-3.5" /> Save as Group
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Homeroom Dashboard ---
 function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards }) {
   const [modalData, setModalData] = useState(null);
@@ -2080,6 +3234,103 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   const [spendData, setSpendData] = useState(null);
   const [hideBalances, setHideBalances] = useState(false);
   const [activeDisplayStudent, setActiveDisplayStudent] = useState(null);
+
+  // Class Roster Sorting state ('lastName', 'firstName', 'tickets')
+  const [sortBy, setSortBy] = useState('lastName');
+
+  // Multi-Select & Custom Groups state
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
+  const [selectedStudentNames, setSelectedStudentNames] = useState(new Set());
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [showGeneratorModal, setShowGeneratorModal] = useState(false);
+  const [customGroups, setCustomGroups] = useState(() => {
+    try {
+      const saved = localStorage.getItem(`custom_groups_${profile?.name}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (e) {
+      return [];
+    }
+  });
+
+  const toggleStudentSelection = (name) => {
+    setSelectedStudentNames(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    setSelectedStudentNames(new Set(myStudents));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedStudentNames(new Set());
+  };
+
+  const handleSaveCustomGroup = (groupObj) => {
+    const next = [...customGroups.filter(g => g.id !== groupObj.id), groupObj];
+    setCustomGroups(next);
+    localStorage.setItem(`custom_groups_${profile?.name}`, JSON.stringify(next));
+    showToast(`Saved custom group "${groupObj.name}"!`);
+  };
+
+  const handleDeleteCustomGroup = (groupId) => {
+    const next = customGroups.filter(g => g.id !== groupId);
+    setCustomGroups(next);
+    localStorage.setItem(`custom_groups_${profile?.name}`, JSON.stringify(next));
+    showToast("Deleted group.");
+  };
+
+  const handleSelectGroupMembers = (memberNames) => {
+    setIsMultiSelectMode(true);
+    setSelectedStudentNames(new Set(memberNames));
+    showToast(`Selected ${memberNames.length} group members!`);
+  };
+
+  const handleBatchGiveTickets = async (reason) => {
+    const list = Array.from(selectedStudentNames);
+    if (list.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      await Promise.all(list.map(recipient =>
+        addDoc(collection(db, 'tickets'), {
+          teacherId: user.uid, teacherName: profile.name,
+          recipient, recipientType: 'student', reason, timestamp: serverTimestamp(),
+          customDate: resolveSelectedDate()
+        })
+      ));
+      showToast(`${reason} ticket awarded to ${list.length} selected students!`);
+      playTicketSound('ticket');
+    } catch (e) {
+      console.error(e);
+      showToast("Error awarding tickets.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAwardGroupTickets = async (memberNames, groupName) => {
+    if (memberNames.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      await Promise.all(memberNames.map(recipient =>
+        addDoc(collection(db, 'tickets'), {
+          teacherId: user.uid, teacherName: profile.name,
+          recipient, recipientType: 'student', reason: 'Respectful', timestamp: serverTimestamp(),
+          customDate: resolveSelectedDate()
+        })
+      ));
+      showToast(`Awarded Respectful ticket to ${memberNames.length} students in "${groupName}"!`);
+      playTicketSound('ticket');
+    } catch (e) {
+      console.error(e);
+      showToast("Error awarding group tickets.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     if (profile?.grade) {
@@ -2115,8 +3366,9 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   const myStudents = useMemo(() => {
     const central = students.filter(s => s.homeroom === profile.name).map(s => s.name);
     const custom = profile.customStudents || [];
-    return [...new Set([...central, ...custom])].sort();
-  }, [students, profile]);
+    const allNames = [...new Set([...central, ...custom])];
+    return sortStudentNames(allNames, sortBy, balances);
+  }, [students, profile, sortBy, balances]);
 
   const myStudentObjects = useMemo(() => {
     return students.filter(s => myStudents.includes(s.name));
@@ -2478,15 +3730,64 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
       <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
           <h2 className="text-2xl font-black text-navy-950 font-display">My Class Roster</h2>
-          <p className="text-sm text-gray-500 mt-1">Award tickets, run your class class store, or toggle attendance below.</p>
+          <p className="text-sm text-gray-500 mt-1">Award tickets, create student groups, or generate balanced activity teams below.</p>
         </div>
-        <button
-          onClick={() => setShowAddStudent(!showAddStudent)}
-          className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 px-4 rounded-xl shadow-sm border border-brand-700 transition text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add Student</span>
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => {
+              const next = !isMultiSelectMode;
+              setIsMultiSelectMode(next);
+              if (!next) setSelectedStudentNames(new Set());
+            }}
+            className={`flex items-center gap-1.5 font-bold py-2 px-3 rounded-xl border text-xs transition cursor-pointer min-h-[44px] ${isMultiSelectMode ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'}`}
+          >
+            {isMultiSelectMode ? <CheckSquare className="w-4 h-4 text-white" /> : <Square className="w-4 h-4 text-gray-400" />}
+            <span>{isMultiSelectMode ? 'Multi-Select ON' : 'Multi-Select'}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowGroupModal(true)}
+            className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2 px-3 rounded-xl border border-gray-200 transition text-xs cursor-pointer min-h-[44px]"
+          >
+            <Layers className="w-4 h-4 text-emerald-600" />
+            <span>Groups ({customGroups.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setShowGeneratorModal(true)}
+            className="flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold py-2 px-3 rounded-xl border border-emerald-200 transition text-xs cursor-pointer min-h-[44px]"
+          >
+            <Shuffle className="w-4 h-4 text-emerald-700" />
+            <span>Group Generator</span>
+          </button>
+
+          <div className="flex items-center gap-2 bg-white px-3.5 py-2 rounded-xl border border-gray-200 shadow-2xs">
+            <label htmlFor="homeroom-sort" className="text-xs font-bold text-gray-500 flex items-center gap-1.5 cursor-pointer">
+              <ArrowUpDown className="w-3.5 h-3.5 text-emerald-600" /> Sort:
+            </label>
+            <select
+              id="homeroom-sort"
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              className="text-xs font-bold text-navy-950 bg-transparent outline-none cursor-pointer"
+            >
+              <option value="lastName">Last Name (A-Z)</option>
+              <option value="firstName">First Name (A-Z)</option>
+              <option value="tickets">Most Tickets Earned</option>
+            </select>
+          </div>
+
+          <button
+            onClick={() => setShowAddStudent(!showAddStudent)}
+            className="flex items-center gap-1.5 bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 px-4 rounded-xl shadow-sm border border-brand-700 transition text-sm min-h-[44px]"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Student</span>
+          </button>
+        </div>
       </div>
 
       {showAddStudent && (
@@ -2549,7 +3850,11 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
               onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
               balances={balances} onSpend={(s, spendable) => setSpendData({ student: s, spendable })}
               students={students} onEditStudent={onEditStudent} isAbsent={absentStudents.has(student)}
-              onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email} />
+              onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email}
+              isMultiSelectMode={isMultiSelectMode}
+              isSelected={selectedStudentNames.has(student)}
+              onToggleSelect={() => toggleStudentSelection(student)}
+            />
           ))}
         </div>
       )}
@@ -2562,6 +3867,37 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
       {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
+
+      <BatchActionToolbar
+        selectedCount={selectedStudentNames.size}
+        totalCount={myStudents.length}
+        onSelectAll={handleSelectAll}
+        onDeselectAll={handleDeselectAll}
+        onAwardBatch={handleBatchGiveTickets}
+        isSubmitting={isSubmitting}
+        onCreateGroupFromSelected={() => setShowGroupModal(true)}
+      />
+
+      <GroupManagementModal
+        isOpen={showGroupModal}
+        onClose={() => setShowGroupModal(false)}
+        students={myStudents}
+        customGroups={customGroups}
+        onSaveGroup={handleSaveCustomGroup}
+        onDeleteGroup={handleDeleteCustomGroup}
+        onSelectGroupMembers={handleSelectGroupMembers}
+        onAwardGroupTickets={handleAwardGroupTickets}
+      />
+
+      <GroupGeneratorModal
+        isOpen={showGeneratorModal}
+        onClose={() => setShowGeneratorModal(false)}
+        students={myStudents}
+        absentStudents={absentStudents}
+        onSelectGroupMembers={handleSelectGroupMembers}
+        onAwardGroupTickets={handleAwardGroupTickets}
+        onSaveGroup={handleSaveCustomGroup}
+      />
     </div>
   );
 }
@@ -2572,6 +3908,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
   const [modalData, setModalData] = useState(null);
   const [spendData, setSpendData] = useState(null);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
+  const [sortBy, setSortBy] = useState('lastName');
 
   const classes = useMemo(() => {
     const homerooms = students.map(s => s.homeroom).filter(Boolean);
@@ -2580,13 +3917,15 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 
   const studentsInClass = useMemo(() => {
     if (!selectedClass) return [];
-    return students.filter(s => s.homeroom === selectedClass).map(s => s.name).sort();
-  }, [selectedClass, students]);
+    const raw = students.filter(s => s.homeroom === selectedClass).map(s => s.name);
+    return sortStudentNames(raw, sortBy, balances);
+  }, [selectedClass, students, sortBy, balances]);
 
   const classStudentObjects = useMemo(() => {
     if (!selectedClass) return [];
-    return students.filter(s => s.homeroom === selectedClass);
-  }, [selectedClass, students]);
+    const raw = students.filter(s => s.homeroom === selectedClass);
+    return sortStudentObjects(raw, sortBy, balances);
+  }, [selectedClass, students, sortBy, balances]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingFor, setSubmittingFor] = useState(null);
@@ -2741,7 +4080,23 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
                 <p className="text-gray-500">Award the whole class, or pick a student.</p>
               </div>
             </div>
-            <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+            <div className="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
+              <div className="flex items-center gap-2 bg-white px-3.5 py-2 rounded-xl border border-gray-200 shadow-2xs">
+                <label htmlFor="specialist-sort" className="text-xs font-bold text-gray-500 flex items-center gap-1.5 cursor-pointer">
+                  <ArrowUpDown className="w-3.5 h-3.5 text-emerald-600" /> Sort Roster:
+                </label>
+                <select
+                  id="specialist-sort"
+                  value={sortBy}
+                  onChange={e => setSortBy(e.target.value)}
+                  className="text-xs font-bold text-navy-950 bg-transparent outline-none cursor-pointer"
+                >
+                  <option value="lastName">Last Name (A-Z)</option>
+                  <option value="firstName">First Name (A-Z)</option>
+                  <option value="tickets">Most Tickets Earned</option>
+                </select>
+              </div>
+
               <button
                 type="button"
                 onClick={() => {
@@ -2751,7 +4106,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
                   }
                   onPrintLoginCards(classStudentObjects);
                 }}
-                className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-4 rounded-xl shadow-sm border border-gray-200 transition text-sm cursor-pointer"
+                className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-4 rounded-xl shadow-sm border border-gray-200 transition text-sm cursor-pointer min-h-[44px]"
               >
                 <Download className="w-4 h-4 text-gray-500" />
                 <span>Print Login Cards</span>
@@ -2759,7 +4114,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 
               <button
                 onClick={() => setIsDisplayMode(true)}
-                className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center"
+                className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center min-h-[44px]"
               >
                 <Tv className="w-4.5 h-4.5" />
                 Class Display Mode
@@ -2825,6 +4180,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [spendData, setSpendData] = useState(null);
   const [showManualPaste, setShowManualPaste] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
+  const [sortBy, setSortBy] = useState('lastName');
   const ITEMS_PER_PAGE = 25;
 
   // Grade Goals state
@@ -2843,13 +4199,15 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
   const studentsInClass = useMemo(() => {
     if (!selectedClass) return [];
-    return students.filter(s => s.homeroom === selectedClass).map(s => s.name).sort();
-  }, [selectedClass, students]);
+    const raw = students.filter(s => s.homeroom === selectedClass).map(s => s.name);
+    return sortStudentNames(raw, sortBy, balances);
+  }, [selectedClass, students, sortBy, balances]);
 
   const classStudentObjects = useMemo(() => {
     if (!selectedClass) return [];
-    return students.filter(s => s.homeroom === selectedClass);
-  }, [selectedClass, students]);
+    const raw = students.filter(s => s.homeroom === selectedClass);
+    return sortStudentObjects(raw, sortBy, balances);
+  }, [selectedClass, students, sortBy, balances]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingFor, setSubmittingFor] = useState(null);
@@ -3211,7 +4569,23 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                     <p className="text-gray-500 text-sm">Award the whole class or pick a student.</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
+                  <div className="flex items-center gap-2 bg-white px-3.5 py-2 rounded-xl border border-gray-200 shadow-2xs">
+                    <label htmlFor="admin-sort" className="text-xs font-bold text-gray-500 flex items-center gap-1.5 cursor-pointer">
+                      <ArrowUpDown className="w-3.5 h-3.5 text-emerald-600" /> Sort Roster:
+                    </label>
+                    <select
+                      id="admin-sort"
+                      value={sortBy}
+                      onChange={e => setSortBy(e.target.value)}
+                      className="text-xs font-bold text-navy-950 bg-transparent outline-none cursor-pointer"
+                    >
+                      <option value="lastName">Last Name (A-Z)</option>
+                      <option value="firstName">First Name (A-Z)</option>
+                      <option value="tickets">Most Tickets Earned</option>
+                    </select>
+                  </div>
+
                   <button
                     type="button"
                     onClick={() => {
@@ -3221,7 +4595,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                       }
                       onPrintLoginCards(classStudentObjects);
                     }}
-                    className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-4 rounded-xl shadow-sm border border-gray-200 transition text-sm cursor-pointer"
+                    className="flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2.5 px-4 rounded-xl shadow-sm border border-gray-200 transition text-sm cursor-pointer min-h-[44px]"
                   >
                     <Download className="w-4 h-4 text-gray-500" />
                     <span>Print Login Cards</span>
@@ -3229,7 +4603,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
                   <button
                     onClick={() => setIsDisplayMode(true)}
-                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center"
+                    className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2.5 px-5 rounded-xl transition flex items-center gap-2 shadow-xs text-sm sm:w-auto w-full justify-center min-h-[44px]"
                   >
                     <Tv className="w-4.5 h-4.5" />
                     Class Display Mode
