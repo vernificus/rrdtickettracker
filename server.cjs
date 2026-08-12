@@ -565,7 +565,7 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     // Teacher / Admin Dashboard view
     const email = req.user.email;
     const profiles = await db.getRows('Users');
-    const profile = profiles.find(p => p.email === email);
+    const profile = profiles.find(p => p.email.toLowerCase() === email.toLowerCase());
     if (!profile) return res.status(404).json({ message: 'Teacher profile not found' });
 
     delete profile.password; // remove sensitive field
