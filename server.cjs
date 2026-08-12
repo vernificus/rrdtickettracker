@@ -488,6 +488,68 @@ app.post('/api/auth/change-role', authMiddleware, async (req, res) => {
   }
 });
 
+// Share Class / Manage Co-Teachers endpoint
+app.post('/api/teachers/share-class', authMiddleware, async (req, res) => {
+  const { targetEmail, homeroomName, action } = req.body; // action: 'add' | 'remove'
+  if (!homeroomName) {
+    return res.status(400).json({ message: 'Homeroom name is required.' });
+  }
+
+  try {
+    const users = await db.getRows('Users');
+    const emailToModify = targetEmail ? targetEmail.toLowerCase() : req.user.email.toLowerCase();
+    const user = users.find(u => u.email.toLowerCase() === emailToModify);
+    if (!user) return res.status(404).json({ message: 'Teacher profile not found.' });
+
+    let currentShared = [];
+    try {
+      currentShared = user.coTaughtHomerooms ? JSON.parse(user.coTaughtHomerooms) : [];
+    } catch (e) {
+      currentShared = typeof user.coTaughtHomerooms === 'string' ? user.coTaughtHomerooms.split(',').map(s => s.trim()) : [];
+    }
+
+    if (action === 'remove') {
+      currentShared = currentShared.filter(h => h.toLowerCase() !== homeroomName.toLowerCase());
+    } else {
+      if (!currentShared.some(h => h.toLowerCase() === homeroomName.toLowerCase())) {
+        currentShared.push(homeroomName);
+      }
+    }
+
+    user.coTaughtHomerooms = JSON.stringify(currentShared);
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'], user._rowNum, user);
+
+    res.json({ success: true, coTaughtHomerooms: currentShared });
+  } catch (err) {
+    console.error("Error updating shared classes:", err);
+    res.status(500).json({ message: 'Server error updating shared classes.' });
+  }
+});
+
+// Admin Reset Teacher Password endpoint
+app.post('/api/admin/reset-teacher-password', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin privileges required.' });
+  }
+  const { targetEmail, newPassword } = req.body;
+  if (!targetEmail || !newPassword) {
+    return res.status(400).json({ message: 'Teacher email and new password are required.' });
+  }
+
+  try {
+    const users = await db.getRows('Users');
+    const user = users.find(u => u.email.toLowerCase() === targetEmail.toLowerCase());
+    if (!user) return res.status(404).json({ message: 'Teacher profile not found.' });
+
+    user.password = hashPassword(newPassword);
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'], user._rowNum, user);
+    res.json({ success: true, message: `Password for ${user.name || user.email} updated successfully.` });
+  } catch (err) {
+    console.error("Error resetting teacher password:", err);
+    res.status(500).json({ message: 'Server error resetting teacher password.' });
+  }
+});
+
 // Student Login
 app.post('/api/auth/student', async (req, res) => {
   const { studentId, pinCode } = req.body;
@@ -569,6 +631,11 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     if (!profile) return res.status(404).json({ message: 'Teacher profile not found' });
 
     delete profile.password; // remove sensitive field
+    try {
+      profile.coTaughtHomerooms = profile.coTaughtHomerooms ? JSON.parse(profile.coTaughtHomerooms) : [];
+    } catch (e) {
+      profile.coTaughtHomerooms = typeof profile.coTaughtHomerooms === 'string' ? profile.coTaughtHomerooms.split(',').map(s => s.trim()).filter(Boolean) : [];
+    }
 
     const students = await db.getRows('Students');
     const goldenTickets = await db.getRows('GoldenTickets');
@@ -604,13 +671,22 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     // Visibility rules: Specialists and Homerooms see only tickets/spending they created
     // Admins see all tickets/spending
     if (activeRole !== 'admin') {
-      tickets = tickets.filter(t => t.teacherEmail === email);
-      spending = spending.filter(s => s.teacherEmail === email);
+      const allowedEmails = new Set([email.toLowerCase()]);
+      profiles.forEach(p => {
+        let pCoTaught = [];
+        try { pCoTaught = p.coTaughtHomerooms ? JSON.parse(p.coTaughtHomerooms) : []; } catch (e) {}
+        if (pCoTaught.some(h => h.toLowerCase() === profile.name.toLowerCase())) {
+          allowedEmails.add(p.email.toLowerCase());
+        }
+      });
+      tickets = tickets.filter(t => allowedEmails.has((t.teacherEmail || '').toLowerCase()));
+      spending = spending.filter(s => allowedEmails.has((s.teacherEmail || '').toLowerCase()));
     }
 
     const sanitizedProfiles = profiles.map(p => {
       const copy = { ...p };
       delete copy.password;
+      try { copy.coTaughtHomerooms = copy.coTaughtHomerooms ? JSON.parse(copy.coTaughtHomerooms) : []; } catch (e) {}
       return copy;
     });
 

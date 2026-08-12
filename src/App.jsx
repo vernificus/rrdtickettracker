@@ -3,7 +3,8 @@ import {
   Ticket, Users, Shield, Palette, Download, LogOut,
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
   Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv,
-  Eye, Smartphone, Contrast, ShieldCheck, Share, ZoomIn, Volume2, ArrowUpDown, Layers, Shuffle, CheckSquare, Square
+  Eye, Smartphone, Contrast, ShieldCheck, Share, ZoomIn, Volume2, ArrowUpDown, Layers, Shuffle, CheckSquare, Square,
+  Upload, Key
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : '');
@@ -132,6 +133,37 @@ const handleClientApi = (endpoint, options = {}) => {
       gradeGoals: dbObj.gradeGoals,
       balances
     };
+  }
+
+  if (endpoint === '/api/teachers/share-class') {
+    const userEmail = body.targetEmail || localStorage.getItem('user_email') || 'teacher@lcps.org';
+    let user = dbObj.users.find(u => u.email.toLowerCase() === userEmail.toLowerCase());
+    if (!user) {
+      user = { email: userEmail, name: userEmail.split('@')[0], role: 'homeroom', grade: '3rd Grade', coTaughtHomerooms: [] };
+      dbObj.users.push(user);
+    }
+    let list = Array.isArray(user.coTaughtHomerooms) ? user.coTaughtHomerooms : [];
+    if (body.action === 'remove') {
+      list = list.filter(h => h.toLowerCase() !== body.homeroomName.toLowerCase());
+    } else {
+      if (!list.some(h => h.toLowerCase() === body.homeroomName.toLowerCase())) {
+        list.push(body.homeroomName);
+      }
+    }
+    user.coTaughtHomerooms = list;
+    saveClientDb(dbObj);
+    return { success: true, coTaughtHomerooms: list };
+  }
+
+  if (endpoint === '/api/admin/reset-teacher-password') {
+    const targetEmail = body.targetEmail;
+    const user = dbObj.users.find(u => u.email.toLowerCase() === (targetEmail || '').toLowerCase());
+    if (!user) {
+      return { success: false, message: 'Teacher profile not found.' };
+    }
+    user.passwordHash = body.newPassword;
+    saveClientDb(dbObj);
+    return { success: true, message: `Password for ${user.name || user.email} updated successfully.` };
   }
 
   if (endpoint === '/api/tickets' && options.method === 'POST') {
@@ -794,7 +826,7 @@ export default function App() {
               <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} />
             )}
             {role === 'homeroom' && (
-              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} />
+              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} />
             )}
             {role === 'specialist' && (
               <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} />
@@ -3380,8 +3412,150 @@ function BatchActionToolbar({ selectedCount, totalCount, onSelectAll, onDeselect
   );
 }
 
+// --- Share Class & Co-Teacher Modal ---
+function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass, showToast }) {
+  const [coTeacherEmail, setCoTeacherEmail] = useState('');
+  const [customSwitchClass, setCustomSwitchClass] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!isOpen) return null;
+
+  const myShared = Array.isArray(profile.coTaughtHomerooms) ? profile.coTaughtHomerooms : [];
+
+  const handleAddCoTeacher = async (e) => {
+    e.preventDefault();
+    if (!coTeacherEmail.trim()) return;
+    setIsSubmitting(true);
+    try {
+      const targetUser = profiles.find(p => p.email.toLowerCase() === coTeacherEmail.trim().toLowerCase());
+      if (targetUser && targetUser.name) {
+        await onShareClass(targetUser.email, profile.name, 'add');
+        showToast(`Shared "${profile.name}" with ${targetUser.name}!`);
+      } else {
+        await onShareClass(coTeacherEmail.trim(), profile.name, 'add');
+        showToast(`Invited ${coTeacherEmail} as co-teacher!`);
+      }
+      setCoTeacherEmail('');
+    } catch (err) {
+      showToast(err.message || 'Failed to add co-teacher.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleAddSwitchClass = async (e) => {
+    e.preventDefault();
+    if (!customSwitchClass.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onShareClass(profile.email, customSwitchClass.trim(), 'add');
+      showToast(`Added "${customSwitchClass.trim()}" to your class switcher!`);
+      setCustomSwitchClass('');
+    } catch (err) {
+      showToast(err.message || 'Failed to add switch class.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-3xl p-6 max-w-xl w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center border-b pb-3">
+          <div className="flex items-center gap-2">
+            <div className="bg-emerald-100 p-2 rounded-xl text-emerald-700">
+              <Users className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-display font-extrabold text-gray-900 text-lg">Co-Teachers & Switch Blocks</h2>
+              <p className="text-xs text-gray-500">Share your class or connect to departmentalized blocks</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px]">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Co-Teacher Invite Form */}
+        <form onSubmit={handleAddCoTeacher} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
+          <h3 className="font-bold text-sm text-gray-900 flex items-center gap-1.5">
+            <Share className="w-4 h-4 text-emerald-600" /> Share My Class ("{profile.name}") with a Co-Teacher
+          </h3>
+          <div className="flex gap-2">
+            <input
+              type="email"
+              required
+              placeholder="Co-Teacher / Resource Teacher Email"
+              value={coTeacherEmail}
+              onChange={e => setCoTeacherEmail(e.target.value)}
+              className="flex-1 p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+            />
+            <button
+              type="submit"
+              disabled={isSubmitting || !coTeacherEmail.trim()}
+              className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 min-h-[44px] cursor-pointer"
+            >
+              Add Co-Teacher
+            </button>
+          </div>
+        </form>
+
+        {/* Add Departmental Switch Block Form */}
+        <form onSubmit={handleAddSwitchClass} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
+          <h3 className="font-bold text-sm text-gray-900 flex items-center gap-1.5">
+            <GitMerge className="w-4 h-4 text-brand-600" /> Add Departmental Switch Class / Block 2
+          </h3>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              required
+              placeholder="e.g. Mr. Davis's Math Block / 4th Grade Reading Switch"
+              value={customSwitchClass}
+              onChange={e => setCustomSwitchClass(e.target.value)}
+              className="flex-1 p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+            />
+            <button
+              type="submit"
+              disabled={isSubmitting || !customSwitchClass.trim()}
+              className="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 min-h-[44px] cursor-pointer"
+            >
+              Add Block
+            </button>
+          </div>
+        </form>
+
+        {/* Connected Classes List */}
+        {myShared.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Your Connected Homerooms & Blocks ({myShared.length})</h4>
+            <div className="divide-y divide-gray-100 border border-gray-200 rounded-2xl bg-white overflow-hidden">
+              {myShared.map(hName => (
+                <div key={hName} className="p-3 flex justify-between items-center hover:bg-gray-50">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span className="text-xs font-bold text-gray-900">{hName}</span>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      await onShareClass(profile.email, hName, 'remove');
+                      showToast(`Removed "${hName}".`);
+                    }}
+                    className="text-xs font-bold text-red-600 hover:underline p-1 cursor-pointer"
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [] }) {
   const [modalData, setModalData] = useState(null);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [awardDate, setAwardDate] = useState('today'); // 'today', 'yesterday', 'other'
@@ -3402,6 +3576,27 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 
   // Class Roster Sorting state ('lastName', 'firstName', 'tickets')
   const [sortBy, setSortBy] = useState('lastName');
+
+  // Co-Teacher & Departmentalized Class Switcher state
+  const [selectedClassFilter, setSelectedClassFilter] = useState('primary');
+  const [showShareModal, setShowShareModal] = useState(false);
+
+  const coTaughtList = useMemo(() => {
+    return Array.isArray(profile?.coTaughtHomerooms) ? profile.coTaughtHomerooms : [];
+  }, [profile]);
+
+  const handleShareClass = async (targetEmail, homeroomName, action) => {
+    try {
+      await api.fetch('/api/teachers/share-class', {
+        method: 'POST',
+        body: JSON.stringify({ targetEmail, homeroomName, action })
+      });
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to update co-teacher class.");
+    }
+  };
 
   // Multi-Select & Custom Groups state
   const [isMultiSelectMode, setIsMultiSelectMode] = useState(false);
@@ -3529,11 +3724,21 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   };
 
   const myStudents = useMemo(() => {
-    const central = students.filter(s => s.homeroom === profile.name).map(s => s.name);
-    const custom = profile.customStudents || [];
+    let targetHomerooms = [profile.name];
+    if (selectedClassFilter === 'all') {
+      targetHomerooms = [profile.name, ...coTaughtList];
+    } else if (selectedClassFilter !== 'primary') {
+      targetHomerooms = [selectedClassFilter];
+    }
+
+    const central = students
+      .filter(s => targetHomerooms.some(h => (s.homeroom || '').toLowerCase() === h.toLowerCase()))
+      .map(s => s.name);
+
+    const custom = (selectedClassFilter === 'primary' || selectedClassFilter === 'all') ? (profile.customStudents || []) : [];
     const allNames = [...new Set([...central, ...custom])];
     return sortStudentNames(allNames, sortBy, balances);
-  }, [students, profile, sortBy, balances]);
+  }, [students, profile, coTaughtList, selectedClassFilter, sortBy, balances]);
 
   const myStudentObjects = useMemo(() => {
     return students.filter(s => myStudents.includes(s.name));
@@ -3898,6 +4103,39 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
           <p className="text-sm text-gray-500 mt-1">Award tickets, create student groups, or generate balanced activity teams below.</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Class / Block Switcher Selector */}
+          <div className="flex items-center gap-2 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-200 shadow-2xs">
+            <label htmlFor="class-switcher" className="text-xs font-bold text-emerald-800 flex items-center gap-1.5 cursor-pointer">
+              <Users className="w-3.5 h-3.5 text-emerald-700" /> Active Class:
+            </label>
+            <select
+              id="class-switcher"
+              value={selectedClassFilter}
+              onChange={e => setSelectedClassFilter(e.target.value)}
+              className="text-xs font-extrabold text-emerald-950 bg-transparent outline-none cursor-pointer"
+            >
+              <option value="primary">My Homeroom ({profile.name})</option>
+              {coTaughtList.map(hName => (
+                <option key={hName} value={hName}>
+                  Co-Taught / Switch: {hName}
+                </option>
+              ))}
+              {coTaughtList.length > 0 && (
+                <option value="all">Combined Roster (All Classes)</option>
+              )}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowShareModal(true)}
+            className="flex items-center gap-1.5 bg-white hover:bg-gray-50 text-gray-700 font-bold py-2 px-3 rounded-xl border border-gray-200 transition text-xs cursor-pointer min-h-[44px]"
+            title="Share class with a co-teacher or add departmental switch blocks"
+          >
+            <Share className="w-4 h-4 text-emerald-600" />
+            <span>Co-Teachers</span>
+          </button>
+
           <button
             type="button"
             onClick={() => {
@@ -4062,6 +4300,15 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         onSelectGroupMembers={handleSelectGroupMembers}
         onAwardGroupTickets={handleAwardGroupTickets}
         onSaveGroup={handleSaveCustomGroup}
+      />
+
+      <ShareClassModal
+        isOpen={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        profile={profile}
+        profiles={profiles}
+        onShareClass={handleShareClass}
+        showToast={showToast}
       />
     </div>
   );
@@ -4330,6 +4577,85 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
   );
 }
 
+// --- Admin Reset Teacher Password Modal ---
+function ResetTeacherPasswordModal({ targetProfile, onClose, showToast }) {
+  const [newPassword, setNewPassword] = useState('data4life');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!targetProfile) return null;
+
+  const handleReset = async (e) => {
+    e.preventDefault();
+    if (!newPassword.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await api.fetch('/api/admin/reset-teacher-password', {
+        method: 'POST',
+        body: JSON.stringify({ targetEmail: targetProfile.email, newPassword: newPassword.trim() })
+      });
+      showToast(`Password for ${targetProfile.name || targetProfile.email} reset to "${newPassword.trim()}"!`);
+      onClose();
+    } catch (err) {
+      showToast(err.message || 'Failed to reset password.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-amber-200 shadow-2xl space-y-4">
+        <div className="flex justify-between items-center border-b pb-3">
+          <div className="flex items-center gap-2">
+            <div className="bg-amber-100 p-2 rounded-xl text-amber-700">
+              <Key className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-display font-extrabold text-gray-900 text-lg">Reset Password</h2>
+              <p className="text-xs text-gray-500">For {targetProfile.name} ({targetProfile.email})</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px]">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleReset} className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold text-gray-700 mb-1">New Password</label>
+            <input
+              type="text"
+              required
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              className="w-full p-3 border border-gray-300 rounded-xl text-sm font-mono bg-white focus:ring-amber-500 focus:border-amber-500 outline-none"
+              placeholder="e.g. data4life or School2026!"
+            />
+            <p className="text-xs text-gray-500 mt-1">Provide this new password to the teacher so they can log in.</p>
+          </div>
+
+          <div className="flex gap-2 justify-end pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2.5 border border-gray-300 rounded-xl text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 cursor-pointer min-h-[44px]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !newPassword.trim()}
+              className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 cursor-pointer min-h-[44px]"
+            >
+              {isSubmitting ? 'Resetting...' : 'Reset Password'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
 function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -4339,9 +4665,10 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [modalData, setModalData] = useState(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
-  const [activityPage, setActivityPage] = useState(0);
   const [confirmDeleteProfile, setConfirmDeleteProfile] = useState(null);
   const [isDeletingProfile, setIsDeletingProfile] = useState(false);
+  const [resetPasswordTarget, setResetPasswordTarget] = useState(null);
+  const [activityPage, setActivityPage] = useState(0);
   const [spendData, setSpendData] = useState(null);
   const [showManualPaste, setShowManualPaste] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
@@ -4424,13 +4751,13 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           setIsSubmitting(false);
           return;
         }
-        await Promise.all(presentStudents.map(student =>
+        await Promise.all(presentStudents.map(st =>
           addDoc(collection(db, 'tickets'), {
             teacherId: user.uid, teacherName: profile.name,
-            recipient: student.name, recipientType: 'student', reason, timestamp: serverTimestamp()
+            recipient: st.name, recipientType: 'student', reason, timestamp: serverTimestamp()
           })
         ));
-        showToast(`Regular ticket awarded to ${presentStudents.length} present students in ${className}!`);
+        showToast(`${reason} tickets awarded to all ${presentStudents.length} present students in ${className}!`);
       } else {
         await addDoc(collection(db, 'tickets'), {
           teacherId: user.uid, teacherName: profile.name,
@@ -4473,9 +4800,20 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       if (window.triggerRefresh) window.triggerRefresh();
     } catch (e) {
       console.error("Error merging students:", e);
-      showToast(e.message || "Error merging students.");
+      showToast("Error merging students.");
     }
     setIsMerging(false);
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target.result;
+      processCSVContent(text);
+    };
+    reader.readAsText(file);
   };
 
   const handleGoldenTicket = async (cls) => {
@@ -4507,9 +4845,11 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
   const mapHeader = (header) => {
     const normalized = header.toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (['name', 'studentname', 'fullname', 'student', 'names'].includes(normalized)) return 'name';
-    if (['homeroom', 'classroom', 'room', 'class', 'teacher', 'homeroomteacher'].includes(normalized)) return 'homeroom';
-    if (['grade', 'gradelevel', 'year', 'level'].includes(normalized)) return 'grade';
+    if (['firstname', 'first', 'givenname', 'fname', 'studentfirstname'].includes(normalized)) return 'firstname';
+    if (['lastname', 'last', 'surname', 'familyname', 'lname', 'studentlastname'].includes(normalized)) return 'lastname';
+    if (['name', 'fullname', 'studentname', 'student', 'names', 'studentfullname'].includes(normalized)) return 'name';
+    if (['homeroom', 'classroom', 'room', 'class', 'teacher', 'homeroomteacher', 'teachername'].includes(normalized)) return 'homeroom';
+    if (['grade', 'gradelevel', 'year', 'level', 'studentgrade'].includes(normalized)) return 'grade';
     return null;
   };
 
@@ -4553,18 +4893,23 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
     const headerRow = parseCSVLine(firstLine, delimiter);
     let nameIndex = -1;
+    let firstNameIndex = -1;
+    let lastNameIndex = -1;
     let homeroomIndex = -1;
     let gradeIndex = -1;
 
     headerRow.forEach((h, index) => {
       const mapped = mapHeader(h);
       if (mapped === 'name') nameIndex = index;
+      else if (mapped === 'firstname') firstNameIndex = index;
+      else if (mapped === 'lastname') lastNameIndex = index;
       else if (mapped === 'homeroom') homeroomIndex = index;
       else if (mapped === 'grade') gradeIndex = index;
     });
 
-    if (nameIndex === -1 || homeroomIndex === -1) {
-      showToast(`Missing headers. We need columns matching Name and Homeroom. Found columns: [${headerRow.join(', ')}].`);
+    const hasName = nameIndex !== -1 || (firstNameIndex !== -1 || lastNameIndex !== -1);
+    if (!hasName || homeroomIndex === -1) {
+      showToast(`Missing headers. We need Homeroom and either "Name" or "First Name" / "Last Name" columns. Found headers: [${headerRow.join(', ')}].`);
       setIsProcessing(false);
       return;
     }
@@ -4573,11 +4918,23 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     let hasError = false;
     for (let i = 1; i < rawLines.length; i++) {
       const parts = parseCSVLine(rawLines[i], delimiter);
-      if (parts.length <= Math.max(nameIndex, homeroomIndex)) continue;
+      if (parts.length === 0 || (parts.length === 1 && !parts[0])) continue;
       
-      const name = parts[nameIndex];
-      const homeroom = parts[homeroomIndex];
-      const grade = gradeIndex !== -1 ? parts[gradeIndex] : 'N/A';
+      let name = '';
+      if (nameIndex !== -1 && parts[nameIndex]) {
+        name = parts[nameIndex].trim();
+      } else if (firstNameIndex !== -1 || lastNameIndex !== -1) {
+        const first = firstNameIndex !== -1 && parts[firstNameIndex] ? parts[firstNameIndex].trim() : '';
+        const last = lastNameIndex !== -1 && parts[lastNameIndex] ? parts[lastNameIndex].trim() : '';
+        if (first && last) {
+          name = `${first} ${last}`;
+        } else {
+          name = first || last;
+        }
+      }
+
+      const homeroom = homeroomIndex !== -1 && parts[homeroomIndex] ? parts[homeroomIndex].trim() : '';
+      const grade = gradeIndex !== -1 && parts[gradeIndex] ? parts[gradeIndex].trim() : 'N/A';
       
       if (!name || !homeroom) {
         showToast(`Line ${i + 1} has missing name or homeroom.`);
@@ -5121,12 +5478,21 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             {profiles.length === 0 && (
               <div className="px-6 py-8 text-center text-gray-500">No profiles found.</div>
             )}
-            {[...profiles].filter(p => p.name && !p.linkedTo).sort((a, b) => (teacherTicketCounts[b.id] || 0) - (teacherTicketCounts[a.id] || 0)).map(p => {
-              const count = teacherTicketCounts[p.id] || 0;
-              const isCurrentUser = p.id === effectiveUid;
-              const linkedCount = profiles.filter(x => x.linkedTo === p.id).length;
+            {[...profiles].filter(p => p.name && !p.linkedTo).sort((a, b) => {
+              const aKey = (a.email || a.id || a.name || '').toLowerCase();
+              const bKey = (b.email || b.id || b.name || '').toLowerCase();
+              return (teacherTicketCounts[bKey] || 0) - (teacherTicketCounts[aKey] || 0);
+            }).map(p => {
+              const key = (p.email || p.id || p.name || '').toLowerCase();
+              const count = teacherTicketCounts[key] || 0;
+              const isCurrentUser = (p.email && p.email.toLowerCase() === (profile?.email || '').toLowerCase()) || p.id === effectiveUid;
+              const linkedCount = profiles.filter(x => x.linkedTo && (
+                (x.linkedTo || '').toLowerCase() === (p.id || '').toLowerCase() ||
+                (x.linkedTo || '').toLowerCase() === (p.email || '').toLowerCase() ||
+                (x.linkedTo || '').toLowerCase() === key
+              )).length;
               return (
-                <div key={p.id} className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition">
+                <div key={p.email || p.id || p.name} className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition">
                   <div className="flex items-center gap-3">
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${count === 0 ? 'bg-gray-100 text-gray-400' : 'bg-green-100 text-green-700'}`}>
                       {p.name?.charAt(0)?.toUpperCase() || '?'}
@@ -5142,8 +5508,17 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                   </div>
                   <div className="flex items-center gap-3">
                     <span className={`text-sm font-medium ${count === 0 ? 'text-gray-400' : 'text-green-700'}`}>{count} ticket{count !== 1 ? 's' : ''}</span>
+                    
+                    <button
+                      onClick={() => setResetPasswordTarget(p)}
+                      className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer min-h-[36px]"
+                      title="Reset teacher password"
+                    >
+                      <Key className="w-3.5 h-3.5" /> Reset Pass
+                    </button>
+
                     {!isCurrentUser && count === 0 && !p.linkedTo && (
-                      confirmDeleteProfile?.id === p.id ? (
+                      confirmDeleteProfile?.email === p.email ? (
                         <div className="flex items-center gap-2">
                           <button onClick={() => handleDeleteProfile(p)} disabled={isDeletingProfile} className="text-xs bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg transition">
                             {isDeletingProfile ? 'Deleting…' : 'Confirm'}
@@ -5182,29 +5557,27 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               disabled={isProcessing}
               className="absolute inset-0 opacity-0 cursor-pointer" 
             />
-            <div className="space-y-2 pointer-events-none">
-              <div className="w-12 h-12 bg-green-50 text-green-600 rounded-full flex items-center justify-center mx-auto group-hover:scale-105 transition-transform">
-                <Download className="w-6 h-6" />
-              </div>
-              <div className="font-bold text-navy-950 text-sm">
-                {isProcessing ? 'Processing file...' : 'Drag and drop your roster CSV file here, or click to browse'}
-              </div>
-              <div className="text-xs text-gray-400">Supported format: CSV (.csv) containing columns like Name, Homeroom, Grade</div>
+            <div className="flex flex-col items-center">
+              <Upload className="w-10 h-10 text-gray-400 group-hover:text-green-600 transition mb-3" />
+              <p className="text-sm font-bold text-gray-700">
+                {isProcessing ? 'Processing File...' : 'Click to Upload Roster CSV or Drag & Drop'}
+              </p>
+              <p className="text-xs text-gray-400 mt-1">Supports .csv files exported from Excel, StudentVUE, or Google Sheets</p>
             </div>
           </div>
 
-          <div className="text-center">
+          {/* Toggle Manual Paste Button */}
+          <div className="pt-2">
             <button
               onClick={() => setShowManualPaste(!showManualPaste)}
-              type="button"
-              className="text-xs text-brand-600 hover:underline font-bold"
+              className="text-xs font-bold text-gray-500 hover:text-gray-800 underline cursor-pointer"
             >
-              {showManualPaste ? 'Hide manual paste options' : 'Or paste CSV data manually'}
+              {showManualPaste ? 'Hide Manual CSV Text Paste' : 'Or Paste CSV Raw Text Manually'}
             </button>
           </div>
 
           {showManualPaste && (
-            <div className="space-y-4 pt-4 border-t animate-fade-in">
+            <div className="space-y-3 pt-2">
               <p className="text-xs text-gray-500">
                 Paste your CSV content below. Must include column headers matching <strong>name</strong>, <strong>homeroom</strong>, and <strong>grade</strong>.
               </p>
@@ -5299,13 +5672,12 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                 <label className="block text-sm font-bold text-gray-700 mb-1">Reward Description</label>
                 <input type="text" value={gradeGoalReward} onChange={e => setGradeGoalReward(e.target.value)} placeholder="e.g. Ice Cream Party" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-amber-500 focus:border-amber-500 outline-none" />
               </div>
-              <button type="submit" disabled={isSavingGradeGoal || !gradeGoalGrade} className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl transition flex items-center gap-2">
+              <button type="submit" disabled={isSavingGradeGoal || !gradeGoalGrade} className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl transition flex items-center gap-2 cursor-pointer">
                 <Star className="w-4 h-4" /> {isSavingGradeGoal ? 'Saving...' : 'Save Grade Goal'}
               </button>
             </form>
           </div>
 
-          {/* Existing Grade Goals */}
           {gradeGoals && gradeGoals.length > 0 && (
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
               <div className="px-6 py-4 border-b bg-amber-50">
@@ -5322,7 +5694,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                       setGradeGoalGrade(g.grade);
                       setGradeGoalGolden(g.goalGolden || 10);
                       setGradeGoalReward(g.rewardText || '');
-                    }} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold px-3 py-1.5 rounded-lg transition">Edit</button>
+                    }} className="text-xs bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold px-3 py-1.5 rounded-lg transition cursor-pointer">Edit</button>
                   </div>
                 ))}
               </div>
@@ -5333,6 +5705,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
       {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
+      <ResetTeacherPasswordModal targetProfile={resetPasswordTarget} onClose={() => setResetPasswordTarget(null)} showToast={showToast} />
     </div>
   );
 }
