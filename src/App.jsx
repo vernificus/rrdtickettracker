@@ -107,6 +107,7 @@ const handleClientApi = (endpoint, options = {}) => {
   if (endpoint === '/api/initial-data') {
     const userEmail = localStorage.getItem('user_email') || 'teacher@lcps.org';
     const profile = dbObj.users.find(u => u.email.toLowerCase() === userEmail.toLowerCase()) || dbObj.users[0];
+    const activeRole = profile.role || 'homeroom';
 
     const balances = {};
     dbObj.tickets.forEach(t => {
@@ -120,8 +121,8 @@ const handleClientApi = (endpoint, options = {}) => {
     });
 
     return {
-      role: profile.role,
-      profile,
+      role: activeRole,
+      profile: { ...profile, role: activeRole },
       profiles: dbObj.users,
       students: dbObj.students,
       tickets: dbObj.tickets,

@@ -598,9 +598,12 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       balances[s.recipient].spent += Number(s.amount || 0);
     });
 
+    const activeRole = (req.user && req.user.role) ? req.user.role : profile.role;
+    profile.role = activeRole;
+
     // Visibility rules: Specialists and Homerooms see only tickets/spending they created
     // Admins see all tickets/spending
-    if (profile.role !== 'admin') {
+    if (activeRole !== 'admin') {
       tickets = tickets.filter(t => t.teacherEmail === email);
       spending = spending.filter(s => s.teacherEmail === email);
     }
@@ -612,7 +615,7 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     });
 
     res.json({
-      role: profile.role,
+      role: activeRole,
       profile,
       profiles: sanitizedProfiles,
       students,
