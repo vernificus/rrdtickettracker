@@ -4,7 +4,7 @@ import {
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
   Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv,
   Eye, Smartphone, Contrast, ShieldCheck, Share, ZoomIn, Volume2, ArrowUpDown, Layers, Shuffle, CheckSquare, Square,
-  Upload, Key
+  Upload, Key, Menu
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : '');
@@ -823,13 +823,13 @@ export default function App() {
         ) : (
           <>
             {role === 'admin' && (
-              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} />
+              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
             )}
             {role === 'homeroom' && (
-              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} />
+              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
             )}
             {role === 'specialist' && (
-              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} />
+              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
             )}
           </>
         )}
@@ -2284,6 +2284,8 @@ function AppFooter({ onOpenAccessibility, onOpenInstall, isStandalone }) {
 
 // --- Components ---
 function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword, onOpenAccessibility, onOpenInstall, isStandalone }) {
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+
   const handleExport = () => {
     let data = profile.role === 'admin' ? tickets : tickets.filter(t => t.teacherEmail === profile.email);
     if (data.length === 0) return alert("No data to export.");
@@ -2302,23 +2304,25 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
 
   return (
     <header role="banner">
-      <nav className="bg-emerald-800 text-white shadow-lg" aria-label="Main Navigation">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/favicon.svg" alt="Rolling Ridge Elementary School Crest" className="w-9 h-9 rounded-lg shadow-sm border border-emerald-400" />
+      <nav className="bg-emerald-800 text-white shadow-lg relative" aria-label="Main Navigation">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+            <img src="/favicon.svg" alt="Rolling Ridge Elementary School Crest" className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg shadow-sm border border-emerald-400" />
             <span 
-              className="font-extrabold text-lg sm:text-xl tracking-tight cursor-pointer flex items-center gap-1.5 hover:text-amber-200 transition" 
+              className="font-extrabold text-base sm:text-xl tracking-tight cursor-pointer flex items-center gap-1 hover:text-amber-200 transition" 
               onClick={() => setActiveView('dashboard')}
               tabIndex={0}
               onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setActiveView('dashboard'); }}
               role="button"
               aria-label="Go to Dashboard"
             >
-              Rolling Ridge <span className="text-amber-300 font-black">Tickets</span>
+              <span className="hidden sm:inline">Rolling Ridge</span>
+              <span className="sm:hidden">RRD</span>
+              <span className="text-amber-300 font-black">Tickets</span>
             </span>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             <span className="hidden xl:block text-xs font-bold bg-emerald-950/70 border border-emerald-600 px-3 py-1.5 rounded-full text-emerald-100">
               {profile.name} ({profile.role})
             </span>
@@ -2327,7 +2331,7 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
               onClick={() => setActiveView('dashboard')} 
               aria-label="View Main Dashboard"
               aria-current={activeView === 'dashboard' ? 'page' : undefined}
-              className={`flex items-center gap-1.5 hover:bg-emerald-700 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] ${activeView === 'dashboard' ? 'bg-emerald-950 text-amber-300 border border-amber-300/40 shadow-inner' : ''}`}
+              className={`flex items-center gap-1 sm:gap-1.5 hover:bg-emerald-700 px-2.5 sm:px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] ${activeView === 'dashboard' ? 'bg-emerald-950 text-amber-300 border border-amber-300/40 shadow-inner' : ''}`}
             >
               Dashboard
             </button>
@@ -2336,16 +2340,27 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
               onClick={() => setActiveView('raffle')} 
               aria-label="View Weekly Raffle"
               aria-current={activeView === 'raffle' ? 'page' : undefined}
-              className={`flex items-center gap-1.5 hover:bg-emerald-700 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] ${activeView === 'raffle' ? 'bg-emerald-950 text-amber-300 border border-amber-300/40 shadow-inner' : ''}`}
+              className={`flex items-center gap-1 sm:gap-1.5 hover:bg-emerald-700 px-2.5 sm:px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] ${activeView === 'raffle' ? 'bg-emerald-950 text-amber-300 border border-amber-300/40 shadow-inner' : ''}`}
             >
-              Weekly Raffle
+              <span className="hidden sm:inline">Weekly </span>Raffle
+            </button>
+
+            {/* Role Button - accessible on all screen sizes */}
+            <button 
+              onClick={onRoleSwitch} 
+              aria-label={`Switch Role (Current role: ${profile.role})`}
+              title={`Switch Role (Current role: ${profile.role})`}
+              className="flex items-center gap-1 hover:bg-emerald-700 bg-emerald-900/60 lg:bg-transparent border border-amber-300/30 lg:border-none px-2 sm:px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] text-amber-200 lg:text-white"
+            >
+              <Settings className="w-4 h-4 text-amber-300" aria-hidden="true" />
+              <span className="hidden sm:inline">Role</span>
             </button>
 
             <button 
               onClick={onOpenAccessibility} 
               aria-label="Accessibility Settings (Section 508 and WCAG)"
               title="Accessibility Settings"
-              className="flex items-center gap-1 bg-emerald-900/60 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]"
+              className="hidden sm:flex items-center gap-1 bg-emerald-900/60 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]"
             >
               <Eye className="w-4 h-4 text-amber-300" aria-hidden="true" />
               <span className="hidden lg:inline">Accessibility</span>
@@ -2356,30 +2371,109 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
                 onClick={onOpenInstall} 
                 aria-label="Install RRD Ticket Tracker App on iPad, iPhone or Android"
                 title="Install App"
-                className="flex items-center gap-1 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black px-2.5 py-2 rounded-xl transition text-xs sm:text-sm shadow-md min-h-[44px]"
+                className="hidden md:flex items-center gap-1 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black px-2.5 py-2 rounded-xl transition text-xs sm:text-sm shadow-md min-h-[44px]"
               >
                 <Smartphone className="w-4 h-4" aria-hidden="true" />
-                <span className="hidden md:inline">Install App</span>
+                <span className="hidden lg:inline">Install App</span>
               </button>
             )}
 
-            <button onClick={onHelp} aria-label="Open Help" className="hidden md:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
-              <HelpCircle className="w-4 h-4" aria-hidden="true" /> <span className="hidden lg:inline">Help</span>
+            <button onClick={onHelp} aria-label="Open Help" className="hidden lg:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
+              <HelpCircle className="w-4 h-4" aria-hidden="true" /> <span className="hidden xl:inline">Help</span>
             </button>
 
-            <button onClick={onRoleSwitch} aria-label="Switch Role" className="hidden lg:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
-              <Settings className="w-4 h-4" aria-hidden="true" /> <span className="hidden lg:inline">Role</span>
+            <button onClick={handleExport} aria-label="Export Ticket Data as CSV" className="hidden lg:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
+              <Download className="w-4 h-4" aria-hidden="true" /> <span className="hidden xl:inline">Export</span>
             </button>
 
-            <button onClick={handleExport} aria-label="Export Ticket Data as CSV" className="hidden sm:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
-              <Download className="w-4 h-4" aria-hidden="true" /> <span className="hidden lg:inline">Export</span>
+            <button onClick={onSignOut} aria-label="Sign Out" className="hidden sm:flex items-center gap-1 bg-emerald-900 hover:bg-emerald-950 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
+              <LogOut className="w-4 h-4" aria-hidden="true" /> <span className="hidden md:inline">Sign Out</span>
             </button>
 
-            <button onClick={onSignOut} aria-label="Sign Out" className="flex items-center gap-1 bg-emerald-900 hover:bg-emerald-950 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
-              <LogOut className="w-4 h-4" aria-hidden="true" /> <span className="hidden sm:inline">Sign Out</span>
+            {/* Mobile Menu Toggle */}
+            <button
+              onClick={() => setShowMobileMenu(prev => !prev)}
+              aria-label={showMobileMenu ? "Close navigation menu" : "Open navigation menu"}
+              aria-expanded={showMobileMenu}
+              className="flex items-center justify-center p-2 rounded-xl text-white hover:bg-emerald-700 transition min-h-[44px] min-w-[44px] lg:hidden"
+            >
+              {showMobileMenu ? <X className="w-5 h-5 text-amber-300" /> : <Menu className="w-5 h-5 text-amber-300" />}
             </button>
           </div>
         </div>
+
+        {/* Mobile Dropdown Drawer */}
+        {showMobileMenu && (
+          <div className="lg:hidden bg-emerald-900 border-t border-emerald-700 px-4 py-4 space-y-3 shadow-2xl animate-fade-in">
+            <div className="flex items-center justify-between bg-emerald-950/80 p-3 rounded-xl border border-emerald-700/70">
+              <div>
+                <div className="text-[11px] font-semibold text-emerald-300 uppercase tracking-wider">Signed in as</div>
+                <div className="text-sm font-black text-white">{profile.name}</div>
+                {profile.grade && <div className="text-xs text-emerald-300 font-medium">{profile.grade}</div>}
+              </div>
+              <button
+                onClick={() => { setShowMobileMenu(false); onRoleSwitch(); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-400 text-emerald-950 hover:bg-amber-300 rounded-lg text-xs font-black capitalize shadow-sm transition min-h-[36px]"
+                aria-label={`Change Role (Current: ${profile.role})`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>{profile.role}</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { setShowMobileMenu(false); onRoleSwitch(); }}
+                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+              >
+                <Settings className="w-4 h-4 text-amber-300" />
+                <span>Switch Role</span>
+              </button>
+
+              <button
+                onClick={() => { setShowMobileMenu(false); onHelp(); }}
+                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+              >
+                <HelpCircle className="w-4 h-4 text-emerald-300" />
+                <span>Help Guide</span>
+              </button>
+
+              <button
+                onClick={() => { setShowMobileMenu(false); handleExport(); }}
+                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+              >
+                <Download className="w-4 h-4 text-emerald-300" />
+                <span>Export CSV</span>
+              </button>
+
+              <button
+                onClick={() => { setShowMobileMenu(false); onOpenAccessibility(); }}
+                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+              >
+                <Eye className="w-4 h-4 text-amber-300" />
+                <span>Accessibility</span>
+              </button>
+
+              {!isStandalone && (
+                <button
+                  onClick={() => { setShowMobileMenu(false); onOpenInstall(); }}
+                  className="flex items-center justify-center gap-2 bg-amber-400 hover:bg-amber-300 text-emerald-950 p-2.5 rounded-xl font-black text-xs transition min-h-[44px] col-span-2 shadow-sm"
+                >
+                  <Smartphone className="w-4 h-4" />
+                  <span>Install App on Device</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => { setShowMobileMenu(false); onSignOut(); }}
+                className="flex items-center justify-center gap-2 bg-red-950/70 hover:bg-red-900 text-red-100 border border-red-800/50 p-2.5 rounded-xl font-bold text-xs transition min-h-[44px] col-span-2"
+              >
+                <LogOut className="w-4 h-4" />
+                <span>Sign Out</span>
+              </button>
+            </div>
+          </div>
+        )}
       </nav>
     </header>
   );
@@ -3555,7 +3649,7 @@ function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [] }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch }) {
   const [modalData, setModalData] = useState(null);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [awardDate, setAwardDate] = useState('today'); // 'today', 'yesterday', 'other'
@@ -3922,6 +4016,27 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 
   return (
     <div className="space-y-6">
+      {/* Mobile Profile & Role Switch Banner */}
+      <div className="sm:hidden flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-gray-150 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs font-bold text-navy-950">{profile.name}</span>
+          <span className="text-xxs font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-800 text-amber-300">
+            {profile.role}
+          </span>
+        </div>
+        {onRoleSwitch && (
+          <button 
+            type="button"
+            onClick={onRoleSwitch}
+            className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline flex items-center gap-1 min-h-[36px]"
+          >
+            <Settings className="w-3.5 h-3.5 text-amber-500" />
+            Switch Role
+          </button>
+        )}
+      </div>
+
       {/* Metrics & Mode Controls Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-2xl border border-gray-100 shadow-sm">
         {/* Award Date Group */}
@@ -4315,7 +4430,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
   const [spendData, setSpendData] = useState(null);
@@ -4451,6 +4566,27 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 
   return (
     <div className="space-y-6">
+      {/* Mobile Profile & Role Switch Banner */}
+      <div className="sm:hidden flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-gray-150 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs font-bold text-navy-950">{profile.name}</span>
+          <span className="text-xxs font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-800 text-amber-300">
+            {profile.role}
+          </span>
+        </div>
+        {onRoleSwitch && (
+          <button 
+            type="button"
+            onClick={onRoleSwitch}
+            className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline flex items-center gap-1 min-h-[36px]"
+          >
+            <Settings className="w-3.5 h-3.5 text-amber-500" />
+            Switch Role
+          </button>
+        )}
+      </div>
+
       {!selectedClass ? (
         <>
           <div className="mb-6">
@@ -4657,7 +4793,7 @@ function ResetTeacherPasswordModal({ targetProfile, onClose, showToast }) {
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -5041,6 +5177,27 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
   return (
     <div className="space-y-6">
+      {/* Mobile Profile & Role Switch Banner */}
+      <div className="sm:hidden flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-gray-150 shadow-xs">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+          <span className="text-xs font-bold text-navy-950">{profile.name}</span>
+          <span className="text-xxs font-extrabold uppercase px-2 py-0.5 rounded-full bg-emerald-800 text-amber-300">
+            {profile.role}
+          </span>
+        </div>
+        {onRoleSwitch && (
+          <button 
+            type="button"
+            onClick={onRoleSwitch}
+            className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline flex items-center gap-1 min-h-[36px]"
+          >
+            <Settings className="w-3.5 h-3.5 text-amber-500" />
+            Switch Role
+          </button>
+        )}
+      </div>
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b pb-4">
         <h1 className="text-3xl font-bold text-gray-900">Admin Controls</h1>
         <div className="flex flex-wrap bg-gray-200 p-1 rounded-lg gap-0.5">
