@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "start": "node server.cjs"
+    "start": "node server.cjs",
+    "deploy": "gcloud run deploy ticket-tracker --source . --region us-east1 --project ticket-tracker-500200 --quiet",
+    "deploy:firebase": "firebase deploy --only hosting:rrdtickettracker"
   },
   "dependencies": {
     "cookie-parser": "^1.4.7",
