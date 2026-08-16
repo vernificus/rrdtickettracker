@@ -1934,18 +1934,18 @@ function ChangePasswordModal({ onClose, showToast }) {
           <h3 className="font-display font-black text-navy-955 text-base">Reset Account Password</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-705"><X className="w-5 h-5" /></button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
+        <form onSubmit={handleSubmit} className="space-y-3" autoComplete="on">
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Current Password</label>
-            <input type="password" required value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+            <input type="password" name="current-password" autoComplete="current-password" required value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">New Password</label>
-            <input type="password" required value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+            <input type="password" name="new-password" autoComplete="new-password" required value={newPassword} onChange={e => setNewPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
           </div>
           <div>
             <label className="block text-xs font-bold text-gray-500 mb-1">Confirm New Password</label>
-            <input type="password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+            <input type="password" name="confirm-new-password" autoComplete="new-password" required value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
           </div>
           <div className="flex gap-2 justify-end pt-2">
             <button type="button" onClick={onClose} className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white">Cancel</button>
@@ -2613,12 +2613,14 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
         )}
 
         {activeTab === 'student' ? (
-          <form className="mt-4 space-y-4" onSubmit={handleStudentSubmit}>
+          <form key="student-portal-form" className="mt-4 space-y-4" onSubmit={handleStudentSubmit} autoComplete="on">
             <div>
               <label htmlFor="student-id" className="block text-xs font-bold text-gray-700 mb-1">Student ID Number</label>
               <input
                 id="student-id"
+                name="username"
                 type="text"
+                autoComplete="username"
                 inputMode="numeric"
                 required
                 value={studentId}
@@ -2631,7 +2633,9 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
               <label htmlFor="student-pin" className="block text-xs font-bold text-gray-700 mb-1">4-Digit PIN</label>
               <input
                 id="student-pin"
+                name="current-password"
                 type="password"
+                autoComplete="current-password"
                 maxLength={4}
                 required
                 value={pinCode}
@@ -2649,14 +2653,16 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
             </button>
           </form>
         ) : (
-          <form className="mt-4 space-y-4" onSubmit={handleTeacherSubmit}>
+          <form key={isRegistering ? "teacher-register-form" : "teacher-login-form"} className="mt-4 space-y-4" onSubmit={handleTeacherSubmit} autoComplete="on">
             {isRegistering && (
               <>
                 <div>
                   <label htmlFor="teacher-name" className="block text-xs font-bold text-gray-700 mb-1">Last Name</label>
                   <input
                     id="teacher-name"
+                    name="name"
                     type="text"
+                    autoComplete="name"
                     required
                     value={name}
                     onChange={e => setName(e.target.value)}
@@ -2668,6 +2674,7 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
                   <label htmlFor="teacher-role" className="block text-xs font-bold text-gray-700 mb-1">Role</label>
                   <select
                     id="teacher-role"
+                    name="role"
                     value={role}
                     onChange={e => setRole(e.target.value)}
                     className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition bg-white text-sm font-semibold min-h-[44px]"
@@ -2682,7 +2689,9 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
                     <label htmlFor="admin-password" className="block text-xs font-bold text-gray-700 mb-1">Admin Password</label>
                     <input
                       id="admin-password"
+                      name="admin-password"
                       type="password"
+                      autoComplete="new-password"
                       required
                       value={adminPassword}
                       onChange={e => setAdminPassword(e.target.value)}
@@ -2697,7 +2706,9 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
               <label htmlFor="teacher-email" className="block text-xs font-bold text-gray-700 mb-1">School Email Address</label>
               <input
                 id="teacher-email"
+                name="username"
                 type="email"
+                autoComplete="username email"
                 required
                 value={email}
                 onChange={e => setEmail(e.target.value)}
@@ -2709,7 +2720,9 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
               <label htmlFor="teacher-password" className="block text-xs font-bold text-gray-700 mb-1">Password</label>
               <input
                 id="teacher-password"
+                name="password"
                 type="password"
+                autoComplete={isRegistering ? "new-password" : "current-password"}
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
