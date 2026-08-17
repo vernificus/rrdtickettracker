@@ -187,8 +187,132 @@ const handleClientApi = (endpoint, options = {}) => {
     return { id: newSp.id };
   }
 
+  if (endpoint === '/api/roster/upload' && options.method === 'POST') {
+    const parsedRows = body.students || [];
+    const existingMap = new Map();
+    const allIds = new Set();
+    (dbObj.students || []).forEach(s => {
+      const norm = (s.name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+      if (norm && !existingMap.has(norm)) {
+        existingMap.set(norm, { ...s });
+      }
+      if (s.id) allIds.add(String(s.id).trim());
+    });
+
+    let currentId = 1001;
+    const generateNumericId = () => {
+      while (allIds.has(String(currentId))) currentId++;
+      const idStr = String(currentId);
+      allIds.add(idStr);
+      return idStr;
+    };
+
+    let createdCount = 0;
+    let updatedCount = 0;
+    let movedCount = 0;
+    const processedInThisImport = new Set();
+
+    for (const raw of parsedRows) {
+      const cleanName = (raw.name || '').trim().replace(/\s+/g, ' ');
+      const cleanHomeroom = (raw.homeroom || '').trim();
+      const cleanGrade = (raw.grade || 'N/A').trim();
+      const norm = cleanName.toLowerCase();
+      if (!norm || !cleanHomeroom) continue;
+
+      if (existingMap.has(norm)) {
+        const rec = existingMap.get(norm);
+        const homeroomChanged = rec.homeroom !== cleanHomeroom;
+        const gradeChanged = rec.grade !== cleanGrade;
+        if (homeroomChanged || gradeChanged) {
+          if (homeroomChanged) movedCount++;
+          rec.homeroom = cleanHomeroom;
+          rec.grade = cleanGrade;
+          if (!processedInThisImport.has(norm)) {
+            updatedCount++;
+          }
+        }
+        rec.name = cleanName;
+        processedInThisImport.add(norm);
+      } else {
+        const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
+        const newStudent = {
+          id: generateNumericId(),
+          name: cleanName,
+          homeroom: cleanHomeroom,
+          grade: cleanGrade,
+          pinCode
+        };
+        existingMap.set(norm, newStudent);
+        processedInThisImport.add(norm);
+        createdCount++;
+      }
+    }
+
+    dbObj.students = Array.from(existingMap.values());
+    saveClientDb(dbObj);
+    return {
+      success: true,
+      createdCount,
+      updatedCount,
+      movedCount,
+      totalRosterCount: dbObj.students.length,
+      students: dbObj.students
+    };
+  }
+
+  if (endpoint === '/api/roster/clear' && options.method === 'POST') {
+    dbObj.students = [];
+    saveClientDb(dbObj);
+    return { success: true };
+  }
+
+  if (endpoint === '/api/roster/merge' && options.method === 'POST') {
+    const { sourceName, targetName } = body;
+    const sourceStudent = dbObj.students.find(s => s.name === sourceName);
+    const targetStudent = dbObj.students.find(s => s.name === targetName);
+    if (!sourceStudent || !targetStudent) {
+      throw new Error("Student not found for merge");
+    }
+    // Reassign tickets
+    dbObj.tickets.forEach(t => {
+      if (t.recipient === sourceName) t.recipient = targetName;
+    });
+    // Reassign spending
+    dbObj.spending.forEach(s => {
+      if (s.recipient === sourceName) s.recipient = targetName;
+    });
+    // Remove source student
+    dbObj.students = dbObj.students.filter(s => s.name !== sourceName);
+    saveClientDb(dbObj);
+    return { success: true };
+  }
+
   if (endpoint === '/api/students' && options.method === 'POST') {
-    const newStudent = { id: (dbObj.students.length + 1001).toString(), name: body.name, homeroom: body.homeroom, grade: body.grade || '3rd Grade', pinCode: '1234' };
+    const cleanName = (body.name || '').trim().replace(/\s+/g, ' ');
+    const cleanHomeroom = (body.homeroom || '').trim();
+    const cleanGrade = (body.grade || '3rd Grade').trim();
+    const norm = cleanName.toLowerCase();
+
+    const existing = dbObj.students.find(s => (s.name || '').trim().replace(/\s+/g, ' ').toLowerCase() === norm);
+    if (existing) {
+      existing.homeroom = cleanHomeroom;
+      existing.grade = cleanGrade;
+      existing.name = cleanName;
+      saveClientDb(dbObj);
+      return existing;
+    }
+
+    const allIds = new Set(dbObj.students.map(s => String(s.id).trim()));
+    let numId = 1001;
+    while (allIds.has(String(numId))) numId++;
+
+    const newStudent = {
+      id: String(numId),
+      name: cleanName,
+      homeroom: cleanHomeroom,
+      grade: cleanGrade,
+      pinCode: '1234'
+    };
     dbObj.students.push(newStudent);
     saveClientDb(dbObj);
     return newStudent;
@@ -5091,7 +5215,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
         break;
       }
       
-      parsedStudents.push({ name, homeroom, grade: grade || 'N/A' });
+      const cleanName = name.trim().replace(/\s+/g, ' ');
+      parsedStudents.push({ name: cleanName, homeroom, grade: grade || 'N/A' });
     }
 
     if (hasError || parsedStudents.length === 0) {
@@ -5100,18 +5225,23 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     }
 
     try {
-      const batch = writeBatch(db);
-      parsedStudents.forEach(s => {
-        const ref = doc(collection(db, 'students'));
-        batch.set(ref, s);
+      const res = await api.fetch('/api/roster/upload', {
+        method: 'POST',
+        body: JSON.stringify({ students: parsedStudents })
       });
-      await batch.commit();
       setCsvText('');
-      showToast(`Successfully imported ${parsedStudents.length} students!`);
+      const created = res?.createdCount ?? parsedStudents.length;
+      const updated = res?.updatedCount ?? 0;
+      const moved = res?.movedCount ?? 0;
+      if (updated > 0 || moved > 0) {
+        showToast(`Roster sync: ${created} new student${created !== 1 ? 's' : ''} added, ${updated} existing updated (${moved} moved to new class/grade). No duplicate accounts created!`);
+      } else {
+        showToast(`Successfully imported ${created} student${created !== 1 ? 's' : ''}!`);
+      }
       if (window.triggerRefresh) window.triggerRefresh();
     } catch (e) {
       console.error(e);
-      showToast("Error processing CSV.");
+      showToast(e.message || "Error processing CSV.");
     }
     setIsProcessing(false);
   };

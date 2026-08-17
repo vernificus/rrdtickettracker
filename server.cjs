@@ -348,6 +348,60 @@ class GoogleSheetsDb {
       console.error(`Error deleting row ${rowNum} in sheet ${sheetName}:`, e.message);
       throw e;
     }
+  async clearSheet(sheetName) {
+    if (this.useFallback) {
+      this.fallbackDb[sheetName] = [];
+      this.saveFallback();
+      return;
+    }
+    try {
+      await this.sheets.spreadsheets.values.clear({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A2:Z`
+      });
+    } catch (e) {
+      console.error(`Error clearing sheet ${sheetName}:`, e.message);
+      throw e;
+    }
+  }
+
+  async setAllRows(sheetName, headers, rowObjects) {
+    if (this.useFallback) {
+      const copy = rowObjects.map((rowObj, idx) => ({
+        ...rowObj,
+        _rowNum: idx + 2
+      }));
+      this.fallbackDb[sheetName] = copy;
+      this.saveFallback();
+      return;
+    }
+    try {
+      const allValues = rowObjects.map(rowObj => {
+        return headers.map(h => {
+          const key = h.charAt(0).toLowerCase() + h.slice(1);
+          return rowObj[key] !== undefined ? rowObj[key] : '';
+        });
+      });
+
+      // Clear existing data rows starting from row 2
+      await this.sheets.spreadsheets.values.clear({
+        spreadsheetId: this.spreadsheetId,
+        range: `${sheetName}!A2:Z`
+      });
+
+      // If there are rows to write, write them starting at A2
+      if (allValues.length > 0) {
+        await this.sheets.spreadsheets.values.update({
+          spreadsheetId: this.spreadsheetId,
+          range: `${sheetName}!A2`,
+          valueInputOption: 'USER_ENTERED',
+          resource: { values: allValues }
+        });
+      }
+    } catch (e) {
+      console.error(`Error setting all rows in sheet ${sheetName}:`, e.message);
+      throw e;
+    }
   }
 }
 
@@ -1026,59 +1080,95 @@ app.post('/api/roster/upload', authMiddleware, async (req, res) => {
       }
     }
 
-    const uploaded = [];
     const studentsSheet = await db.getRows('Students');
+    const normalizeName = (name) => (name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+    // Map existing students by normalized name (deduplicating any pre-existing duplicates in DB)
+    const existingStudentsMap = new Map();
+    const allStudentsMap = new Map();
+    const usedIds = new Set();
+
+    for (const s of studentsSheet) {
+      if (s.id) usedIds.add(String(s.id).trim());
+      const norm = normalizeName(s.name);
+      if (norm && !allStudentsMap.has(norm)) {
+        allStudentsMap.set(norm, { ...s });
+        existingStudentsMap.set(norm, { ...s });
+      }
+    }
 
     // Helper: generate next available short numeric student ID (e.g. 1001, 1002...)
+    let currentIdCounter = 1001;
     const generateNumericId = () => {
-      const allIds = new Set([
-        ...studentsSheet.map(x => x.id),
-        ...uploaded.map(x => x.id)
-      ]);
-      let num = 1001;
-      while (allIds.has(String(num))) num++;
-      return String(num);
+      while (usedIds.has(String(currentIdCounter))) {
+        currentIdCounter++;
+      }
+      const idStr = String(currentIdCounter);
+      usedIds.add(idStr);
+      return idStr;
     };
 
-    for (const s of parsedRows) {
-      const name = s.name;
-      const homeroom = s.homeroom;
-      const grade = s.grade || 'N/A';
+    let createdCount = 0;
+    let updatedCount = 0;
+    let movedCount = 0;
+    const processedInThisImport = new Set();
 
-      // Check if student with same name already exists (case-insensitive, whitespace-trimmed)
-      const existing = studentsSheet.find(x => x.name && x.name.trim().toLowerCase() === name.trim().toLowerCase());
+    for (const raw of parsedRows) {
+      const cleanName = (raw.name || '').trim().replace(/\s+/g, ' ');
+      const cleanHomeroom = (raw.homeroom || '').trim();
+      const cleanGrade = (raw.grade || 'N/A').trim();
+      const norm = normalizeName(cleanName);
 
-      if (existing) {
-        // Update homeroom and grade if different, preserving existing id and pinCode
-        if (existing.homeroom !== homeroom || existing.grade !== grade) {
-          existing.homeroom = homeroom;
-          existing.grade = grade;
-          await db.updateRow('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], existing._rowNum, existing);
+      if (!norm || !cleanHomeroom) continue;
+
+      if (allStudentsMap.has(norm)) {
+        // Student already exists (either in DB or encountered earlier in this import)
+        const existingRec = allStudentsMap.get(norm);
+        const wasInDb = existingStudentsMap.has(norm);
+        const homeroomChanged = existingRec.homeroom !== cleanHomeroom;
+        const gradeChanged = existingRec.grade !== cleanGrade;
+
+        if (homeroomChanged || gradeChanged) {
+          if (homeroomChanged) movedCount++;
+          existingRec.homeroom = cleanHomeroom;
+          existingRec.grade = cleanGrade;
+          if (wasInDb && !processedInThisImport.has(norm)) {
+            updatedCount++;
+          }
         }
-        uploaded.push(existing);
+        existingRec.name = cleanName; // Ensure clean casing
+        processedInThisImport.add(norm);
       } else {
+        // Genuinely new student account
         const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
         const studentId = generateNumericId();
 
         const newStudent = {
           id: studentId,
-          name,
-          homeroom,
-          grade,
+          name: cleanName,
+          homeroom: cleanHomeroom,
+          grade: cleanGrade,
           pinCode
         };
 
-        uploaded.push(newStudent);
+        allStudentsMap.set(norm, newStudent);
+        processedInThisImport.add(norm);
+        createdCount++;
       }
     }
 
-    // Append only the newly created student rows
-    const newStudentsToAppend = uploaded.filter(x => !studentsSheet.some(s => s.id === x.id));
-    if (newStudentsToAppend.length > 0) {
-      await db.appendRows('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], newStudentsToAppend);
-    }
+    const finalStudentsList = Array.from(allStudentsMap.values());
+    await db.setAllRows('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], finalStudentsList);
 
-    res.json(uploaded);
+    res.json({
+      success: true,
+      totalRosterCount: finalStudentsList.length,
+      importedCount: processedInThisImport.size,
+      createdCount,
+      updatedCount,
+      movedCount,
+      students: finalStudentsList
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error uploading student roster' });
@@ -1095,23 +1185,34 @@ app.post('/api/students', authMiddleware, async (req, res) => {
 
   try {
     const studentsSheet = await db.getRows('Students');
-    const exists = studentsSheet.some(s => s.name.trim().toLowerCase() === name.trim().toLowerCase());
-    if (exists) {
-      return res.status(400).json({ message: `Student '${name}' already exists in the roster.` });
+    const cleanName = name.trim().replace(/\s+/g, ' ');
+    const cleanHomeroom = homeroom.trim();
+    const cleanGrade = grade.trim();
+    const norm = cleanName.toLowerCase();
+
+    const existing = studentsSheet.find(s => (s.name || '').trim().replace(/\s+/g, ' ').toLowerCase() === norm);
+    if (existing) {
+      // If student already exists, move them to the requested teacher's class/grade
+      // Do not create a new duplicate student account
+      existing.homeroom = cleanHomeroom;
+      existing.grade = cleanGrade;
+      existing.name = cleanName;
+      await db.updateRow('Students', ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'], existing._rowNum, existing);
+      return res.json(existing);
     }
 
     const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
     // Generate next available short numeric student ID (e.g. 1001, 1002...)
-    const allExistingIds = new Set(studentsSheet.map(s => s.id));
+    const allExistingIds = new Set(studentsSheet.map(s => String(s.id).trim()).filter(Boolean));
     let numId = 1001;
     while (allExistingIds.has(String(numId))) numId++;
     const studentId = String(numId);
 
     const newStudent = {
       id: studentId,
-      name: name.trim(),
-      homeroom: homeroom.trim(),
-      grade: grade.trim(),
+      name: cleanName,
+      homeroom: cleanHomeroom,
+      grade: cleanGrade,
       pinCode
     };
 
@@ -1127,10 +1228,7 @@ app.post('/api/students', authMiddleware, async (req, res) => {
 app.post('/api/roster/clear', authMiddleware, async (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required' });
   try {
-    await db.sheets.spreadsheets.values.clear({
-      spreadsheetId: db.spreadsheetId,
-      range: 'Students!A2:Z'
-    });
+    await db.clearSheet('Students');
     res.json({ success: true });
   } catch (err) {
     console.error(err);
