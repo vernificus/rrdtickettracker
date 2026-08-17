@@ -4,7 +4,7 @@ import {
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
   Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv,
   Eye, Smartphone, Contrast, ShieldCheck, Share, ZoomIn, Volume2, ArrowUpDown, Layers, Shuffle, CheckSquare, Square,
-  Upload, Key, Menu
+  Upload, Key, Menu, Printer
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : 'https://ticket-tracker-639453420405.us-east1.run.app');
