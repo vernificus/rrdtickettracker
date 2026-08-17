@@ -7,7 +7,7 @@ import {
   Upload, Key, Menu
 } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : '');
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : 'https://ticket-tracker-639453420405.us-east1.run.app');
 
 // --- Client-Side Local Storage DB Engine (Fallback when backend server is unattached) ---
 const getClientDb = () => {
@@ -4685,7 +4685,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     }
   };
 
-  const myTickets = tickets.filter(t => myUids.has(t.teacherId));
+  const myTickets = tickets.filter(t => myUids.has(t.teacherEmail) || myUids.has(t.teacherId) || myUids.has((t.teacherEmail || '').toLowerCase()));
 
   if (isDisplayMode) {
     return (
@@ -5264,17 +5264,33 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
   const teacherTicketCounts = useMemo(() => {
     const counts = {};
-    profiles.forEach(p => { counts[p.id] = 0; });
+    profiles.forEach(p => {
+      if (p.email) counts[p.email.toLowerCase()] = 0;
+      if (p.name) counts[p.name.toLowerCase()] = 0;
+      if (p.id) counts[p.id.toLowerCase()] = 0;
+    });
     tickets.forEach(t => {
-      if (counts[t.teacherId] !== undefined) counts[t.teacherId]++;
-      else counts[t.teacherId] = 1;
+      const emailKey = (t.teacherEmail || '').toLowerCase();
+      const nameKey = (t.teacherName || '').toLowerCase();
+      const idKey = (t.teacherId || '').toLowerCase();
+      if (emailKey) counts[emailKey] = (counts[emailKey] || 0) + 1;
+      if (nameKey && nameKey !== emailKey) counts[nameKey] = (counts[nameKey] || 0) + 1;
+      if (idKey && idKey !== emailKey && idKey !== nameKey) counts[idKey] = (counts[idKey] || 0) + 1;
     });
     return counts;
   }, [profiles, tickets]);
 
+  const getProfileTicketCount = (p) => {
+    if (!p) return 0;
+    const e = (p.email || '').toLowerCase();
+    const n = (p.name || '').toLowerCase();
+    const i = (p.id || '').toLowerCase();
+    return (e && teacherTicketCounts[e]) || (n && teacherTicketCounts[n]) || (i && teacherTicketCounts[i]) || 0;
+  };
+
   const unusedProfiles = useMemo(() =>
-    profiles.filter(p => p.name && !p.linkedTo && (teacherTicketCounts[p.id] || 0) === 0 && p.id !== effectiveUid),
-  [profiles, teacherTicketCounts, effectiveUid]);
+    profiles.filter(p => p.name && !p.linkedTo && getProfileTicketCount(p) === 0 && p.id !== effectiveUid && (p.email || '').toLowerCase() !== (profile?.email || '').toLowerCase()),
+  [profiles, teacherTicketCounts, effectiveUid, profile]);
 
   const handleDeleteProfile = async (profileToDelete) => {
     setIsDeletingProfile(true);
@@ -5507,7 +5523,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             </div>
             <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
               <div className="p-3 bg-blue-100 rounded-full text-blue-600"><Users className="w-7 h-7" /></div>
-              <div><div className="text-xs text-gray-500 font-medium">Active Teachers</div><div className="text-2xl font-bold">{new Set(tickets.map(t => t.teacherId)).size}</div></div>
+              <div><div className="text-xs text-gray-500 font-medium">Active Teachers</div><div className="text-2xl font-bold">{new Set(tickets.map(t => (t.teacherEmail || t.teacherName || t.teacherId || '').toLowerCase()).filter(Boolean)).size}</div></div>
             </div>
             <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
               <div className="p-3 bg-purple-100 rounded-full text-purple-600"><PieChart className="w-7 h-7" /></div>
@@ -5779,12 +5795,10 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               <div className="px-6 py-8 text-center text-gray-500">No profiles found.</div>
             )}
             {[...profiles].filter(p => p.name && !p.linkedTo).sort((a, b) => {
-              const aKey = (a.email || a.id || a.name || '').toLowerCase();
-              const bKey = (b.email || b.id || b.name || '').toLowerCase();
-              return (teacherTicketCounts[bKey] || 0) - (teacherTicketCounts[aKey] || 0);
+              return getProfileTicketCount(b) - getProfileTicketCount(a);
             }).map(p => {
+              const count = getProfileTicketCount(p);
               const key = (p.email || p.id || p.name || '').toLowerCase();
-              const count = teacherTicketCounts[key] || 0;
               const isCurrentUser = (p.email && p.email.toLowerCase() === (profile?.email || '').toLowerCase()) || p.id === effectiveUid;
               const linkedCount = profiles.filter(x => x.linkedTo && (
                 (x.linkedTo || '').toLowerCase() === (p.id || '').toLowerCase() ||
