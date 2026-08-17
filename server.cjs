@@ -348,6 +348,8 @@ class GoogleSheetsDb {
       console.error(`Error deleting row ${rowNum} in sheet ${sheetName}:`, e.message);
       throw e;
     }
+  }
+
   async clearSheet(sheetName) {
     if (this.useFallback) {
       this.fallbackDb[sheetName] = [];
