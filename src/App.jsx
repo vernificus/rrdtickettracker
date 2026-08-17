@@ -9,317 +9,14 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : 'https://ticket-tracker-639453420405.us-east1.run.app');
 
-// --- Client-Side Local Storage DB Engine (Fallback when backend server is unattached) ---
-const getClientDb = () => {
-  try {
-    const raw = localStorage.getItem('rrd_client_db');
-    if (raw) return JSON.parse(raw);
-  } catch (e) {}
-  
-  // Default Initial Client Database
-  const initialDb = {
-    users: [
-      { email: 'teacher@lcps.org', name: 'Mrs. Johnson', role: 'homeroom', grade: '3rd Grade', passwordHash: 'data4life' },
-      { email: 'specialist@lcps.org', name: 'Coach Davis', role: 'specialist', grade: '', passwordHash: 'data4life' },
-      { email: 'admin@lcps.org', name: 'Principal Smith', role: 'admin', grade: '', passwordHash: 'data4life' }
-    ],
-    students: [
-      { id: '1001', name: 'Alex Adams', homeroom: 'Mrs. Johnson', grade: '3rd Grade', pinCode: '1234' },
-      { id: '1002', name: 'Bella Baker', homeroom: 'Mrs. Johnson', grade: '3rd Grade', pinCode: '1234' },
-      { id: '1003', name: 'Charlie Clark', homeroom: 'Mrs. Johnson', grade: '3rd Grade', pinCode: '1234' },
-      { id: '1004', name: 'Daisy Miller', homeroom: 'Mrs. Johnson', grade: '3rd Grade', pinCode: '1234' },
-      { id: '1005', name: 'Ethan Evans', homeroom: 'Mrs. Johnson', grade: '3rd Grade', pinCode: '1234' },
-      { id: '1006', name: 'Fiona Foster', homeroom: 'Mrs. Johnson', grade: '3rd Grade', pinCode: '1234' }
-    ],
-    tickets: [
-      { id: 't1', teacherEmail: 'teacher@lcps.org', teacherName: 'Mrs. Johnson', recipient: 'Alex Adams', recipientType: 'student', reason: 'Respectful', timestamp: new Date().toISOString() },
-      { id: 't2', teacherEmail: 'teacher@lcps.org', teacherName: 'Mrs. Johnson', recipient: 'Bella Baker', recipientType: 'student', reason: 'Responsible', timestamp: new Date().toISOString() }
-    ],
-    goldenTickets: [],
-    spending: [],
-    classGoals: [{ className: 'Mrs. Johnson', goalTickets: 50, rewardText: 'Pajama Party' }],
-    gradeGoals: [{ grade: '3rd Grade', goalGolden: 10, rewardText: 'Ice Cream Party' }]
-  };
-  localStorage.setItem('rrd_client_db', JSON.stringify(initialDb));
-  return initialDb;
-};
-
-const saveClientDb = (dbObj) => {
-  localStorage.setItem('rrd_client_db', JSON.stringify(dbObj));
-};
-
-const handleClientApi = (endpoint, options = {}) => {
-  const body = options.body ? JSON.parse(options.body) : {};
-  const dbObj = getClientDb();
-
-  if (endpoint === '/api/auth/teacher') {
-    const user = dbObj.users.find(u => u.email.toLowerCase() === (body.email || '').toLowerCase());
-    if (!user) {
-      // Auto-register teacher if new in client mode for smooth user experience
-      const newUser = { email: body.email, name: body.name || body.email.split('@')[0], role: 'homeroom', grade: '3rd Grade', passwordHash: body.password || 'data4life' };
-      dbObj.users.push(newUser);
-      saveClientDb(dbObj);
-      if (body.email) localStorage.setItem('user_email', body.email);
-      return { token: 'client-token-' + Date.now(), profile: newUser };
-    }
-    if (body.email) localStorage.setItem('user_email', body.email);
-    return { token: 'client-token-' + Date.now(), profile: user };
+// Clean up any stale legacy mock tokens or client db from localStorage
+try {
+  const currentToken = localStorage.getItem('token');
+  if (currentToken && currentToken.startsWith('client-token-')) {
+    localStorage.removeItem('token');
   }
-
-  if (endpoint === '/api/auth/teacher/register') {
-    const newUser = { email: body.email, name: body.name, role: body.role || 'homeroom', grade: '3rd Grade', passwordHash: body.password };
-    dbObj.users.push(newUser);
-    saveClientDb(dbObj);
-    if (body.email) localStorage.setItem('user_email', body.email);
-    return { token: 'client-token-' + Date.now(), profile: newUser };
-  }
-
-  if (endpoint === '/api/auth/change-role') {
-    const userEmail = body.email || localStorage.getItem('user_email') || 'teacher@lcps.org';
-    let user = dbObj.users.find(u => u.email.toLowerCase() === userEmail.toLowerCase());
-
-    if (body.newRole === 'admin' && body.adminPassword !== 'data4life') {
-      throw new Error('Invalid admin password.');
-    }
-
-    if (!user) {
-      user = { email: userEmail, name: userEmail.split('@')[0], role: body.newRole || 'admin', grade: '3rd Grade', passwordHash: 'data4life' };
-      dbObj.users.push(user);
-    } else {
-      user.role = body.newRole;
-    }
-    saveClientDb(dbObj);
-    localStorage.setItem('user_email', user.email);
-
-    const updatedToken = 'client-token-' + Date.now();
-    return { token: updatedToken, profile: { ...user } };
-  }
-
-  if (endpoint === '/api/auth/student') {
-    const student = dbObj.students.find(s => s.id.toUpperCase() === (body.studentId || '').trim().toUpperCase());
-    if (!student) {
-      // Fallback student profile if non-existent in client mode
-      const fallbackStudent = { id: body.studentId || '1001', name: `Student ${body.studentId || '1001'}`, homeroom: 'Mrs. Johnson', grade: '3rd Grade', pinCode: body.pinCode || '1234' };
-      return { token: 'client-token-' + Date.now(), profile: fallbackStudent };
-    }
-    return { token: 'client-token-' + Date.now(), profile: student };
-  }
-
-  if (endpoint === '/api/initial-data') {
-    const userEmail = localStorage.getItem('user_email') || 'teacher@lcps.org';
-    const profile = dbObj.users.find(u => u.email.toLowerCase() === userEmail.toLowerCase()) || dbObj.users[0];
-    const activeRole = profile.role || 'homeroom';
-
-    const balances = {};
-    dbObj.tickets.forEach(t => {
-      if (!balances[t.recipient]) balances[t.recipient] = { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
-      balances[t.recipient].earned++;
-      if (t.reason && balances[t.recipient][t.reason] !== undefined) balances[t.recipient][t.reason]++;
-    });
-    dbObj.spending.forEach(s => {
-      if (!balances[s.recipient]) balances[s.recipient] = { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
-      balances[s.recipient].spent += Number(s.amount || 0);
-    });
-
-    return {
-      role: activeRole,
-      profile: { ...profile, role: activeRole },
-      profiles: dbObj.users,
-      students: dbObj.students,
-      tickets: dbObj.tickets,
-      goldenTickets: dbObj.goldenTickets,
-      spending: dbObj.spending,
-      classGoals: dbObj.classGoals,
-      gradeGoals: dbObj.gradeGoals,
-      balances
-    };
-  }
-
-  if (endpoint === '/api/teachers/share-class') {
-    const userEmail = body.targetEmail || localStorage.getItem('user_email') || 'teacher@lcps.org';
-    let user = dbObj.users.find(u => u.email.toLowerCase() === userEmail.toLowerCase());
-    if (!user) {
-      user = { email: userEmail, name: userEmail.split('@')[0], role: 'homeroom', grade: '3rd Grade', coTaughtHomerooms: [] };
-      dbObj.users.push(user);
-    }
-    let list = Array.isArray(user.coTaughtHomerooms) ? user.coTaughtHomerooms : [];
-    if (body.action === 'remove') {
-      list = list.filter(h => h.toLowerCase() !== body.homeroomName.toLowerCase());
-    } else {
-      if (!list.some(h => h.toLowerCase() === body.homeroomName.toLowerCase())) {
-        list.push(body.homeroomName);
-      }
-    }
-    user.coTaughtHomerooms = list;
-    saveClientDb(dbObj);
-    return { success: true, coTaughtHomerooms: list };
-  }
-
-  if (endpoint === '/api/admin/reset-teacher-password') {
-    const targetEmail = body.targetEmail;
-    const user = dbObj.users.find(u => u.email.toLowerCase() === (targetEmail || '').toLowerCase());
-    if (!user) {
-      return { success: false, message: 'Teacher profile not found.' };
-    }
-    user.passwordHash = body.newPassword;
-    saveClientDb(dbObj);
-    return { success: true, message: `Password for ${user.name || user.email} updated successfully.` };
-  }
-
-  if (endpoint === '/api/tickets' && options.method === 'POST') {
-    const newTicket = { id: 't-' + Date.now() + Math.random(), ...body, timestamp: new Date().toISOString() };
-    dbObj.tickets.push(newTicket);
-    saveClientDb(dbObj);
-    return { id: newTicket.id };
-  }
-
-  if (endpoint === '/api/golden-tickets' && options.method === 'POST') {
-    const newGt = { id: 'gt-' + Date.now(), ...body, timestamp: new Date().toISOString() };
-    dbObj.goldenTickets.push(newGt);
-    saveClientDb(dbObj);
-    return { id: newGt.id };
-  }
-
-  if (endpoint === '/api/spending' && options.method === 'POST') {
-    const newSp = { id: 'sp-' + Date.now(), ...body, timestamp: new Date().toISOString() };
-    dbObj.spending.push(newSp);
-    saveClientDb(dbObj);
-    return { id: newSp.id };
-  }
-
-  if (endpoint === '/api/roster/upload' && options.method === 'POST') {
-    const parsedRows = body.students || [];
-    const existingMap = new Map();
-    const allIds = new Set();
-    (dbObj.students || []).forEach(s => {
-      const norm = (s.name || '').trim().replace(/\s+/g, ' ').toLowerCase();
-      if (norm && !existingMap.has(norm)) {
-        existingMap.set(norm, { ...s });
-      }
-      if (s.id) allIds.add(String(s.id).trim());
-    });
-
-    let currentId = 1001;
-    const generateNumericId = () => {
-      while (allIds.has(String(currentId))) currentId++;
-      const idStr = String(currentId);
-      allIds.add(idStr);
-      return idStr;
-    };
-
-    let createdCount = 0;
-    let updatedCount = 0;
-    let movedCount = 0;
-    const processedInThisImport = new Set();
-
-    for (const raw of parsedRows) {
-      const cleanName = (raw.name || '').trim().replace(/\s+/g, ' ');
-      const cleanHomeroom = (raw.homeroom || '').trim();
-      const cleanGrade = (raw.grade || 'N/A').trim();
-      const norm = cleanName.toLowerCase();
-      if (!norm || !cleanHomeroom) continue;
-
-      if (existingMap.has(norm)) {
-        const rec = existingMap.get(norm);
-        const homeroomChanged = rec.homeroom !== cleanHomeroom;
-        const gradeChanged = rec.grade !== cleanGrade;
-        if (homeroomChanged || gradeChanged) {
-          if (homeroomChanged) movedCount++;
-          rec.homeroom = cleanHomeroom;
-          rec.grade = cleanGrade;
-          if (!processedInThisImport.has(norm)) {
-            updatedCount++;
-          }
-        }
-        rec.name = cleanName;
-        processedInThisImport.add(norm);
-      } else {
-        const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
-        const newStudent = {
-          id: generateNumericId(),
-          name: cleanName,
-          homeroom: cleanHomeroom,
-          grade: cleanGrade,
-          pinCode
-        };
-        existingMap.set(norm, newStudent);
-        processedInThisImport.add(norm);
-        createdCount++;
-      }
-    }
-
-    dbObj.students = Array.from(existingMap.values());
-    saveClientDb(dbObj);
-    return {
-      success: true,
-      createdCount,
-      updatedCount,
-      movedCount,
-      totalRosterCount: dbObj.students.length,
-      students: dbObj.students
-    };
-  }
-
-  if (endpoint === '/api/roster/clear' && options.method === 'POST') {
-    dbObj.students = [];
-    saveClientDb(dbObj);
-    return { success: true };
-  }
-
-  if (endpoint === '/api/roster/merge' && options.method === 'POST') {
-    const { sourceName, targetName } = body;
-    const sourceStudent = dbObj.students.find(s => s.name === sourceName);
-    const targetStudent = dbObj.students.find(s => s.name === targetName);
-    if (!sourceStudent || !targetStudent) {
-      throw new Error("Student not found for merge");
-    }
-    // Reassign tickets
-    dbObj.tickets.forEach(t => {
-      if (t.recipient === sourceName) t.recipient = targetName;
-    });
-    // Reassign spending
-    dbObj.spending.forEach(s => {
-      if (s.recipient === sourceName) s.recipient = targetName;
-    });
-    // Remove source student
-    dbObj.students = dbObj.students.filter(s => s.name !== sourceName);
-    saveClientDb(dbObj);
-    return { success: true };
-  }
-
-  if (endpoint === '/api/students' && options.method === 'POST') {
-    const cleanName = (body.name || '').trim().replace(/\s+/g, ' ');
-    const cleanHomeroom = (body.homeroom || '').trim();
-    const cleanGrade = (body.grade || '3rd Grade').trim();
-    const norm = cleanName.toLowerCase();
-
-    const existing = dbObj.students.find(s => (s.name || '').trim().replace(/\s+/g, ' ').toLowerCase() === norm);
-    if (existing) {
-      existing.homeroom = cleanHomeroom;
-      existing.grade = cleanGrade;
-      existing.name = cleanName;
-      saveClientDb(dbObj);
-      return existing;
-    }
-
-    const allIds = new Set(dbObj.students.map(s => String(s.id).trim()));
-    let numId = 1001;
-    while (allIds.has(String(numId))) numId++;
-
-    const newStudent = {
-      id: String(numId),
-      name: cleanName,
-      homeroom: cleanHomeroom,
-      grade: cleanGrade,
-      pinCode: '1234'
-    };
-    dbObj.students.push(newStudent);
-    saveClientDb(dbObj);
-    return newStudent;
-  }
-
-  return { success: true };
-};
+  localStorage.removeItem('rrd_client_db');
+} catch (e) {}
 
 const api = {
   token: localStorage.getItem('token'),
@@ -337,35 +34,33 @@ const api = {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    try {
-      const res = await fetch(`${API_URL}${endpoint}`, {
-        ...options,
-        headers
-      });
+    const res = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers
+    });
 
-      const contentType = res.headers.get('content-type') || '';
-      const text = await res.text();
+    const contentType = res.headers.get('content-type') || '';
+    const text = await res.text();
 
-      const isHTML = contentType.includes('text/html') || text.trim().startsWith('<') || text.trim().toLowerCase().startsWith('<!doctype');
+    const isHTML = contentType.includes('text/html') || text.trim().startsWith('<') || text.trim().toLowerCase().startsWith('<!doctype');
 
-      if (!isHTML) {
-        if (res.ok) {
-          return JSON.parse(text);
-        }
-        let errData = {};
-        try { errData = JSON.parse(text); } catch (e) {}
-        throw new Error(errData.message || `API error (${res.status})`);
-      }
-    } catch (e) {
-      if (e.message && !e.message.includes('API error')) {
-        console.warn("Backend API unavailable, using Client Storage Engine:", e.message);
-      } else {
-        throw e;
-      }
+    if (!res.ok) {
+      let errData = {};
+      try { errData = JSON.parse(text); } catch (e) {}
+      const error = new Error(errData.message || `API error (${res.status})`);
+      error.status = res.status;
+      throw error;
     }
 
-    // Fallback to seamless client-side storage engine
-    return handleClientApi(endpoint, options);
+    if (isHTML) {
+      throw new Error(`Unexpected HTML response from server at ${endpoint}`);
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      throw new Error(`Invalid JSON response from server: ${text.slice(0, 100)}`);
+    }
   }
 };
 
