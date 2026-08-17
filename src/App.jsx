@@ -5864,133 +5864,338 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 }
 
 // --- Shared Modals ---
+// --- Shared Modals ---
 function HelpModal({ onClose }) {
-  const [activeSection, setActiveSection] = useState('overview');
+  const [activeSection, setActiveSection] = useState('quickstart');
   const sections = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'roles', label: 'Roles' },
-    { id: 'tickets', label: 'Tickets' },
-    { id: 'spending', label: 'Spending & Store' },
-    { id: 'goals', label: 'Goals' },
-    { id: 'students', label: 'Student Portal' },
-    { id: 'admin', label: 'Admin Tools' },
+    { id: 'quickstart', label: '📄 Teacher 1-Pager' },
+    { id: 'tickets', label: '🎫 Giving Tickets' },
+    { id: 'spending', label: '🛍️ Spending & Store' },
+    { id: 'coteaching', label: '👥 Co-Teaching & Classes' },
+    { id: 'display_print', label: '📺 Display & Cards' },
+    { id: 'passwords', label: '🔑 Account & Password' },
+    { id: 'roles', label: '🎭 Roles & Access' },
+    { id: 'admin', label: '🛡️ Admin Tools' },
   ];
+
+  const handlePrintOnePager = () => {
+    setActiveSection('quickstart');
+    setTimeout(() => {
+      window.print();
+    }, 200);
+  };
+
   return (
     <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
-        <div className="p-5 border-b flex justify-between items-center bg-gradient-to-r from-green-500 to-green-600 text-white rounded-t-2xl">
-          <h2 className="text-xl font-black flex items-center gap-2"><HelpCircle className="w-6 h-6" /> Green Ticket Tracker Help</h2>
-          <button onClick={onClose} className="text-white/80 hover:text-white"><X className="w-6 h-6" /></button>
+      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-3xl max-h-[88vh] overflow-hidden flex flex-col border border-emerald-100">
+        {/* Modal Header */}
+        <div className="p-5 border-b flex justify-between items-center bg-gradient-to-r from-emerald-800 via-emerald-700 to-teal-800 text-white rounded-t-3xl">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-950/60 rounded-xl border border-amber-300/30">
+              <HelpCircle className="w-6 h-6 text-amber-300" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black font-display tracking-tight text-white">Teacher Help & Quick Reference Guide</h2>
+              <p className="text-xs text-emerald-200">Rolling Ridge Elementary PBIS Green Ticket Tracker</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handlePrintOnePager}
+              className="flex items-center gap-1.5 bg-amber-400 hover:bg-amber-300 text-emerald-950 px-3 py-1.5 rounded-xl text-xs font-black transition shadow-sm"
+              title="Print Teacher 1-Pager Quick Guide"
+            >
+              <Printer className="w-4 h-4" />
+              <span className="hidden sm:inline">Print Guide</span>
+            </button>
+            <button onClick={onClose} aria-label="Close Help" className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-emerald-700/50 transition">
+              <X className="w-6 h-6" />
+            </button>
+          </div>
         </div>
-        <div className="flex border-b overflow-x-auto flex-shrink-0">
+
+        {/* Section Tabs */}
+        <div className="flex border-b overflow-x-auto flex-shrink-0 bg-emerald-50/70 px-2 py-1 gap-1">
           {sections.map(s => (
-            <button key={s.id} onClick={() => setActiveSection(s.id)} className={`px-4 py-2.5 text-xs font-bold whitespace-nowrap border-b-2 transition ${activeSection === s.id ? 'border-green-500 text-green-700 bg-green-50' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+            <button
+              key={s.id}
+              onClick={() => setActiveSection(s.id)}
+              className={`px-3.5 py-2 text-xs font-bold whitespace-nowrap rounded-xl transition-all ${activeSection === s.id ? 'bg-emerald-700 text-white shadow-sm' : 'text-emerald-900 hover:bg-emerald-100/70'}`}
+            >
               {s.label}
             </button>
           ))}
         </div>
+
+        {/* Modal Body */}
         <div className="p-6 overflow-y-auto flex-1 text-sm text-gray-700 space-y-4">
-          {activeSection === 'overview' && (<>
-            <h3 className="text-lg font-black text-gray-900">Welcome to Green Ticket Tracker!</h3>
-            <p>This app helps teachers recognize and reward positive student behavior using a digital ticket system based on three core values:</p>
-            <div className="grid grid-cols-3 gap-3">
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
-                <div className="text-2xl mb-1">🤝</div>
-                <div className="font-bold text-blue-800">Respectful</div>
+          {/* TEACHER 1-PAGER QUICK REFERENCE */}
+          {activeSection === 'quickstart' && (
+            <div className="space-y-4 text-gray-900">
+              <div className="bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100/50 p-4 rounded-2xl border border-emerald-200">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-black text-emerald-950 font-display">🟢 Teacher One-Pager: Daily Workflow Guide</h3>
+                  <span className="text-[11px] font-bold uppercase bg-emerald-200 text-emerald-900 px-2.5 py-0.5 rounded-full">Quick Reference</span>
+                </div>
+                <p className="text-xs text-emerald-900/90 mt-1">Keep this handy for awarding tickets, running class stores, and collaborating with co-teachers.</p>
               </div>
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
-                <div className="text-2xl mb-1">📋</div>
-                <div className="font-bold text-amber-800">Responsible</div>
+
+              {/* Step 1: Giving Tickets */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-sm">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-black">1</span>
+                  <span>How to Award Tickets</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5 text-xs text-gray-600">
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1 flex items-center gap-1.5">⚡ 1-Tap Quick Award</div>
+                    <p>Tap the colored dots on any student card: <span className="text-blue-600 font-bold">Blue = Respectful</span>, <span className="text-amber-600 font-bold">Amber = Responsible</span>, <span className="text-purple-600 font-bold">Purple = Determined</span>.</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1 flex items-center gap-1.5">👥 Multi-Select & Groups</div>
+                    <p>Click <strong>"Multi-Select"</strong> to select several students or small table groups, pick a core value, and award all of them simultaneously with one click.</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1 flex items-center gap-1.5">🎉 Whole Class Reward</div>
+                    <p>Click <strong>"Award Whole Class"</strong> to give every present student 1 ticket at once. Toggle attendance (clock icon) to exclude absent students.</p>
+                  </div>
+                </div>
               </div>
-              <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-center">
-                <div className="text-2xl mb-1">🔥</div>
-                <div className="font-bold text-purple-800">Determined</div>
+
+              {/* Step 2: Spending & Store */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-sm">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-black">2</span>
+                  <span>Spending Points & Class Store</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs text-gray-600">
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1">🛍️ Deducting Spent Tickets</div>
+                    <p>Tap the <strong>Shopping Bag 🛍️</strong> icon on a student's card. Enter the ticket cost and item description (e.g. <em>"5 Tickets - Extra Recess"</em> or <em>"10 Tickets - Treasure Box"</em>).</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1">🎯 Lifetime Earned vs. Wallet Balance</div>
+                    <p>Spending points reduces the student's <strong>Spendable Wallet</strong>, but never reduces their <strong>Lifetime Total</strong> or class goal progress!</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 3: Co-Teaching & Departmentalized */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-sm">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-black">3</span>
+                  <span>Co-Teaching & Departmentalized Classes</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs text-gray-600">
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1">🤝 Sharing Your Class</div>
+                    <p>Click <strong>"Co-Teachers"</strong> on your dashboard. Enter your co-teacher or push-in specialist's email (e.g. <code>specialist@lcps.org</code>) to grant them instant access to your roster.</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1">🔄 Switching Classes</div>
+                    <p>Use the <strong>"Class Filter"</strong> dropdown at the top of your dashboard to switch between your primary homeroom, co-taught classes, or a combined all-students view.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 4: Display Mode & Student Cards */}
+              <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs space-y-2">
+                <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-sm">
+                  <span className="w-6 h-6 rounded-full bg-emerald-100 text-emerald-800 flex items-center justify-center text-xs font-black">4</span>
+                  <span>Classroom Display Mode & Student Login Cards</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-xs text-gray-600">
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1">📺 Projector / Smartboard Mode</div>
+                    <p>Click <strong>"Class Display Mode"</strong> for a full-screen, clean view ideal for Promethean boards with celebratory ticket sound effects and live class goal meters.</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-xl border border-gray-150">
+                    <div className="font-bold text-gray-900 mb-1">🪪 Printable Student Login Badges</div>
+                    <p>Click <strong>"Print Login Cards"</strong> to generate a printable grid of student cards containing their 4-digit Student ID and PIN for student portal access.</p>
+                  </div>
+                </div>
               </div>
             </div>
-            <p>Students accumulate tickets which they can spend at the class store. Teachers can also track class-wide and grade-level goals.</p>
-          </>)}
-          {activeSection === 'roles' && (<>
-            <h3 className="text-lg font-black text-gray-900">User Roles</h3>
-            <div className="space-y-3">
-              <div className="bg-green-50 rounded-xl p-4 border border-green-200">
-                <div className="font-bold text-green-800 mb-1">🏠 Homeroom Teacher</div>
-                <p>Manages their own class. Can give tickets to students, track spending, set class ticket goals, use Display Mode for classroom view, and add students to their roster.</p>
+          )}
+
+          {/* GIVING TICKETS DETAILS */}
+          {activeSection === 'tickets' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-gray-900">Giving Green Tickets</h3>
+              <p>Tickets are awarded to reinforce our three school-wide PBIS positive behavior pillars:</p>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-center">
+                  <div className="text-2xl mb-1">🤝</div>
+                  <div className="font-bold text-blue-900">Respectful</div>
+                  <p className="text-[11px] text-blue-700 mt-1">Kindness, listening, polite behavior</p>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-center">
+                  <div className="text-2xl mb-1">📋</div>
+                  <div className="font-bold text-amber-900">Responsible</div>
+                  <p className="text-[11px] text-amber-700 mt-1">Prepared, on-task, taking ownership</p>
+                </div>
+                <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-center">
+                  <div className="text-2xl mb-1">🔥</div>
+                  <div className="font-bold text-purple-900">Determined</div>
+                  <p className="text-[11px] text-purple-700 mt-1">Grit, effort, overcoming challenges</p>
+                </div>
               </div>
-              <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-                <div className="font-bold text-blue-800 mb-1">🎨 Specialist</div>
-                <p>Can give tickets and golden tickets to students across all homerooms. Sees all classes but only their own ticket activity. Great for art, music, PE, and other specialist teachers.</p>
-              </div>
-              <div className="bg-red-50 rounded-xl p-4 border border-red-200">
-                <div className="font-bold text-red-800 mb-1">🛡️ Administrator</div>
-                <p>Full access to all features: give tickets to any class, manage the student roster (CSV import), merge duplicate students, manage teacher profiles, set grade-level goals, and view all activity across the school. Requires an admin password to register.</p>
-              </div>
-            </div>
-            <p className="text-gray-500 italic text-xs">You can switch roles using the <strong>Role</strong> button in the navigation bar.</p>
-          </>)}
-          {activeSection === 'tickets' && (<>
-            <h3 className="text-lg font-black text-gray-900">Giving Tickets</h3>
-            <ul className="list-disc ml-5 space-y-2">
-              <li><strong>Individual students:</strong> Click on a student card to select a reason (Respectful, Responsible, or Determined).</li>
-              <li><strong>Whole class:</strong> Use the "Award Whole Class" button to give every student in a homeroom one ticket for the selected reason.</li>
-              <li><strong>Golden Tickets:</strong> Special class-wide awards tracked separately. They count toward grade-level goals.</li>
-              <li><strong>Quick tap:</strong> Tap the colored Respectful/Responsible/Determined circles on student cards for one-tap ticket giving.</li>
-            </ul>
-            <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 text-yellow-800 text-xs">
-              <strong>Tip:</strong> Each student's balance is shown on their card. Tickets earned are never subtracted — spending uses a separate "wallet" balance.
-            </div>
-          </>)}
-          {activeSection === 'spending' && (<>
-            <h3 className="text-lg font-black text-gray-900">Spending & Class Store</h3>
-            <p>Students earn a <strong>spendable balance</strong> from their tickets. Homeroom teachers can deduct points when students "buy" items from the class store.</p>
-            <ul className="list-disc ml-5 space-y-2">
-              <li>Tap the <strong>shopping bag icon</strong> on a student card to open the spend dialog.</li>
-              <li>Enter the cost and item name (e.g., "Pencil", "Extra recess").</li>
-              <li>The student's spendable balance updates automatically.</li>
-              <li>Spending does <strong>not</strong> affect goal progress — goals count lifetime tickets earned.</li>
-            </ul>
-          </>)}
-          {activeSection === 'goals' && (<>
-            <h3 className="text-lg font-black text-gray-900">Goals</h3>
-            <div className="space-y-3">
-              <div className="bg-green-50 rounded-xl p-4 border border-green-200">
-                <div className="font-bold text-green-800 mb-1">🎯 Class Ticket Goals</div>
-                <p>Set by homeroom teachers. Choose a ticket target and a reward (e.g., "50 tickets → Pajama Party"). Progress is visible to students in the student portal and in Display Mode.</p>
-              </div>
-              <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
-                <div className="font-bold text-amber-800 mb-1">⭐ Grade Golden Ticket Goals</div>
-                <p>Set by admins in the Grade Goals tab. Track how many golden tickets a grade-level has earned toward a grade-wide reward (e.g., "10 golden tickets → Field Trip").</p>
+
+              <div className="space-y-3 pt-2">
+                <div className="border border-gray-200 p-4 rounded-xl space-y-1">
+                  <h4 className="font-bold text-gray-900 flex items-center gap-2">⚡ Quick-Tap Awarding</h4>
+                  <p className="text-xs text-gray-600">On every student card, click the Respectful (blue), Responsible (orange), or Determined (purple) button for 1-click ticket awarding.</p>
+                </div>
+
+                <div className="border border-gray-200 p-4 rounded-xl space-y-1">
+                  <h4 className="font-bold text-gray-900 flex items-center gap-2">👥 Custom Groups & Multi-Select</h4>
+                  <p className="text-xs text-gray-600">Click <strong>"Multi-Select"</strong> to check off several students. You can also save custom groups (e.g. <em>Table 1</em>, <em>Blue Reading Group</em>) and award all members with one tap.</p>
+                </div>
+
+                <div className="border border-gray-200 p-4 rounded-xl space-y-1">
+                  <h4 className="font-bold text-gray-900 flex items-center gap-2">📅 Awarding for Yesterday or Custom Dates</h4>
+                  <p className="text-xs text-gray-600">Use the date selector next to "Award Whole Class" to backdate tickets if you were unable to log tickets during the school day.</p>
+                </div>
+
+                <div className="border border-gray-200 p-4 rounded-xl space-y-1">
+                  <h4 className="font-bold text-gray-900 flex items-center gap-2">🚫 Marking Students Absent</h4>
+                  <p className="text-xs text-gray-600">Click the attendance icon on any student card to mark them absent. Absent cards are dimmed and skipped during "Award Whole Class".</p>
+                </div>
               </div>
             </div>
-          </>)}
-          {activeSection === 'students' && (<>
-            <h3 className="text-lg font-black text-gray-900">Student Portal</h3>
-            <p>Students can log in with their <strong>Student ID</strong> and <strong>PIN code</strong> (generated during roster import) to view:</p>
-            <ul className="list-disc ml-5 space-y-2">
-              <li>Their ticket balance and spending history</li>
-              <li>Class ticket goal progress</li>
-              <li>Grade-level golden ticket goal progress</li>
-              <li>Recent ticket activity</li>
-            </ul>
-            <p className="text-gray-500 text-xs italic">Student IDs and PINs are shown in the roster data. Teachers can share these with students as needed.</p>
-          </>)}
-          {activeSection === 'admin' && (<>
-            <h3 className="text-lg font-black text-gray-900">Admin Tools</h3>
-            <ul className="list-disc ml-5 space-y-2">
-              <li><strong>Overview:</strong> School-wide stats — total tickets, breakdowns by type/teacher/class, top students, and full activity log.</li>
-              <li><strong>Give Tickets:</strong> Award tickets to any class or student across the school.</li>
-              <li><strong>Merge Students:</strong> Combine duplicate student profiles. All tickets transfer to the target student.</li>
-              <li><strong>Teachers:</strong> View all registered teacher profiles. Delete unused profiles (0 tickets).</li>
-              <li><strong>Roster Sync (CSV):</strong> Bulk import students using CSV format (name, homeroom, grade). Clear the entire roster if needed.</li>
-              <li><strong>Grade Goals:</strong> Set grade-level golden ticket goals with reward descriptions.</li>
-            </ul>
-            <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-blue-800 text-xs">
-              <strong>CSV Format:</strong> Header row must contain <code>name</code>, <code>homeroom</code>, and <code>grade</code>. Example:<br />
-              <code className="text-xs">name,homeroom,grade<br />Jane Doe, Mr. Smith, 3rd Grade</code>
+          )}
+
+          {/* SPENDING & STORE */}
+          {activeSection === 'spending' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-gray-900">Class Store & Spending Points</h3>
+              <p>Students can spend their earned tickets on classroom rewards or school privileges.</p>
+
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2 text-xs text-emerald-950">
+                <div className="font-bold text-sm text-emerald-900">How to Deduct Points:</div>
+                <ol className="list-decimal ml-5 space-y-1.5">
+                  <li>Click the <strong>Shopping Bag 🛍️</strong> icon on the student's card.</li>
+                  <li>Enter the ticket cost (e.g., 5 points).</li>
+                  <li>Enter the reward item description (e.g., "Homework Pass" or "Sit with a Friend").</li>
+                  <li>Click <strong>"Deduct Points"</strong>. The student's spendable balance updates instantly.</li>
+                </ol>
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-blue-900 text-xs">
+                <strong>Important Note on Goal Counting:</strong> Deducting points only lowers the student's spendable balance. It does <strong>not</strong> decrease their lifetime earned ticket total or your class goal progress.
+              </div>
             </div>
-          </>)}
+          )}
+
+          {/* CO-TEACHING & CLASSES */}
+          {activeSection === 'coteaching' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-gray-900">Co-Teaching & Departmentalized Classrooms</h3>
+              <p>Green Ticket Tracker allows multiple teachers to manage the same homeroom or access multiple classrooms.</p>
+
+              <div className="space-y-3">
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1.5">
+                  <div className="font-bold text-gray-900">1. Sharing Your Homeroom with a Co-Teacher</div>
+                  <p className="text-xs text-gray-600">On your homeroom dashboard, click <strong>"Co-Teachers"</strong>. Enter the LCPS email address of your co-teacher, ELL specialist, or instructional assistant and click <strong>"Add Co-Teacher"</strong>.</p>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1.5">
+                  <div className="font-bold text-gray-900">2. Accessing Shared Classes</div>
+                  <p className="text-xs text-gray-600">Once a class is shared with you, use the <strong>"Class Filter"</strong> dropdown at the top of your homeroom dashboard to select and view that shared class roster.</p>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1.5">
+                  <div className="font-bold text-gray-900">3. Specialist View</div>
+                  <p className="text-xs text-gray-600">Specialist teachers (Art, Music, PE, Library) can use the <strong>Specialist Role</strong> to view and give tickets to all classes across the school with one-click class switching.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* DISPLAY MODE & PRINTING CARDS */}
+          {activeSection === 'display_print' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-gray-900">Display Mode & Student Login Cards</h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="border border-gray-200 p-4 rounded-xl space-y-2">
+                  <div className="font-bold text-emerald-800 flex items-center gap-1.5"><Tv className="w-5 h-5" /> Class Display Mode</div>
+                  <p className="text-xs text-gray-600">Click <strong>"Display Mode"</strong> to project your class roster on your smartboard or projector. Features large buttons, hide-balances toggle, and live sound effects when tickets are awarded.</p>
+                </div>
+
+                <div className="border border-gray-200 p-4 rounded-xl space-y-2">
+                  <div className="font-bold text-emerald-800 flex items-center gap-1.5"><Download className="w-5 h-5" /> Student Login Badges</div>
+                  <p className="text-xs text-gray-600">Click <strong>"Print Login Cards"</strong> to print 2x4 card badges containing each student's name, 4-digit ID, and PIN for logging into the Student Portal.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PASSWORDS & ACCOUNT HELP */}
+          {activeSection === 'passwords' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-gray-900">Password & Account Management</h3>
+
+              <div className="space-y-3">
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1.5">
+                  <div className="font-bold text-gray-900 flex items-center gap-2">🔑 Forgot Your Password?</div>
+                  <p className="text-xs text-gray-600">On the login screen under <strong>Teacher Access</strong>, click <strong>"Forgot password?"</strong>. Enter your school email (`teacher@lcps.org`) and your new password to reset it instantly.</p>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1.5">
+                  <div className="font-bold text-gray-900 flex items-center gap-2">🔄 Changing Password While Logged In</div>
+                  <p className="text-xs text-gray-600">Click the <strong>"Password"</strong> button with the key icon in the top green navigation bar (or mobile menu) to change your account password.</p>
+                </div>
+
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1.5">
+                  <div className="font-bold text-gray-900 flex items-center gap-2">🛡️ Administrator Password Reset</div>
+                  <p className="text-xs text-gray-600">School administrators can also reset any teacher's password directly from the <strong>Teachers Tab</strong> in the Admin Dashboard.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ROLES OVERVIEW */}
+          {activeSection === 'roles' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-gray-900">User Roles & Capabilities</h3>
+              <div className="space-y-3">
+                <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+                  <div className="font-bold text-emerald-900 mb-1">🏠 Homeroom Teacher</div>
+                  <p className="text-xs text-emerald-800">Manages homeroom roster, awards tickets, deducts spending, sets class goals, and shares classes with co-teachers.</p>
+                </div>
+                <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                  <div className="font-bold text-blue-900 mb-1">🎨 Specialist</div>
+                  <p className="text-xs text-blue-800">Awards tickets and golden tickets across all homerooms with streamlined class switching.</p>
+                </div>
+                <div className="bg-amber-50 rounded-xl p-4 border border-amber-200">
+                  <div className="font-bold text-amber-900 mb-1">🛡️ Administrator</div>
+                  <p className="text-xs text-amber-800">School-wide analytics, roster CSV import with deduplication, student merging, and teacher profile management.</p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ADMIN TOOLS */}
+          {activeSection === 'admin' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-black text-gray-900">Administrator Tools & Roster Management</h3>
+              <ul className="list-disc ml-5 space-y-2 text-xs text-gray-600">
+                <li><strong>CSV Roster Sync with Auto-Move:</strong> Upload CSV containing <code>name,homeroom,grade</code>. Existing students are moved to new teachers without creating duplicate accounts or losing ticket history.</li>
+                <li><strong>Merge Duplicate Students:</strong> Merge two student accounts into one; all ticket and spending history merges automatically.</li>
+                <li><strong>School-wide Analytics:</strong> View school-wide statistics, active teacher participation, and ticket breakdowns by value.</li>
+                <li><strong>Grade Goals:</strong> Set school-wide golden ticket goals for each grade level.</li>
+              </ul>
+            </div>
+          )}
         </div>
-        <div className="p-4 border-t bg-gray-50 flex justify-end rounded-b-2xl">
-          <button onClick={onClose} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-6 rounded-xl transition text-sm">Got it!</button>
+
+        {/* Modal Footer */}
+        <div className="p-4 border-t bg-gray-50 flex items-center justify-between rounded-b-3xl">
+          <div className="text-xs text-gray-500 font-medium">Rolling Ridge PBIS Support</div>
+          <button onClick={onClose} className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold py-2.5 px-6 rounded-xl transition text-sm shadow-sm">
+            Close Help Guide
+          </button>
         </div>
       </div>
     </div>
