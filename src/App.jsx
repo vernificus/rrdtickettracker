@@ -3649,6 +3649,18 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
   };
 
+  const matchHomeroom = (studentHomeroom, targetHomeroom) => {
+    if (!studentHomeroom || !targetHomeroom) return false;
+    const s = studentHomeroom.trim().toLowerCase();
+    const t = targetHomeroom.trim().toLowerCase();
+    if (s === t) return true;
+    if (s.includes(t) || t.includes(s)) return true;
+    const sLast = getLastName(studentHomeroom).toLowerCase();
+    const tLast = getLastName(targetHomeroom).toLowerCase();
+    if (sLast && tLast && sLast === tLast && sLast.length > 2) return true;
+    return false;
+  };
+
   const myStudents = useMemo(() => {
     let targetHomerooms = [profile.name];
     if (selectedClassFilter === 'all') {
@@ -3658,7 +3670,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
 
     const central = students
-      .filter(s => targetHomerooms.some(h => (s.homeroom || '').toLowerCase() === h.toLowerCase()))
+      .filter(s => targetHomerooms.some(h => matchHomeroom(s.homeroom, h)))
       .map(s => s.name);
 
     const custom = (selectedClassFilter === 'primary' || selectedClassFilter === 'all') ? (profile.customStudents || []) : [];
