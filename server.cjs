@@ -514,6 +514,62 @@ app.post('/api/auth/teacher/register', async (req, res) => {
   }
 });
 
+// Teacher Forgot/Reset Password (public self-service)
+app.post('/api/auth/teacher/reset-password', async (req, res) => {
+  const { email, newPassword } = req.body;
+  if (!email || !newPassword) {
+    return res.status(400).json({ message: 'Email and new password are required.' });
+  }
+  if (String(newPassword).length < 4) {
+    return res.status(400).json({ message: 'Password must be at least 4 characters.' });
+  }
+
+  try {
+    const users = await db.getRows('Users');
+    const user = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    if (!user) {
+      return res.status(404).json({ message: 'No teacher account found with this email. Please check your email or register.' });
+    }
+
+    user.password = hashPassword(newPassword);
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'], user._rowNum, user);
+    res.json({ success: true, message: 'Password reset successfully! You can now log in.' });
+  } catch (err) {
+    console.error("Error resetting teacher password:", err);
+    res.status(500).json({ message: 'Server error resetting password.' });
+  }
+});
+
+// Authenticated user change password
+app.post('/api/auth/reset-password', authMiddleware, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Current password and new password are required.' });
+  }
+  if (String(newPassword).length < 4) {
+    return res.status(400).json({ message: 'New password must be at least 4 characters.' });
+  }
+
+  try {
+    const users = await db.getRows('Users');
+    const user = users.find(u => u.email.toLowerCase() === req.user.email.toLowerCase());
+    if (!user) {
+      return res.status(404).json({ message: 'User not found.' });
+    }
+
+    if (!verifyPassword(currentPassword, user.password)) {
+      return res.status(401).json({ message: 'Current password is incorrect.' });
+    }
+
+    user.password = hashPassword(newPassword);
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'], user._rowNum, user);
+    res.json({ success: true, message: 'Password updated successfully!' });
+  } catch (err) {
+    console.error("Error changing password:", err);
+    res.status(500).json({ message: 'Server error changing password.' });
+  }
+});
+
 // Change Role (authenticated users)
 app.post('/api/auth/change-role', authMiddleware, async (req, res) => {
   const { newRole, adminPassword } = req.body;

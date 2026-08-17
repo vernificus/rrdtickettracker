@@ -2300,7 +2300,7 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
 
 function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, isStandalone }) {
   const [activeTab, setActiveTab] = useState('student'); // 'student' or 'teacher'
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [teacherMode, setTeacherMode] = useState('login'); // 'login' | 'register' | 'forgot'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -2309,6 +2309,7 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
   const [pinCode, setPinCode] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('homeroom');
   const [adminPassword, setAdminPassword] = useState('');
@@ -2336,7 +2337,7 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
     setError('');
     setLoading(true);
     try {
-      if (isRegistering) {
+      if (teacherMode === 'register') {
         await api.fetch('/api/auth/teacher/register', {
           method: 'POST',
           body: JSON.stringify({ email, password, name, role, adminPassword: role === 'admin' ? adminPassword : undefined })
@@ -2352,6 +2353,36 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
       onLoginSuccess(data.profile, data.token);
     } catch (err) {
       setError(err.message || 'Authentication failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotSubmit = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) {
+      setError("Please enter your school email address.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("New passwords do not match.");
+      return;
+    }
+    if (password.length < 4) {
+      setError("Password must be at least 4 characters.");
+      return;
+    }
+    setError('');
+    setLoading(true);
+    try {
+      const data = await api.fetch('/api/auth/teacher/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ email: email.trim(), newPassword: password })
+      });
+      showToast(data.message || "Password reset successfully! Please log in.");
+      setTeacherMode('login');
+    } catch (err) {
+      setError(err.message || 'Failed to reset password.');
     } finally {
       setLoading(false);
     }
@@ -2471,9 +2502,80 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
               {loading ? 'Logging in...' : 'Log In to Student Portal'}
             </button>
           </form>
+        ) : teacherMode === 'forgot' ? (
+          <form key="teacher-forgot-form" className="mt-4 space-y-4" onSubmit={handleForgotSubmit} autoComplete="on">
+            <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 text-xs text-emerald-900 font-medium">
+              Enter your school email address and your desired new password below to reset your credentials.
+            </div>
+            <div>
+              <label htmlFor="forgot-teacher-email" className="block text-xs font-bold text-gray-700 mb-1">School Email Address</label>
+              <input
+                id="forgot-teacher-email"
+                name="username"
+                type="email"
+                autoComplete="username email"
+                required
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                placeholder="teacher@lcps.org"
+              />
+            </div>
+            <div>
+              <label htmlFor="forgot-teacher-password" className="block text-xs font-bold text-gray-700 mb-1">New Password</label>
+              <input
+                id="forgot-teacher-password"
+                name="new-password"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                placeholder="Minimum 4 characters"
+              />
+            </div>
+            <div>
+              <label htmlFor="forgot-teacher-confirm" className="block text-xs font-bold text-gray-700 mb-1">Confirm New Password</label>
+              <input
+                id="forgot-teacher-confirm"
+                name="confirm-new-password"
+                type="password"
+                autoComplete="new-password"
+                required
+                value={confirmPassword}
+                onChange={e => setConfirmPassword(e.target.value)}
+                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                placeholder="Re-type new password"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-base font-extrabold rounded-2xl text-white bg-emerald-700 hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition shadow-lg disabled:opacity-50 mt-6 min-h-[44px]"
+            >
+              {loading ? 'Resetting Password...' : 'Reset Password & Log In'}
+            </button>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 text-xs">
+              <button
+                type="button"
+                onClick={() => { setTeacherMode('login'); setError(''); }}
+                className="text-emerald-700 hover:underline font-bold py-1.5 px-2"
+              >
+                ← Back to Login
+              </button>
+              <button
+                type="button"
+                onClick={() => { setTeacherMode('register'); setError(''); }}
+                className="text-emerald-700 hover:underline font-bold py-1.5 px-2"
+              >
+                Register New Account
+              </button>
+            </div>
+          </form>
         ) : (
-          <form key={isRegistering ? "teacher-register-form" : "teacher-login-form"} className="mt-4 space-y-4" onSubmit={handleTeacherSubmit} autoComplete="on">
-            {isRegistering && (
+          <form key={teacherMode === 'register' ? "teacher-register-form" : "teacher-login-form"} className="mt-4 space-y-4" onSubmit={handleTeacherSubmit} autoComplete="on">
+            {teacherMode === 'register' && (
               <>
                 <div>
                   <label htmlFor="teacher-name" className="block text-xs font-bold text-gray-700 mb-1">Last Name</label>
@@ -2536,12 +2638,23 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
               />
             </div>
             <div>
-              <label htmlFor="teacher-password" className="block text-xs font-bold text-gray-700 mb-1">Password</label>
+              <div className="flex justify-between items-center mb-1">
+                <label htmlFor="teacher-password" className="block text-xs font-bold text-gray-700">Password</label>
+                {teacherMode === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => { setTeacherMode('forgot'); setError(''); }}
+                    className="text-xs text-emerald-700 hover:underline font-bold"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
               <input
                 id="teacher-password"
                 name="password"
                 type="password"
-                autoComplete={isRegistering ? "new-password" : "current-password"}
+                autoComplete={teacherMode === 'register' ? "new-password" : "current-password"}
                 required
                 value={password}
                 onChange={e => setPassword(e.target.value)}
@@ -2554,15 +2667,15 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
               disabled={loading}
               className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-base font-extrabold rounded-2xl text-white bg-emerald-700 hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition shadow-lg disabled:opacity-50 mt-6 min-h-[44px]"
             >
-              {loading ? 'Processing...' : isRegistering ? 'Register & Log In' : 'Log In to Teacher Portal'}
+              {loading ? 'Processing...' : teacherMode === 'register' ? 'Register & Log In' : 'Log In to Teacher Portal'}
             </button>
             <div className="text-center mt-4">
               <button
                 type="button"
-                onClick={() => setIsRegistering(!isRegistering)}
+                onClick={() => { setTeacherMode(teacherMode === 'register' ? 'login' : 'register'); setError(''); }}
                 className="text-xs text-emerald-700 hover:underline font-bold py-2 px-3 rounded-lg"
               >
-                {isRegistering ? 'Already have an account? Log in instead' : 'Need a teacher account? Register here'}
+                {teacherMode === 'register' ? 'Already have an account? Log in instead' : 'Need a teacher account? Register here'}
               </button>
             </div>
           </form>
