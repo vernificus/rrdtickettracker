@@ -2175,6 +2175,17 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
               <span className="hidden sm:inline">Role</span>
             </button>
 
+            {/* Change Password Button */}
+            <button 
+              onClick={onChangePassword} 
+              aria-label="Change Account Password"
+              title="Change Account Password"
+              className="hidden sm:flex items-center gap-1 hover:bg-emerald-700 bg-emerald-900/60 lg:bg-transparent border border-amber-300/30 lg:border-none px-2 sm:px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] text-amber-200 lg:text-white"
+            >
+              <Key className="w-4 h-4 text-amber-300" aria-hidden="true" />
+              <span className="hidden lg:inline">Password</span>
+            </button>
+
             <button 
               onClick={onOpenAccessibility} 
               aria-label="Accessibility Settings (Section 508 and WCAG)"
@@ -2250,6 +2261,14 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
               </button>
 
               <button
+                onClick={() => { setShowMobileMenu(false); onChangePassword(); }}
+                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+              >
+                <Key className="w-4 h-4 text-amber-300" />
+                <span>Password</span>
+              </button>
+
+              <button
                 onClick={() => { setShowMobileMenu(false); onHelp(); }}
                 className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
               >
@@ -2267,7 +2286,7 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
 
               <button
                 onClick={() => { setShowMobileMenu(false); onOpenAccessibility(); }}
-                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px] col-span-2"
               >
                 <Eye className="w-4 h-4 text-amber-300" />
                 <span>Accessibility</span>
