@@ -34,10 +34,18 @@ const api = {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
 
-    const res = await fetch(`${API_URL}${endpoint}`, {
-      ...options,
-      headers
-    });
+    let res;
+    try {
+      res = await fetch(`${API_URL}${endpoint}`, {
+        ...options,
+        headers
+      });
+    } catch (netErr) {
+      const error = new Error('Unable to connect to the server. Please check your internet connection.');
+      error.isNetworkError = true;
+      error.status = 0;
+      throw error;
+    }
 
     const contentType = res.headers.get('content-type') || '';
     const text = await res.text();
@@ -53,13 +61,17 @@ const api = {
     }
 
     if (isHTML) {
-      throw new Error(`Unexpected HTML response from server at ${endpoint}`);
+      const error = new Error(`Unexpected HTML response from server at ${endpoint}`);
+      error.status = res.status;
+      throw error;
     }
 
     try {
       return JSON.parse(text);
     } catch (err) {
-      throw new Error(`Invalid JSON response from server: ${text.slice(0, 100)}`);
+      const error = new Error(`Invalid JSON response from server: ${text.slice(0, 100)}`);
+      error.status = res.status;
+      throw error;
     }
   }
 };
@@ -340,6 +352,7 @@ export default function App() {
 
   // UI State
   const [toast, setToast] = useState({ visible: false, message: '' });
+  const [initialError, setInitialError] = useState(null);
 
   // Role Switching Modal State
   const [showRoleSwitch, setShowRoleSwitch] = useState(false);
@@ -450,6 +463,7 @@ export default function App() {
         const data = await api.fetch('/api/initial-data');
         setProfile(data.profile);
         setRole(data.role);
+        setInitialError(null);
         if (data.role === 'student') {
           setStudentData(data);
         } else {
@@ -463,10 +477,25 @@ export default function App() {
           setBalances(data.balances || {});
         }
       } catch (e) {
-        console.error("Session expired or invalid:", e);
-        api.setToken(null);
-        setProfile(null);
-        setRole(null);
+        console.error("Session check/data load error:", e);
+        const isAuthError = e.status === 401 || e.status === 403;
+        const isUserMissing = e.status === 404 && (!profile || (e.message && e.message.toLowerCase().includes('not found')));
+
+        // Only clear authentication if it is an explicit auth error or non-existent profile
+        if (isAuthError || isUserMissing) {
+          api.setToken(null);
+          setProfile(null);
+          setRole(null);
+          setStudentData(null);
+          showToast(e.message || "Your session has expired. Please log in again.");
+        } else {
+          // Network hiccup, 500, 502/504 gateway timeout, or Google Sheets API rate limit
+          if (!profile) {
+            setInitialError(e.message || "Unable to connect to the server. Please check your internet connection.");
+          } else {
+            showToast("Connection issue: Could not sync latest updates with server.");
+          }
+        }
       } finally {
         setLoading(false);
       }
@@ -479,6 +508,7 @@ export default function App() {
     setProfile(null);
     setRole(null);
     setStudentData(null);
+    setInitialError(null);
     showToast("Signed out successfully");
   };
 
@@ -488,6 +518,35 @@ export default function App() {
         <Ticket className="w-16 h-16 animate-bounce text-amber-300 mb-4" />
         <h2 className="text-2xl font-extrabold font-display">Loading Rolling Ridge Tracker...</h2>
         <p className="text-xs text-emerald-200 mt-2">Section 508 & VA State Public Schools Compliant</p>
+      </div>
+    );
+  }
+
+  // Network / Server error screen before initial profile is loaded
+  if (!profile && initialError && api.token) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-emerald-950 via-emerald-900 to-teal-950 text-white p-6 text-center">
+        <div className="max-w-md w-full bg-white/10 backdrop-blur-md p-8 rounded-3xl border border-white/20 shadow-2xl flex flex-col items-center">
+          <AlertTriangle className="w-14 h-14 text-amber-400 mb-4 animate-pulse" />
+          <h2 className="text-2xl font-black font-display mb-2 text-white">Connection Problem</h2>
+          <p className="text-sm text-emerald-100 mb-6">{initialError}</p>
+          <div className="flex flex-col sm:flex-row gap-3 w-full justify-center">
+            <button
+              type="button"
+              onClick={() => { setInitialError(null); setRefreshTrigger(prev => prev + 1); }}
+              className="px-6 py-3 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-extrabold rounded-xl shadow-lg transition text-sm cursor-pointer min-h-[44px]"
+            >
+              Retry Connection
+            </button>
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="px-6 py-3 bg-emerald-900/90 hover:bg-emerald-800 text-white font-bold rounded-xl border border-emerald-600 transition text-sm cursor-pointer min-h-[44px]"
+            >
+              Sign In Again
+            </button>
+          </div>
+        </div>
       </div>
     );
   }

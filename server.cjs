@@ -222,7 +222,7 @@ class GoogleSheetsDb {
       });
     } catch (e) {
       console.error(`Error reading sheet ${sheetName}:`, e.message);
-      return [];
+      throw e;
     }
   }
 
@@ -449,24 +449,7 @@ app.post('/api/auth/teacher', async (req, res) => {
 
   try {
     const users = await db.getRows('Users');
-    
-    // Auto-onboard first user as admin if Users is empty
-    if (users.length === 0) {
-      const hashedPassword = hashPassword(password);
-      const newUser = {
-        email: email.trim().toLowerCase(),
-        name: email.split('@')[0],
-        role: 'admin',
-        password: hashedPassword,
-        createdAt: new Date().toISOString()
-      };
-      await db.appendRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt'], newUser);
-      
-      const token = jwt.sign({ email: newUser.email, role: newUser.role, name: newUser.name }, JWT_SECRET, { expiresIn: '7d' });
-      return res.json({ token, profile: { email: newUser.email, name: newUser.name, role: newUser.role } });
-    }
-
-    const user = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    const user = users.find(u => (u.email || '').trim().toLowerCase() === email.trim().toLowerCase());
     if (!user || !verifyPassword(password, user.password)) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
@@ -474,8 +457,8 @@ app.post('/api/auth/teacher', async (req, res) => {
     const token = jwt.sign({ email: user.email, role: user.role, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, profile: { email: user.email, name: user.name, role: user.role } });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ message: 'Server error during authentication' });
+    console.error("Error during teacher login:", err);
+    res.status(500).json({ message: 'Server error during authentication. Please try again.' });
   }
 });
 
@@ -493,7 +476,7 @@ app.post('/api/auth/teacher/register', async (req, res) => {
 
   try {
     const users = await db.getRows('Users');
-    const existing = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    const existing = users.find(u => (u.email || '').trim().toLowerCase() === email.trim().toLowerCase());
     if (existing) {
       return res.status(400).json({ message: 'A teacher with this email already exists' });
     }
@@ -526,7 +509,7 @@ app.post('/api/auth/teacher/reset-password', async (req, res) => {
 
   try {
     const users = await db.getRows('Users');
-    const user = users.find(u => u.email.toLowerCase() === email.trim().toLowerCase());
+    const user = users.find(u => (u.email || '').trim().toLowerCase() === email.trim().toLowerCase());
     if (!user) {
       return res.status(404).json({ message: 'No teacher account found with this email. Please check your email or register.' });
     }
@@ -737,9 +720,9 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     }
 
     // Teacher / Admin Dashboard view
-    const email = req.user.email;
+    const email = (req.user.email || '').trim().toLowerCase();
     const profiles = await db.getRows('Users');
-    const profile = profiles.find(p => p.email.toLowerCase() === email.toLowerCase());
+    const profile = profiles.find(p => (p.email || '').trim().toLowerCase() === email);
     if (!profile) return res.status(404).json({ message: 'Teacher profile not found' });
 
     delete profile.password; // remove sensitive field
@@ -783,16 +766,16 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     // Visibility rules: Specialists and Homerooms see only tickets/spending they created
     // Admins see all tickets/spending
     if (activeRole !== 'admin') {
-      const allowedEmails = new Set([email.toLowerCase()]);
+      const allowedEmails = new Set([email]);
       profiles.forEach(p => {
         let pCoTaught = [];
         try { pCoTaught = p.coTaughtHomerooms ? JSON.parse(p.coTaughtHomerooms) : []; } catch (e) {}
-        if (pCoTaught.some(h => h.toLowerCase() === profile.name.toLowerCase())) {
-          allowedEmails.add(p.email.toLowerCase());
+        if (pCoTaught.some(h => (h || '').trim().toLowerCase() === (profile.name || '').trim().toLowerCase())) {
+          allowedEmails.add((p.email || '').trim().toLowerCase());
         }
       });
-      tickets = tickets.filter(t => allowedEmails.has((t.teacherEmail || '').toLowerCase()));
-      spending = spending.filter(s => allowedEmails.has((s.teacherEmail || '').toLowerCase()));
+      tickets = tickets.filter(t => allowedEmails.has((t.teacherEmail || '').trim().toLowerCase()));
+      spending = spending.filter(s => allowedEmails.has((s.teacherEmail || '').trim().toLowerCase()));
     }
 
     const sanitizedProfiles = profiles.map(p => {
