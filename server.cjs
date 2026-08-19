@@ -50,6 +50,9 @@ class GoogleSheetsDb {
     this.spreadsheetId = spreadsheetId;
     this.sheets = null;
     this.useFallback = false;
+    this.cache = new Map();
+    this.inFlight = new Map();
+    this.cacheTTL = 5000; // 5s in-memory cache TTL to protect against bursts
     this.fallbackDb = {
       Users: [],
       Students: [],
@@ -200,33 +203,98 @@ class GoogleSheetsDb {
     }
   }
 
+  invalidateCache(sheetName) {
+    if (sheetName) {
+      this.cache.delete(sheetName);
+    } else {
+      this.cache.clear();
+    }
+  }
+
+  async withRetry(operation, maxRetries = 3, initialDelayMs = 400) {
+    let delay = initialDelayMs;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (err) {
+        const isRateLimitOrTransient =
+          err.code === 429 ||
+          err.status === 429 ||
+          (err.message && (
+            err.message.includes('Quota exceeded') ||
+            err.message.includes('Rate limit') ||
+            err.message.includes('RESOURCE_EXHAUSTED') ||
+            err.message.includes('503') ||
+            err.message.includes('500') ||
+            err.message.includes('socket hang up') ||
+            err.message.includes('ECONNRESET')
+          ));
+
+        if (attempt < maxRetries && isRateLimitOrTransient) {
+          console.warn(`[Google Sheets API] Rate limit/transient error on attempt ${attempt}/${maxRetries}. Retrying in ${delay}ms...`);
+          await new Promise(res => setTimeout(res, delay));
+          delay *= 2;
+        } else {
+          throw err;
+        }
+      }
+    }
+  }
+
   async getRows(sheetName) {
     if (this.useFallback) {
       return this.fallbackDb[sheetName] || [];
     }
-    try {
-      const res = await this.sheets.spreadsheets.values.get({
-        spreadsheetId: this.spreadsheetId,
-        range: `${sheetName}!A1:Z`
-      });
-      const rows = res.data.values;
-      if (!rows || rows.length < 2) return [];
-      const headers = rows[0].map(h => h.trim());
-      return rows.slice(1).map((row, rowIndex) => {
-        const obj = { _rowNum: rowIndex + 2 }; // 1-based index (row 2 is data index 0)
-        headers.forEach((h, index) => {
-          const key = h.charAt(0).toLowerCase() + h.slice(1);
-          obj[key] = row[index] !== undefined ? row[index] : '';
-        });
-        return obj;
-      });
-    } catch (e) {
-      console.error(`Error reading sheet ${sheetName}:`, e.message);
-      throw e;
+
+    // Check cache
+    const cached = this.cache.get(sheetName);
+    if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+      return JSON.parse(JSON.stringify(cached.data));
     }
+
+    // In-flight deduplication
+    if (this.inFlight.has(sheetName)) {
+      const data = await this.inFlight.get(sheetName);
+      return JSON.parse(JSON.stringify(data));
+    }
+
+    const fetchPromise = (async () => {
+      try {
+        const res = await this.withRetry(() => this.sheets.spreadsheets.values.get({
+          spreadsheetId: this.spreadsheetId,
+          range: `${sheetName}!A1:Z`
+        }));
+        const rows = res.data.values;
+        if (!rows || rows.length < 2) {
+          this.cache.set(sheetName, { data: [], timestamp: Date.now() });
+          return [];
+        }
+        const headers = rows[0].map(h => h.trim());
+        const parsed = rows.slice(1).map((row, rowIndex) => {
+          const obj = { _rowNum: rowIndex + 2 }; // 1-based index (row 2 is data index 0)
+          headers.forEach((h, index) => {
+            const key = h.charAt(0).toLowerCase() + h.slice(1);
+            obj[key] = row[index] !== undefined ? row[index] : '';
+          });
+          return obj;
+        });
+        this.cache.set(sheetName, { data: parsed, timestamp: Date.now() });
+        return parsed;
+      } catch (e) {
+        console.error(`Error reading sheet ${sheetName}:`, e.message);
+        throw e;
+      } finally {
+        this.inFlight.delete(sheetName);
+      }
+    })();
+
+    this.inFlight.set(sheetName, fetchPromise);
+    const data = await fetchPromise;
+    return JSON.parse(JSON.stringify(data));
   }
 
   async appendRow(sheetName, headers, rowObj) {
+    this.invalidateCache(sheetName);
     if (this.useFallback) {
       if (!this.fallbackDb[sheetName]) this.fallbackDb[sheetName] = [];
       const _rowNum = this.fallbackDb[sheetName].length + 2;
@@ -240,12 +308,12 @@ class GoogleSheetsDb {
         const key = h.charAt(0).toLowerCase() + h.slice(1);
         return rowObj[key] !== undefined ? rowObj[key] : '';
       });
-      await this.sheets.spreadsheets.values.append({
+      await this.withRetry(() => this.sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
         range: `${sheetName}!A1`,
         valueInputOption: 'USER_ENTERED',
         resource: { values: [values] }
-      });
+      }));
     } catch (e) {
       console.error(`Error appending to sheet ${sheetName}:`, e.message);
       throw e;
@@ -253,6 +321,7 @@ class GoogleSheetsDb {
   }
 
   async appendRows(sheetName, headers, rowObjects) {
+    this.invalidateCache(sheetName);
     if (this.useFallback) {
       if (!this.fallbackDb[sheetName]) this.fallbackDb[sheetName] = [];
       rowObjects.forEach(rowObj => {
@@ -270,12 +339,12 @@ class GoogleSheetsDb {
           return rowObj[key] !== undefined ? rowObj[key] : '';
         });
       });
-      await this.sheets.spreadsheets.values.append({
+      await this.withRetry(() => this.sheets.spreadsheets.values.append({
         spreadsheetId: this.spreadsheetId,
         range: `${sheetName}!A1`,
         valueInputOption: 'USER_ENTERED',
         resource: { values: allValues }
-      });
+      }));
     } catch (e) {
       console.error(`Error appending multiple rows to sheet ${sheetName}:`, e.message);
       throw e;
@@ -283,6 +352,7 @@ class GoogleSheetsDb {
   }
 
   async updateRow(sheetName, headers, rowNum, rowObj) {
+    this.invalidateCache(sheetName);
     if (this.useFallback) {
       const list = this.fallbackDb[sheetName] || [];
       const idx = list.findIndex(r => r._rowNum === rowNum);
@@ -297,12 +367,12 @@ class GoogleSheetsDb {
         const key = h.charAt(0).toLowerCase() + h.slice(1);
         return rowObj[key] !== undefined ? rowObj[key] : '';
       });
-      await this.sheets.spreadsheets.values.update({
+      await this.withRetry(() => this.sheets.spreadsheets.values.update({
         spreadsheetId: this.spreadsheetId,
         range: `${sheetName}!A${rowNum}`,
         valueInputOption: 'USER_ENTERED',
         resource: { values: [values] }
-      });
+      }));
     } catch (e) {
       console.error(`Error updating row ${rowNum} in sheet ${sheetName}:`, e.message);
       throw e;
@@ -310,6 +380,7 @@ class GoogleSheetsDb {
   }
 
   async deleteRow(sheetName, rowNum) {
+    this.invalidateCache(sheetName);
     if (this.useFallback) {
       let list = this.fallbackDb[sheetName] || [];
       list = list.filter(r => r._rowNum !== rowNum);
@@ -322,12 +393,12 @@ class GoogleSheetsDb {
       return;
     }
     try {
-      const ssMeta = await this.sheets.spreadsheets.get({ spreadsheetId: this.spreadsheetId });
+      const ssMeta = await this.withRetry(() => this.sheets.spreadsheets.get({ spreadsheetId: this.spreadsheetId }));
       const sheet = ssMeta.data.sheets.find(s => s.properties.title === sheetName);
       if (!sheet) throw new Error(`Sheet worksheet ${sheetName} not found`);
       const sheetId = sheet.properties.sheetId;
 
-      await this.sheets.spreadsheets.batchUpdate({
+      await this.withRetry(() => this.sheets.spreadsheets.batchUpdate({
         spreadsheetId: this.spreadsheetId,
         resource: {
           requests: [
@@ -343,7 +414,7 @@ class GoogleSheetsDb {
             }
           ]
         }
-      });
+      }));
     } catch (e) {
       console.error(`Error deleting row ${rowNum} in sheet ${sheetName}:`, e.message);
       throw e;
@@ -351,16 +422,17 @@ class GoogleSheetsDb {
   }
 
   async clearSheet(sheetName) {
+    this.invalidateCache(sheetName);
     if (this.useFallback) {
       this.fallbackDb[sheetName] = [];
       this.saveFallback();
       return;
     }
     try {
-      await this.sheets.spreadsheets.values.clear({
+      await this.withRetry(() => this.sheets.spreadsheets.values.clear({
         spreadsheetId: this.spreadsheetId,
         range: `${sheetName}!A2:Z`
-      });
+      }));
     } catch (e) {
       console.error(`Error clearing sheet ${sheetName}:`, e.message);
       throw e;
@@ -721,7 +793,16 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
 
     // Teacher / Admin Dashboard view
     const email = (req.user.email || '').trim().toLowerCase();
-    const profiles = await db.getRows('Users');
+    const [profiles, students, goldenTickets, classGoals, gradeGoals, allTickets, allSpending] = await Promise.all([
+      db.getRows('Users'),
+      db.getRows('Students'),
+      db.getRows('GoldenTickets'),
+      db.getRows('ClassGoals'),
+      db.getRows('GradeGoals'),
+      db.getRows('Tickets'),
+      db.getRows('Spending')
+    ]);
+
     const profile = profiles.find(p => (p.email || '').trim().toLowerCase() === email);
     if (!profile) return res.status(404).json({ message: 'Teacher profile not found' });
 
@@ -732,13 +813,8 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       profile.coTaughtHomerooms = typeof profile.coTaughtHomerooms === 'string' ? profile.coTaughtHomerooms.split(',').map(s => s.trim()).filter(Boolean) : [];
     }
 
-    const students = await db.getRows('Students');
-    const goldenTickets = await db.getRows('GoldenTickets');
-    const classGoals = await db.getRows('ClassGoals');
-    const gradeGoals = await db.getRows('GradeGoals');
-
-    let tickets = await db.getRows('Tickets');
-    let spending = await db.getRows('Spending');
+    let tickets = allTickets;
+    let spending = allSpending;
 
     // Calculate global balances for all students (so teachers can spend against student balances safely)
     const balances = {};
@@ -804,8 +880,87 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
 });
 
 // --- Behavior Tickets CRUD ---
+app.post('/api/tickets/batch', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+  const rawTickets = req.body.tickets || req.body.items || (Array.isArray(req.body) ? req.body : []);
+  if (!Array.isArray(rawTickets) || rawTickets.length === 0) {
+    return res.status(400).json({ message: 'No tickets provided in batch' });
+  }
+
+  try {
+    const newTickets = rawTickets.map(t => {
+      const { recipient, recipientType = 'student', reason = 'Respectful', customDate } = t;
+      const id = crypto.randomUUID();
+      let timestamp = new Date().toISOString();
+      if (customDate) {
+        const d = new Date(String(customDate) + 'T12:00:00');
+        if (!isNaN(d.getTime()) && d.getTime() <= Date.now() + 24 * 60 * 60 * 1000) {
+          timestamp = d.toISOString();
+        }
+      }
+      return {
+        id,
+        teacherEmail: req.user.email,
+        teacherName: req.user.name,
+        recipient: (recipient || '').trim(),
+        recipientType,
+        reason,
+        timestamp
+      };
+    }).filter(t => t.recipient);
+
+    if (newTickets.length === 0) {
+      return res.status(400).json({ message: 'Missing valid ticket recipients' });
+    }
+
+    await db.appendRows('Tickets', ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'RecipientType', 'Reason', 'Timestamp'], newTickets);
+    res.json({ success: true, count: newTickets.length, tickets: newTickets });
+  } catch (err) {
+    console.error('Batch tickets save error:', err);
+    res.status(500).json({ message: 'Error saving batch behavior tickets' });
+  }
+});
+
 app.post('/api/tickets', authMiddleware, async (req, res) => {
   if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+
+  // If request contains an array or batch of tickets, handle as batch
+  if (Array.isArray(req.body.tickets) || Array.isArray(req.body.items) || Array.isArray(req.body)) {
+    const rawTickets = req.body.tickets || req.body.items || req.body;
+    try {
+      const newTickets = rawTickets.map(t => {
+        const { recipient, recipientType = 'student', reason = 'Respectful', customDate } = t;
+        const id = crypto.randomUUID();
+        let timestamp = new Date().toISOString();
+        if (customDate) {
+          const d = new Date(String(customDate) + 'T12:00:00');
+          if (!isNaN(d.getTime()) && d.getTime() <= Date.now() + 24 * 60 * 60 * 1000) {
+            timestamp = d.toISOString();
+          }
+        }
+        return {
+          id,
+          teacherEmail: req.user.email,
+          teacherName: req.user.name,
+          recipient: (recipient || '').trim(),
+          recipientType,
+          reason,
+          timestamp
+        };
+      }).filter(t => t.recipient);
+
+      if (newTickets.length === 0) {
+        return res.status(400).json({ message: 'Missing valid ticket recipients' });
+      }
+
+      await db.appendRows('Tickets', ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'RecipientType', 'Reason', 'Timestamp'], newTickets);
+      return res.json({ success: true, count: newTickets.length, tickets: newTickets });
+    } catch (err) {
+      console.error('Batch tickets save error in /api/tickets:', err);
+      return res.status(500).json({ message: 'Error saving behavior tickets' });
+    }
+  }
+
   const { recipient, recipientType, reason, customDate } = req.body;
   if (!recipient || !recipientType || !reason) {
     return res.status(400).json({ message: 'Missing recipient, type, or reason' });

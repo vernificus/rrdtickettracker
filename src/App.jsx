@@ -25,7 +25,7 @@ const api = {
     if (token) localStorage.setItem('token', token);
     else localStorage.removeItem('token');
   },
-  async fetch(endpoint, options = {}) {
+  async fetch(endpoint, options = {}, retries = 2) {
     const headers = {
       'Content-Type': 'application/json',
       ...options.headers
@@ -35,16 +35,23 @@ const api = {
     }
 
     let res;
-    try {
-      res = await fetch(`${API_URL}${endpoint}`, {
-        ...options,
-        headers
-      });
-    } catch (netErr) {
-      const error = new Error('Unable to connect to the server. Please check your internet connection.');
-      error.isNetworkError = true;
-      error.status = 0;
-      throw error;
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      try {
+        res = await fetch(`${API_URL}${endpoint}`, {
+          ...options,
+          headers
+        });
+        break;
+      } catch (netErr) {
+        if (attempt < retries) {
+          await new Promise(r => setTimeout(r, 400 * Math.pow(2, attempt)));
+          continue;
+        }
+        const error = new Error('Unable to connect to the server. Please check your internet connection.');
+        error.isNetworkError = true;
+        error.status = 0;
+        throw error;
+      }
     }
 
     const contentType = res.headers.get('content-type') || '';
@@ -184,6 +191,39 @@ const addDoc = async (collOrName, data) => {
   return { id: result.id };
 };
 
+const addDocsBatch = async (collName, items) => {
+  if (!items || items.length === 0) return [];
+  if (items.length === 1) {
+    const res = await addDoc(collName, items[0]);
+    return [res];
+  }
+
+  const endpointMap = {
+    'tickets': '/api/tickets/batch',
+    'goldenTickets': '/api/golden-tickets/batch',
+  };
+  const url = endpointMap[collName] || `/api/${collName}/batch`;
+  const payload = items.map(data => {
+    const item = { ...data };
+    if (item.timestamp && typeof item.timestamp === 'object') {
+      item.timestamp = new Date().toISOString();
+    }
+    return item;
+  });
+
+  const result = await api.fetch(url, {
+    method: 'POST',
+    body: JSON.stringify({ tickets: payload, items: payload })
+  });
+
+  if (collName === 'tickets') playTicketSound('ticket');
+  else if (collName === 'goldenTickets') playTicketSound('golden');
+  else if (collName === 'spending') playTicketSound('spend');
+
+  if (window.triggerRefresh) window.triggerRefresh();
+  return result.tickets || [];
+};
+
 const deleteDoc = async (docRef) => {
   const collName = docRef.collection;
   const id = docRef.id;
@@ -272,6 +312,18 @@ const getLastName = (fullName) => {
   if (!fullName) return '';
   const parts = fullName.trim().split(/\s+/);
   return parts.length > 1 ? parts[parts.length - 1] : parts[0];
+};
+
+const matchHomeroom = (studentHomeroom, targetHomeroom) => {
+  if (!studentHomeroom || !targetHomeroom) return false;
+  const s = studentHomeroom.trim().toLowerCase();
+  const t = targetHomeroom.trim().toLowerCase();
+  if (s === t) return true;
+  if (s.includes(t) || t.includes(s)) return true;
+  const sLast = getLastName(studentHomeroom).toLowerCase();
+  const tLast = getLastName(targetHomeroom).toLowerCase();
+  if (sLast && tLast && sLast === tLast && sLast.length > 2) return true;
+  return false;
 };
 
 const sortStudentNames = (namesList, sortBy = 'firstName', balances = {}) => {
@@ -433,12 +485,17 @@ export default function App() {
     };
   }, []);
 
-  // Expose triggerRefresh globally for the mock Firestore operations
+  // Expose triggerRefresh globally for the mock Firestore operations with debounce
   useEffect(() => {
+    let debounceTimer = null;
     window.triggerRefresh = () => {
-      setRefreshTrigger(prev => prev + 1);
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        setRefreshTrigger(prev => prev + 1);
+      }, 150);
     };
     return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
       delete window.triggerRefresh;
     };
   }, []);
@@ -3771,15 +3828,16 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     if (list.length === 0) return;
     setIsSubmitting(true);
     try {
-      await Promise.all(list.map(recipient =>
-        addDoc(collection(db, 'tickets'), {
-          teacherId: user.uid, teacherName: profile.name,
-          recipient, recipientType: 'student', reason, timestamp: serverTimestamp(),
-          customDate: resolveSelectedDate()
-        })
-      ));
+      const ticketsToCreate = list.map(recipient => ({
+        teacherId: user?.uid || profile.name,
+        teacherName: profile.name,
+        recipient,
+        recipientType: 'student',
+        reason,
+        customDate: resolveSelectedDate()
+      }));
+      await addDocsBatch('tickets', ticketsToCreate);
       showToast(`${reason} ticket awarded to ${list.length} selected students!`);
-      playTicketSound('ticket');
     } catch (e) {
       console.error(e);
       showToast("Error awarding tickets.");
@@ -3792,15 +3850,16 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     if (memberNames.length === 0) return;
     setIsSubmitting(true);
     try {
-      await Promise.all(memberNames.map(recipient =>
-        addDoc(collection(db, 'tickets'), {
-          teacherId: user.uid, teacherName: profile.name,
-          recipient, recipientType: 'student', reason: 'Respectful', timestamp: serverTimestamp(),
-          customDate: resolveSelectedDate()
-        })
-      ));
+      const ticketsToCreate = memberNames.map(recipient => ({
+        teacherId: user?.uid || profile.name,
+        teacherName: profile.name,
+        recipient,
+        recipientType: 'student',
+        reason: 'Respectful',
+        customDate: resolveSelectedDate()
+      }));
+      await addDocsBatch('tickets', ticketsToCreate);
       showToast(`Awarded Respectful ticket to ${memberNames.length} students in "${groupName}"!`);
-      playTicketSound('ticket');
     } catch (e) {
       console.error(e);
       showToast("Error awarding group tickets.");
@@ -3953,7 +4012,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     try {
       if (type === 'class') {
         const className = recipient.split(' (Whole Class)')[0];
-        const classStudents = students.filter(s => s.homeroom === className);
+        const classStudents = students.filter(s => matchHomeroom(s.homeroom, className));
         const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
         if (presentStudents.length === 0) {
           showToast("No present students to award tickets to.");
@@ -3961,18 +4020,23 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
           setIsSubmitting(false);
           return;
         }
-        await Promise.all(presentStudents.map(student =>
-          addDoc(collection(db, 'tickets'), {
-            teacherId: user.uid, teacherName: profile.name,
-            recipient: student.name, recipientType: 'student', reason, timestamp: serverTimestamp(),
-            customDate: resolveSelectedDate()
-          })
-        ));
+        const ticketsToCreate = presentStudents.map(student => ({
+          teacherId: user?.uid || profile.name,
+          teacherName: profile.name,
+          recipient: student.name,
+          recipientType: 'student',
+          reason,
+          customDate: resolveSelectedDate()
+        }));
+        await addDocsBatch('tickets', ticketsToCreate);
         showToast(`Regular ticket awarded to ${presentStudents.length} present students in ${className}!`);
       } else {
         await addDoc(collection(db, 'tickets'), {
-          teacherId: user.uid, teacherName: profile.name,
-          recipient, recipientType: type, reason, timestamp: serverTimestamp(),
+          teacherId: user?.uid || profile.name,
+          teacherName: profile.name,
+          recipient,
+          recipientType: type,
+          reason,
           customDate: resolveSelectedDate()
         });
         showToast(`Ticket awarded to ${recipient}!`);
@@ -4525,7 +4589,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     try {
       if (type === 'class') {
         const className = recipient.split(' (Whole Class)')[0];
-        const classStudents = students.filter(s => s.homeroom === className);
+        const classStudents = students.filter(s => matchHomeroom(s.homeroom, className));
         const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
         if (presentStudents.length === 0) {
           showToast("No present students to award tickets to.");
@@ -4533,17 +4597,23 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
           setIsSubmitting(false);
           return;
         }
-        await Promise.all(presentStudents.map(student =>
-          addDoc(collection(db, 'tickets'), {
-            teacherId: user.uid, teacherName: profile.name,
-            recipient: student.name, recipientType: 'student', reason, timestamp: serverTimestamp()
-          })
-        ));
+        const ticketsToCreate = presentStudents.map(student => ({
+          teacherId: user?.uid || profile.name,
+          teacherName: profile.name,
+          recipient: student.name,
+          recipientType: 'student',
+          reason
+        }));
+        await addDocsBatch('tickets', ticketsToCreate);
         showToast(`Regular ticket awarded to ${presentStudents.length} present students in ${className}!`);
       } else {
         await addDoc(collection(db, 'tickets'), {
-          teacherId: user.uid, teacherName: profile.name,
-          recipient, recipientType: type, reason, timestamp: serverTimestamp()
+          teacherId: user?.uid || profile.name,
+          teacherName: profile.name,
+          recipient,
+          recipientType: type,
+          reason,
+          timestamp: serverTimestamp()
         });
         showToast(`Ticket awarded to ${recipient}!`);
       }
@@ -4914,7 +4984,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     try {
       if (type === 'class') {
         const className = recipient.split(' (Whole Class)')[0];
-        const classStudents = students.filter(s => s.homeroom === className);
+        const classStudents = students.filter(s => matchHomeroom(s.homeroom, className));
         const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
         if (presentStudents.length === 0) {
           showToast("No present students to award tickets to.");
@@ -4922,17 +4992,23 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           setIsSubmitting(false);
           return;
         }
-        await Promise.all(presentStudents.map(st =>
-          addDoc(collection(db, 'tickets'), {
-            teacherId: user.uid, teacherName: profile.name,
-            recipient: st.name, recipientType: 'student', reason, timestamp: serverTimestamp()
-          })
-        ));
+        const ticketsToCreate = presentStudents.map(st => ({
+          teacherId: user?.uid || profile.name,
+          teacherName: profile.name,
+          recipient: st.name,
+          recipientType: 'student',
+          reason
+        }));
+        await addDocsBatch('tickets', ticketsToCreate);
         showToast(`${reason} tickets awarded to all ${presentStudents.length} present students in ${className}!`);
       } else {
         await addDoc(collection(db, 'tickets'), {
-          teacherId: user.uid, teacherName: profile.name,
-          recipient, recipientType: type, reason, timestamp: serverTimestamp()
+          teacherId: user?.uid || profile.name,
+          teacherName: profile.name,
+          recipient,
+          recipientType: type,
+          reason,
+          timestamp: serverTimestamp()
         });
         showToast(`Ticket awarded to ${recipient}!`);
       }
