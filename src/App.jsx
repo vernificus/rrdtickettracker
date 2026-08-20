@@ -3728,9 +3728,98 @@ function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass
   );
 }
 
+// --- Award Golden Ticket Modal (Homeroom, Specialist & Admin Support) ---
+function AwardGoldenTicketModal({ isOpen, onClose, defaultClass, classes = [], onAward, isSubmitting }) {
+  const [targetClass, setTargetClass] = useState(defaultClass || '');
+
+  useEffect(() => {
+    if (defaultClass) setTargetClass(defaultClass);
+  }, [defaultClass, isOpen]);
+
+  if (!isOpen) return null;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!targetClass) return;
+    onAward(targetClass);
+  };
+
+  const otherClasses = classes.filter(c => c !== defaultClass);
+
+  return (
+    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scale-up border border-amber-200">
+        <div className="bg-gradient-to-r from-yellow-400 via-amber-500 to-yellow-500 p-5 text-white flex justify-between items-center">
+          <div className="flex items-center gap-2.5">
+            <Star className="w-6 h-6 text-yellow-100 fill-yellow-200 animate-spin-slow" />
+            <h3 className="text-lg font-black font-display tracking-tight">Award Golden Ticket</h3>
+          </div>
+          <button onClick={onClose} disabled={isSubmitting} className="text-yellow-100 hover:text-white cursor-pointer p-1 rounded-lg">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <p className="text-sm text-gray-600">
+            Award a Golden Ticket to your class or recognize any other homeroom class for outstanding hallway, cafeteria, assembly, or school-wide behavior!
+          </p>
+
+          <div>
+            <label htmlFor="golden-target-class" className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+              Select Recipient Class:
+            </label>
+            <select
+              id="golden-target-class"
+              value={targetClass}
+              onChange={(e) => setTargetClass(e.target.value)}
+              required
+              className="w-full p-3 border-2 border-amber-300 focus:border-amber-500 focus:ring-2 focus:ring-amber-200 rounded-xl text-sm font-bold text-gray-900 bg-white outline-none cursor-pointer"
+            >
+              {defaultClass && (
+                <option value={defaultClass}>
+                  ⭐ My Homeroom ({defaultClass})
+                </option>
+              )}
+              {otherClasses.length > 0 && (
+                <optgroup label="Other School Classes">
+                  {otherClasses.map(c => (
+                    <option key={c} value={c}>
+                      Class: {c}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="flex-1 py-3 px-4 rounded-xl border border-gray-200 text-gray-700 font-bold text-sm hover:bg-gray-50 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || !targetClass}
+              className="flex-1 py-3 px-4 bg-gradient-to-r from-yellow-500 to-amber-600 hover:from-yellow-600 hover:to-amber-700 text-white font-black text-sm rounded-xl shadow-md transition disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Star className="w-4 h-4 text-yellow-200 fill-yellow-200" />
+              <span>{isSubmitting ? 'Awarding...' : 'Award Ticket'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // --- Homeroom Dashboard ---
 function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch }) {
   const [modalData, setModalData] = useState(null);
+  const [showGoldenModal, setShowGoldenModal] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [awardDate, setAwardDate] = useState('today'); // 'today', 'yesterday', 'other'
   const [customDate, setCustomDate] = useState(''); // specific date picker value
@@ -4001,6 +4090,14 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
   };
 
+  const allSchoolClasses = useMemo(() => {
+    const fromStudents = students.map(s => s.homeroom).filter(Boolean);
+    const fromProfiles = profiles.filter(p => p.role === 'homeroom' || p.name).map(p => p.name).filter(Boolean);
+    return [...new Set([...fromStudents, ...fromProfiles, profile.name])].sort();
+  }, [students, profiles, profile]);
+
+  const activeHomeroom = selectedClassFilter === 'primary' ? profile.name : (selectedClassFilter === 'all' ? profile.name : selectedClassFilter);
+
   const handleGiveTicket = async (reason) => {
     if (!effectiveUid || !profile) {
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
@@ -4012,24 +4109,25 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     try {
       if (type === 'class') {
         const className = recipient.split(' (Whole Class)')[0];
-        const classStudents = students.filter(s => matchHomeroom(s.homeroom, className));
-        const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
+        const isCurrentClass = matchHomeroom(profile.name, className) || (selectedClassFilter !== 'primary' && matchHomeroom(selectedClassFilter, className));
+        const targetStudentNames = isCurrentClass ? myStudents : students.filter(s => matchHomeroom(s.homeroom, className)).map(s => s.name);
+        const presentStudents = targetStudentNames.filter(name => !absentStudents.has(name));
         if (presentStudents.length === 0) {
           showToast("No present students to award tickets to.");
           setModalData(null);
           setIsSubmitting(false);
           return;
         }
-        const ticketsToCreate = presentStudents.map(student => ({
+        const ticketsToCreate = presentStudents.map(studentName => ({
           teacherId: user?.uid || profile.name,
           teacherName: profile.name,
-          recipient: student.name,
+          recipient: typeof studentName === 'string' ? studentName : studentName.name,
           recipientType: 'student',
           reason,
           customDate: resolveSelectedDate()
         }));
         await addDocsBatch('tickets', ticketsToCreate);
-        showToast(`Regular ticket awarded to ${presentStudents.length} present students in ${className}!`);
+        showToast(`${reason} tickets awarded to all ${presentStudents.length} present students in ${className}!`);
       } else {
         await addDoc(collection(db, 'tickets'), {
           teacherId: user?.uid || profile.name,
@@ -4060,20 +4158,27 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
   };
 
-  const handleGoldenTicket = async () => {
+  const handleGoldenTicket = async (targetClassName) => {
+    const cls = targetClassName || profile.name;
     if (!effectiveUid || !profile) {
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    setIsSubmitting(true);
     try {
       await addDoc(collection(db, 'goldenTickets'), {
-        teacherId: user.uid, teacherName: profile.name,
-        className: profile.name, timestamp: serverTimestamp()
+        teacherId: user?.uid || profile.name,
+        teacherName: profile.name,
+        className: cls,
+        timestamp: serverTimestamp()
       });
-      showToast(`Golden Ticket awarded to ${profile.name}'s class!`);
+      showToast(`Golden Ticket awarded to ${cls}'s class!`);
+      setShowGoldenModal(false);
     } catch (e) {
       console.error("Error awarding Golden Ticket:", e);
       showToast("Error awarding Golden Ticket.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -4298,16 +4403,34 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         )}
       </div>
 
+      {/* Golden Ticket Banner */}
       <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm text-white flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Star className="w-8 h-8 text-yellow-100 animate-spin-slow" aria-hidden="true" />
           <div>
             <h3 className="text-lg font-bold">Golden Ticket</h3>
-            <p className="text-yellow-100 text-sm">Award your class for awesome behavior! <span className="font-bold text-white">({myClassGolden} earned)</span></p>
+            <p className="text-yellow-100 text-sm">Award your class or recognize another homeroom class! <span className="font-bold text-white">({myClassGolden} earned by your class)</span></p>
           </div>
         </div>
-        <button onClick={handleGoldenTicket} className="bg-white text-amber-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
+        <button onClick={() => setShowGoldenModal(true)} className="bg-white text-amber-700 hover:bg-yellow-50 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto cursor-pointer">
           Award Golden Ticket
+        </button>
+      </div>
+
+      {/* Class-Wide Recognition Banner */}
+      <div className="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-2xl shadow-sm text-white flex flex-col sm:flex-row items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Award className="w-8 h-8 text-green-100" aria-hidden="true" />
+          <div>
+            <h3 className="text-lg font-bold">Class-Wide Recognition</h3>
+            <p className="text-green-100 text-sm">Award a regular behavior ticket to all present students in <span className="font-bold text-white">"{activeHomeroom}"</span>.</p>
+          </div>
+        </div>
+        <button
+          onClick={() => setModalData({ recipient: `${activeHomeroom} (Whole Class)`, type: 'class' })}
+          className="bg-white text-green-700 hover:bg-green-50 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto cursor-pointer"
+        >
+          Award Whole Class
         </button>
       </div>
 
@@ -4523,6 +4646,15 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         profiles={profiles}
         onShareClass={handleShareClass}
         showToast={showToast}
+      />
+
+      <AwardGoldenTicketModal
+        isOpen={showGoldenModal}
+        onClose={() => setShowGoldenModal(false)}
+        defaultClass={profile.name}
+        classes={allSchoolClasses}
+        onAward={handleGoldenTicket}
+        isSubmitting={isSubmitting}
       />
     </div>
   );

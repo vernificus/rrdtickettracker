@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rrd-tickets-pwa-v2';
+const CACHE_NAME = 'rrd-tickets-pwa-v3';
 const STATIC_ASSETS = [
   '/manifest.json',
   '/favicon.svg',
