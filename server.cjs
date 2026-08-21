@@ -60,7 +60,8 @@ class GoogleSheetsDb {
       GoldenTickets: [],
       Spending: [],
       ClassGoals: [],
-      GradeGoals: []
+      GradeGoals: [],
+      RaffleWinners: []
     };
   }
 
@@ -131,9 +132,13 @@ class GoogleSheetsDb {
 
     try {
       this.sheets = google.sheets({ version: 'v4', auth });
-      await this.ensureTables();
+      // Use 3s timeout for ensureTables to quickly fall back if metadata server is unreachable
+      await Promise.race([
+        this.ensureTables(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Google Sheets connection timed out')), 3000))
+      ]);
     } catch (e) {
-      console.warn("Google Sheets connection failed, switching to local JSON database fallback:", e.message);
+      console.warn("Google Sheets connection failed/timed out, switching to local JSON database fallback:", e.message);
       this.useFallback = true;
     }
   }
@@ -146,7 +151,8 @@ class GoogleSheetsDb {
       { name: 'GoldenTickets', headers: ['Id', 'TeacherEmail', 'TeacherName', 'ClassName', 'Timestamp'] },
       { name: 'Spending', headers: ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'Amount', 'Item', 'Timestamp'] },
       { name: 'ClassGoals', headers: ['ClassName', 'GoalTickets', 'RewardText', 'Timestamp'] },
-      { name: 'GradeGoals', headers: ['Grade', 'GoalGolden', 'RewardText', 'Timestamp'] }
+      { name: 'GradeGoals', headers: ['Grade', 'GoalGolden', 'RewardText', 'Timestamp'] },
+      { name: 'RaffleWinners', headers: ['Id', 'WinnerName', 'WinnerType', 'Homeroom', 'Grade', 'TicketCount', 'DrawnByEmail', 'DrawnByName', 'Scope', 'Timestamp'] }
     ];
 
     try {
@@ -793,14 +799,15 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
 
     // Teacher / Admin Dashboard view
     const email = (req.user.email || '').trim().toLowerCase();
-    const [profiles, students, goldenTickets, classGoals, gradeGoals, allTickets, allSpending] = await Promise.all([
+    const [profiles, students, goldenTickets, classGoals, gradeGoals, allTickets, allSpending, raffleWinners] = await Promise.all([
       db.getRows('Users'),
       db.getRows('Students'),
       db.getRows('GoldenTickets'),
       db.getRows('ClassGoals'),
       db.getRows('GradeGoals'),
       db.getRows('Tickets'),
-      db.getRows('Spending')
+      db.getRows('Spending'),
+      db.getRows('RaffleWinners')
     ]);
 
     const profile = profiles.find(p => (p.email || '').trim().toLowerCase() === email);
@@ -871,7 +878,8 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       spending,
       classGoals,
       gradeGoals,
-      balances
+      balances,
+      raffleWinners
     });
   } catch (err) {
     console.error(err);
@@ -1232,6 +1240,122 @@ app.post('/api/grade-goals', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error saving grade goal' });
+  }
+});
+
+// --- Raffle Helper & CRUD Endpoints ---
+function matchHomeroomName(studentHomeroom, targetHomeroom) {
+  if (!studentHomeroom || !targetHomeroom) return false;
+  const s = studentHomeroom.trim().toLowerCase();
+  const t = targetHomeroom.trim().toLowerCase();
+  if (s === t) return true;
+  if (s.includes(t) || t.includes(s)) return true;
+  const getLastNameOnly = (name) => {
+    const parts = name.trim().split(/\s+/);
+    return parts.length > 1 ? parts[parts.length - 1] : parts[0];
+  };
+  const sLast = getLastNameOnly(studentHomeroom).toLowerCase();
+  const tLast = getLastNameOnly(targetHomeroom).toLowerCase();
+  if (sLast && tLast && sLast === tLast && sLast.length > 2) return true;
+  return false;
+}
+
+// Record Raffle Winner
+app.post('/api/raffle/winners', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+
+  const { winnerName, winnerType = 'student', homeroom = '', grade = '', ticketCount = 1, scope = 'class' } = req.body;
+  if (!winnerName) {
+    return res.status(400).json({ message: 'Winner name is required' });
+  }
+
+  const isAdmin = req.user.role === 'admin';
+
+  // 1. Only admins can run teacher raffles
+  if (winnerType === 'teacher' && !isAdmin) {
+    return res.status(403).json({ message: 'Only administrators can run teacher raffles.' });
+  }
+
+  // 2. Only admins can run whole-school raffles
+  const isWholeSchool = scope === 'all' || (typeof scope === 'string' && (scope.toLowerCase().includes('whole school') || scope.toLowerCase().includes('all homerooms')));
+  if (isWholeSchool && !isAdmin) {
+    return res.status(403).json({ message: 'Only administrators can run school-wide raffles.' });
+  }
+
+  // 3. For homeroom teachers, verify the draw is for their assigned or co-taught class
+  if (!isAdmin) {
+    const users = await db.getRows('Users');
+    const userProfile = users.find(u => (u.email || '').trim().toLowerCase() === (req.user.email || '').trim().toLowerCase());
+    let coTaught = [];
+    if (userProfile && userProfile.coTaughtHomerooms) {
+      try { coTaught = JSON.parse(userProfile.coTaughtHomerooms); } catch (e) {
+        coTaught = typeof userProfile.coTaughtHomerooms === 'string' ? userProfile.coTaughtHomerooms.split(',').map(s => s.trim()) : [];
+      }
+    }
+    const allowedClasses = [req.user.name, ...(userProfile ? [userProfile.name] : []), ...coTaught].filter(Boolean);
+    const targetClass = homeroom || scope;
+    const isAllowed = allowedClasses.some(c => matchHomeroomName(targetClass, c));
+
+    if (!isAllowed) {
+      return res.status(403).json({ message: 'Homeroom teachers can only run raffles for their own assigned homeroom or co-taught classes.' });
+    }
+  }
+
+  try {
+    const id = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
+    const newRecord = {
+      id,
+      winnerName: winnerName.trim(),
+      winnerType: winnerType || 'student',
+      homeroom: (homeroom || '').trim(),
+      grade: (grade || '').trim(),
+      ticketCount: Math.max(1, Math.floor(Number(ticketCount) || 1)),
+      drawnByEmail: req.user.email,
+      drawnByName: req.user.name,
+      scope: (scope || homeroom || 'class').trim(),
+      timestamp
+    };
+
+    await db.appendRow('RaffleWinners', ['Id', 'WinnerName', 'WinnerType', 'Homeroom', 'Grade', 'TicketCount', 'DrawnByEmail', 'DrawnByName', 'Scope', 'Timestamp'], newRecord);
+    res.json(newRecord);
+  } catch (err) {
+    console.error("Error recording raffle winner:", err);
+    res.status(500).json({ message: 'Failed to record raffle winner' });
+  }
+});
+
+// Delete Raffle Winner record (Admin or original drawer)
+app.delete('/api/raffle/winners/:id', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+  const winnerId = req.params.id;
+
+  try {
+    const records = await db.getRows('RaffleWinners');
+    const record = records.find(r => r.id === winnerId);
+    if (!record) return res.status(404).json({ message: 'Raffle winner record not found' });
+
+    if (req.user.role !== 'admin' && (record.drawnByEmail || '').toLowerCase() !== (req.user.email || '').toLowerCase()) {
+      return res.status(403).json({ message: 'You can only delete raffle entries you created.' });
+    }
+
+    await db.deleteRow('RaffleWinners', record._rowNum);
+    res.json({ success: true, message: 'Raffle winner record deleted.' });
+  } catch (err) {
+    console.error("Error deleting raffle winner record:", err);
+    res.status(500).json({ message: 'Failed to delete raffle winner record' });
+  }
+});
+
+// Clear all raffle history (Admin only)
+app.post('/api/raffle/clear', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin access required.' });
+  try {
+    await db.clearSheet('RaffleWinners');
+    res.json({ success: true, message: 'All raffle history has been reset.' });
+  } catch (err) {
+    console.error("Error clearing raffle history:", err);
+    res.status(500).json({ message: 'Failed to clear raffle history' });
   }
 });
 

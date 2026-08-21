@@ -5,7 +5,8 @@
       "name": "AdminTeacher",
       "role": "admin",
       "createdAt": "2026-07-10T13:47:26.525Z",
-      "_rowNum": 2
+      "_rowNum": 2,
+      "coTaughtHomerooms": []
     },
     {
       "email": "teacher1@example.com",
@@ -37,5 +38,6 @@
   "GoldenTickets": [],
   "Spending": [],
   "ClassGoals": [],
-  "GradeGoals": []
+  "GradeGoals": [],
+  "RaffleWinners": []
 }

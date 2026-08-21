@@ -4,7 +4,7 @@ import {
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
   Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv,
   Eye, Smartphone, Contrast, ShieldCheck, Share, ZoomIn, Volume2, ArrowUpDown, Layers, Shuffle, CheckSquare, Square,
-  Upload, Key, Menu, Printer
+  Upload, Key, Menu, Printer, History, Clock, Calendar, AlertCircle, RefreshCw, Sparkles, Filter, Undo2, Info
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : 'https://ticket-tracker-639453420405.us-east1.run.app');
@@ -398,6 +398,7 @@ export default function App() {
   const [classGoals, setClassGoals] = useState([]);
   const [gradeGoals, setGradeGoals] = useState([]);
   const [balances, setBalances] = useState({});
+  const [raffleWinners, setRaffleWinners] = useState([]);
 
   // Student Data State
   const [studentData, setStudentData] = useState(null);
@@ -532,6 +533,7 @@ export default function App() {
           setClassGoals(data.classGoals || []);
           setGradeGoals(data.gradeGoals || []);
           setBalances(data.balances || {});
+          setRaffleWinners(data.raffleWinners || []);
         }
       } catch (e) {
         console.error("Session check/data load error:", e);
@@ -754,7 +756,16 @@ export default function App() {
 
       <main id="main-content" tabIndex="-1" role="main" aria-label="Main Application Content" className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
         {activeView === 'raffle' ? (
-          <RaffleDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} />
+          <RaffleDashboard
+            tickets={tickets}
+            students={students}
+            profiles={profiles}
+            profile={profile}
+            role={role}
+            raffleWinners={raffleWinners}
+            setRaffleWinners={setRaffleWinners}
+            showToast={showToast}
+          />
         ) : (
           <>
             {role === 'admin' && (
@@ -1415,20 +1426,88 @@ function ClassDisplayMode({ className, students, balances, classGoals = [], isSu
 }
 
 // --- Weekly Raffle Component ---
-function RaffleDashboard({ tickets, students, profiles, showToast }) {
-  const [targetType, setTargetType] = useState('student'); // 'student' or 'teacher'
+function RaffleDashboard({
+  tickets,
+  students,
+  profiles,
+  profile,
+  role,
+  raffleWinners = [],
+  setRaffleWinners,
+  showToast
+}) {
+  const isAdmin = role === 'admin';
+  const isHomeroom = role === 'homeroom';
+  const isSpecialist = role === 'specialist';
+
+  // Navigation tab: 'drum' | 'history' | 'cooldown'
+  const [activeTab, setActiveTab] = useState('drum');
+
+  // Co-taught classes list
+  const coTaughtList = useMemo(() => {
+    return Array.isArray(profile?.coTaughtHomerooms) ? profile.coTaughtHomerooms : [];
+  }, [profile]);
+
+  // Allowed homerooms based on role
+  const allowedHomerooms = useMemo(() => {
+    if (isAdmin) {
+      return [...new Set(students.map(s => s.homeroom).filter(Boolean))].sort();
+    }
+    const myClasses = [profile?.name, ...coTaughtList].filter(Boolean);
+    return [...new Set(myClasses)].sort();
+  }, [isAdmin, profile, coTaughtList, students]);
+
+  // Initial targetType & selectedHomeroom based on role
+  const [targetType, setTargetType] = useState('student'); // 'student' or 'teacher' (teacher only for admin)
   const [timeRange, setTimeRange] = useState('week'); // 'week', 'month', 'all'
   const [selectedGrade, setSelectedGrade] = useState('');
-  const [selectedHomeroom, setSelectedHomeroom] = useState('');
+  const [selectedHomeroom, setSelectedHomeroom] = useState(() => {
+    if (isAdmin) return '';
+    return profile?.name || coTaughtList[0] || '';
+  });
 
-  // Raffle animation states
+  // History search and filter state
+  const [historySearch, setHistorySearch] = useState('');
+  const [historyFilterType, setHistoryFilterType] = useState('all');
+  const [historyFilterHomeroom, setHistoryFilterHomeroom] = useState('');
+  const [showClearHistoryConfirm, setShowClearHistoryConfirm] = useState(false);
+  const [isClearingHistory, setIsClearingHistory] = useState(false);
+
+  // Raffle animation and state
   const [isDrawing, setIsDrawing] = useState(false);
   const [winner, setWinner] = useState(null);
   const [tickerName, setTickerName] = useState('');
   const [showConfetti, setShowConfetti] = useState(false);
+  const [recentlySavedWinner, setRecentlySavedWinner] = useState(null);
+  const [isDeletingWinnerId, setIsDeletingWinnerId] = useState(null);
 
-  // Filter candidates based on ticket history
-  const candidates = useMemo(() => {
+  // 4-Week (28 Days) Cooldown duration constant
+  const FOUR_WEEKS_MS = 28 * 24 * 60 * 60 * 1000;
+
+  // Active cooldown records within 28 days for current targetType
+  const recentCooldownWinners = useMemo(() => {
+    const now = Date.now();
+    return (raffleWinners || []).filter(w => {
+      if ((w.winnerType || 'student') !== targetType) return false;
+      const winTime = new Date(w.timestamp).getTime();
+      return !isNaN(winTime) && (now - winTime) < FOUR_WEEKS_MS;
+    });
+  }, [raffleWinners, targetType]);
+
+  // Map of recently won names -> winner record
+  const recentWinnerMap = useMemo(() => {
+    const map = new Map();
+    recentCooldownWinners.forEach(w => {
+      const nameKey = (w.winnerName || '').trim().toLowerCase();
+      if (!map.has(nameKey)) {
+        map.set(nameKey, w);
+      }
+    });
+    return map;
+  }, [recentCooldownWinners]);
+
+  // Candidate pool and excluded cooldown pool calculation
+  const { candidates, cooldownExcluded } = useMemo(() => {
     const now = new Date();
     let cutoff = new Date(0); // all time
     if (timeRange === 'week') {
@@ -1438,12 +1517,12 @@ function RaffleDashboard({ tickets, students, profiles, showToast }) {
     }
 
     const eligibleTickets = tickets.filter(t => {
-      const ticketTime = t.timestamp ? new Date(t.timestamp.toDate()) : new Date();
+      const ticketTime = t.timestamp ? new Date(t.timestamp.toDate ? t.timestamp.toDate() : t.timestamp) : new Date();
       return ticketTime >= cutoff;
     });
 
     if (targetType === 'student') {
-      // Group by student
+      // Group tickets by student
       const counts = {};
       eligibleTickets.forEach(t => {
         if (t.recipientType === 'student') {
@@ -1451,35 +1530,95 @@ function RaffleDashboard({ tickets, students, profiles, showToast }) {
         }
       });
 
-      // Filter by homeroom and grade if requested
-      return Object.entries(counts)
-        .map(([name, count]) => {
-          const studentObj = students.find(s => s.name === name);
-          return {
+      const candidateList = [];
+      const cooldownList = [];
+
+      Object.entries(counts).forEach(([name, count]) => {
+        const studentObj = students.find(s => s.name === name);
+        const sHomeroom = studentObj?.homeroom || 'Unknown';
+        const sGrade = studentObj?.grade || 'Unknown';
+
+        // Filter by grade if selected (admin)
+        if (selectedGrade && sGrade !== selectedGrade) return;
+
+        // Filter by homeroom if selected (or required for homeroom teachers)
+        if (selectedHomeroom) {
+          if (!matchHomeroom(sHomeroom, selectedHomeroom)) return;
+        } else if (!isAdmin) {
+          // If non-admin has no specific homeroom selected, restrict to their allowed homerooms
+          const isMyStudent = allowedHomerooms.some(h => matchHomeroom(sHomeroom, h));
+          if (!isMyStudent) return;
+        }
+
+        const nameKey = name.trim().toLowerCase();
+        const winRecord = recentWinnerMap.get(nameKey);
+
+        if (winRecord) {
+          const winTime = new Date(winRecord.timestamp).getTime();
+          const elapsed = Date.now() - winTime;
+          const daysLeft = Math.max(1, Math.ceil((FOUR_WEEKS_MS - elapsed) / (24 * 60 * 60 * 1000)));
+          const eligibleDate = new Date(winTime + FOUR_WEEKS_MS);
+
+          cooldownList.push({
             name,
             count,
-            homeroom: studentObj?.homeroom || 'Unknown',
-            grade: studentObj?.grade || 'Unknown'
-          };
-        })
-        .filter(c => {
-          if (selectedGrade && c.grade !== selectedGrade) return false;
-          if (selectedHomeroom && c.homeroom !== selectedHomeroom) return false;
-          return true;
-        });
-    } else {
-      // Group by teacher
-      const counts = {};
-      eligibleTickets.forEach(t => {
-        counts[t.teacherName] = (counts[t.teacherName] || 0) + 1;
+            homeroom: sHomeroom,
+            grade: sGrade,
+            winRecord,
+            daysLeft,
+            eligibleDate
+          });
+        } else {
+          candidateList.push({
+            name,
+            count,
+            homeroom: sHomeroom,
+            grade: sGrade
+          });
+        }
       });
 
-      return Object.entries(counts).map(([name, count]) => ({
-        name,
-        count
-      }));
+      return { candidates: candidateList, cooldownExcluded: cooldownList };
+    } else {
+      // Teacher raffle (Admin only)
+      const counts = {};
+      eligibleTickets.forEach(t => {
+        if (t.teacherName) {
+          counts[t.teacherName] = (counts[t.teacherName] || 0) + 1;
+        }
+      });
+
+      const candidateList = [];
+      const cooldownList = [];
+
+      Object.entries(counts).forEach(([name, count]) => {
+        const nameKey = name.trim().toLowerCase();
+        const winRecord = recentWinnerMap.get(nameKey);
+
+        if (winRecord) {
+          const winTime = new Date(winRecord.timestamp).getTime();
+          const elapsed = Date.now() - winTime;
+          const daysLeft = Math.max(1, Math.ceil((FOUR_WEEKS_MS - elapsed) / (24 * 60 * 60 * 1000)));
+          const eligibleDate = new Date(winTime + FOUR_WEEKS_MS);
+
+          cooldownList.push({
+            name,
+            count,
+            winRecord,
+            daysLeft,
+            eligibleDate
+          });
+        } else {
+          candidateList.push({
+            name,
+            count
+          });
+        }
+      });
+
+      return { candidates: candidateList, cooldownExcluded: cooldownList };
     }
-  }, [tickets, students, targetType, timeRange, selectedGrade, selectedHomeroom]);
+  }, [tickets, students, targetType, timeRange, selectedGrade, selectedHomeroom, isAdmin, allowedHomerooms, recentWinnerMap, FOUR_WEEKS_MS]);
 
   const totalTickets = useMemo(() => {
     return candidates.reduce((sum, c) => sum + c.count, 0);
@@ -1487,16 +1626,18 @@ function RaffleDashboard({ tickets, students, profiles, showToast }) {
 
   // List of all candidate grades & homerooms for dropdowns
   const grades = useMemo(() => [...new Set(students.map(s => s.grade).filter(Boolean))].sort(), [students]);
-  const homerooms = useMemo(() => [...new Set(students.map(s => s.homeroom).filter(Boolean))].sort(), [students]);
+  const allHomeroomsList = useMemo(() => [...new Set(students.map(s => s.homeroom).filter(Boolean))].sort(), [students]);
 
+  // Handle draw execution and auto-recording
   const handleDraw = () => {
     if (candidates.length === 0) {
-      showToast("No eligible candidates in this pool!");
+      showToast("No eligible candidates in this pool! (Check if past winners are on 4-week cooldown)");
       return;
     }
     setIsDrawing(true);
     setWinner(null);
     setShowConfetti(false);
+    setRecentlySavedWinner(null);
 
     // Create the lottery pool (weighted by ticket counts)
     const pool = [];
@@ -1507,7 +1648,7 @@ function RaffleDashboard({ tickets, students, profiles, showToast }) {
     });
 
     // Run custom ticker animation
-    let duration = 4000; // 4 seconds total animation
+    let duration = 4200; // 4.2 seconds total animation
     let start = Date.now();
     let speed = 40; // start fast (every 40ms change name)
 
@@ -1521,8 +1662,13 @@ function RaffleDashboard({ tickets, students, profiles, showToast }) {
         setTickerName(finalWinner.name);
         setIsDrawing(false);
         setShowConfetti(true);
+        playTicketSound('golden');
+
         // Turn off confetti after 8 seconds
         setTimeout(() => setShowConfetti(false), 8000);
+
+        // Record winner to backend
+        recordWinner(finalWinner);
       } else {
         // Cycle names
         const randomCandidate = candidates[Math.floor(Math.random() * candidates.length)];
@@ -1530,7 +1676,7 @@ function RaffleDashboard({ tickets, students, profiles, showToast }) {
         
         // Decelerate speed
         const progress = elapsed / duration;
-        speed = 40 + Math.pow(progress, 2.5) * 500; // curves from 40ms to 540ms
+        speed = 40 + Math.pow(progress, 2.5) * 520;
         setTimeout(tick, speed);
       }
     };
@@ -1538,185 +1684,782 @@ function RaffleDashboard({ tickets, students, profiles, showToast }) {
     tick();
   };
 
+  // Record winner to backend API
+  const recordWinner = async (winningCandidate) => {
+    try {
+      const scope = isAdmin
+        ? (!selectedHomeroom ? (selectedGrade ? `Grade ${selectedGrade}` : 'Whole School') : selectedHomeroom)
+        : (selectedHomeroom || profile?.name || 'Class');
+
+      const savedRecord = await api.fetch('/api/raffle/winners', {
+        method: 'POST',
+        body: JSON.stringify({
+          winnerName: winningCandidate.name,
+          winnerType: targetType,
+          homeroom: winningCandidate.homeroom || selectedHomeroom || profile?.name || '',
+          grade: winningCandidate.grade || selectedGrade || '',
+          ticketCount: winningCandidate.count,
+          scope
+        })
+      });
+
+      setRecentlySavedWinner(savedRecord);
+      setRaffleWinners(prev => [savedRecord, ...prev]);
+      showToast(`🎉 ${winningCandidate.name} won! Recorded to Raffle History (4-week victory cooldown active).`);
+    } catch (err) {
+      console.error("Failed to record raffle winner:", err);
+      showToast(err.message || "Warning: Could not save raffle winner to history.");
+    }
+  };
+
+  // Undo / Delete a winner record
+  const handleDeleteWinner = async (winnerId) => {
+    if (!winnerId) return;
+    setIsDeletingWinnerId(winnerId);
+    try {
+      await api.fetch(`/api/raffle/winners/${winnerId}`, {
+        method: 'DELETE'
+      });
+      setRaffleWinners(prev => prev.filter(w => w.id !== winnerId));
+      if (recentlySavedWinner?.id === winnerId) {
+        setRecentlySavedWinner(null);
+        setWinner(null);
+      }
+      showToast("Raffle record removed. Candidate is back in the active pool.");
+    } catch (err) {
+      console.error("Error deleting winner record:", err);
+      showToast(err.message || "Failed to delete winner record.");
+    } finally {
+      setIsDeletingWinnerId(null);
+    }
+  };
+
+  // Clear all raffle history (Admin only)
+  const handleClearAllHistory = async () => {
+    setIsClearingHistory(true);
+    try {
+      await api.fetch('/api/raffle/clear', {
+        method: 'POST'
+      });
+      setRaffleWinners([]);
+      setShowClearHistoryConfirm(false);
+      showToast("All raffle history has been reset.");
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to clear raffle history.");
+    } finally {
+      setIsClearingHistory(false);
+    }
+  };
+
+  // Export history to CSV
+  const handleExportCSV = () => {
+    if (!raffleWinners || raffleWinners.length === 0) {
+      showToast("No raffle history to export.");
+      return;
+    }
+    const headers = ['Date', 'Winner Name', 'Type', 'Homeroom', 'Grade', 'Tickets At Draw', 'Scope', 'Drawn By Email', 'Drawn By Name'];
+    const rows = raffleWinners.map(w => [
+      `"${new Date(w.timestamp).toLocaleString()}"`,
+      `"${(w.winnerName || '').replace(/"/g, '""')}"`,
+      `"${w.winnerType || 'student'}"`,
+      `"${(w.homeroom || '').replace(/"/g, '""')}"`,
+      `"${(w.grade || '').replace(/"/g, '""')}"`,
+      w.ticketCount || 1,
+      `"${(w.scope || '').replace(/"/g, '""')}"`,
+      `"${(w.drawnByEmail || '').replace(/"/g, '""')}"`,
+      `"${(w.drawnByName || '').replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `rrd_raffle_winners_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast("Downloaded raffle winners history CSV!");
+  };
+
+  // Filtered history list
+  const filteredHistory = useMemo(() => {
+    return (raffleWinners || []).filter(w => {
+      if (historyFilterType !== 'all' && (w.winnerType || 'student') !== historyFilterType) {
+        return false;
+      }
+      if (historyFilterHomeroom && (w.homeroom || '').toLowerCase() !== historyFilterHomeroom.toLowerCase()) {
+        return false;
+      }
+      if (historySearch.trim()) {
+        const q = historySearch.toLowerCase();
+        const nameMatch = (w.winnerName || '').toLowerCase().includes(q);
+        const homeroomMatch = (w.homeroom || '').toLowerCase().includes(q);
+        const drawnByMatch = (w.drawnByName || '').toLowerCase().includes(q) || (w.drawnByEmail || '').toLowerCase().includes(q);
+        if (!nameMatch && !homeroomMatch && !drawnByMatch) return false;
+      }
+      return true;
+    });
+  }, [raffleWinners, historyFilterType, historyFilterHomeroom, historySearch]);
+
+  // Calculate cooldown items for the 4-Week Cooldown tab
+  const allActiveCooldowns = useMemo(() => {
+    const now = Date.now();
+    return (raffleWinners || []).filter(w => {
+      const winTime = new Date(w.timestamp).getTime();
+      return !isNaN(winTime) && (now - winTime) < FOUR_WEEKS_MS;
+    }).map(w => {
+      const winTime = new Date(w.timestamp).getTime();
+      const elapsed = now - winTime;
+      const daysLeft = Math.max(1, Math.ceil((FOUR_WEEKS_MS - elapsed) / (24 * 60 * 60 * 1000)));
+      const eligibleDate = new Date(winTime + FOUR_WEEKS_MS);
+      return {
+        ...w,
+        daysLeft,
+        eligibleDate
+      };
+    }).sort((a, b) => a.daysLeft - b.daysLeft);
+  }, [raffleWinners, FOUR_WEEKS_MS]);
+
   return (
-    <div className="space-y-6 max-w-4xl mx-auto relative">
+    <div className="space-y-6 max-w-5xl mx-auto relative pb-12">
       {showConfetti && <ConfettiEffect />}
 
+      {/* Main Header Banner */}
       <div className="bg-white p-6 rounded-3xl border border-gray-155 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-navy-950 font-display flex items-center gap-2">
-            <Star className="w-8 h-8 text-yellow-500 fill-current animate-spin-slow" />
-            <span>Weekly Raffle Drum</span>
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">Reward students and teachers who earned tickets during the selected time period.</p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-navy-950 font-display flex items-center gap-2">
+              <Star className="w-7 h-7 sm:w-8 h-8 text-yellow-500 fill-current animate-spin-slow" />
+              <span>Weekly Raffle Drum</span>
+            </h1>
+            {isAdmin ? (
+              <span className="bg-amber-100 text-amber-900 border border-amber-300/60 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                <Crown className="w-3.5 h-3.5 text-amber-600 fill-current" />
+                School-Wide Admin Access
+              </span>
+            ) : (
+              <span className="bg-emerald-100 text-emerald-900 border border-emerald-300/60 px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1">
+                <Users className="w-3.5 h-3.5 text-emerald-600" />
+                Class Drawing Mode ({selectedHomeroom || profile?.name})
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-gray-500 mt-1.5">
+            {isAdmin
+              ? "Run whole-school or classroom drawings with automatic winner logging and 4-week victory cooldowns."
+              : "Run weekly raffle drawings for your homeroom students. Winners are recorded and removed from drawing for 4 weeks."}
+          </p>
         </div>
-        <div className="flex gap-2">
+
+        {/* Tab Switcher */}
+        <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 w-full md:w-auto self-stretch md:self-auto justify-between md:justify-start">
           <button
-            onClick={() => { setTargetType('student'); setWinner(null); }}
-            className={`px-4 py-2 text-sm font-bold rounded-xl transition ${targetType === 'student' ? 'bg-brand-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            onClick={() => setActiveTab('drum')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${activeTab === 'drum' ? 'bg-white text-navy-950 shadow-sm' : 'text-slate-600 hover:text-navy-950'}`}
           >
-            Student Raffle
+            <Sparkles className="w-4 h-4 text-yellow-500" />
+            <span>Raffle Drum</span>
           </button>
           <button
-            onClick={() => { setTargetType('teacher'); setWinner(null); }}
-            className={`px-4 py-2 text-sm font-bold rounded-xl transition ${targetType === 'teacher' ? 'bg-brand-700 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            onClick={() => setActiveTab('history')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${activeTab === 'history' ? 'bg-white text-navy-950 shadow-sm' : 'text-slate-600 hover:text-navy-950'}`}
           >
-            Teacher Raffle
+            <History className="w-4 h-4 text-brand-600" />
+            <span>Winner History</span>
+            <span className="bg-slate-200 text-slate-700 px-1.5 py-0.5 rounded-full text-[10px] font-black">
+              {raffleWinners.length}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab('cooldown')}
+            className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition ${activeTab === 'cooldown' ? 'bg-white text-navy-950 shadow-sm' : 'text-slate-600 hover:text-navy-950'}`}
+          >
+            <Clock className="w-4 h-4 text-purple-600" />
+            <span className="hidden sm:inline">4-Week </span>Cooldown
+            {allActiveCooldowns.length > 0 && (
+              <span className="bg-purple-100 text-purple-800 px-1.5 py-0.5 rounded-full text-[10px] font-black">
+                {allActiveCooldowns.length}
+              </span>
+            )}
           </button>
         </div>
       </div>
 
-      {/* Control Filters and Visual Drawer */}
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_2fr] gap-6">
-        {/* Filters Sidebar */}
-        <div className="bg-white p-5 rounded-3xl border border-gray-155 shadow-sm space-y-4">
-          <h3 className="font-display font-black text-navy-950 text-sm border-b pb-2 uppercase tracking-wider">Configure Pool</h3>
-          
-          <div>
-            <label className="block text-xs font-bold text-gray-500 mb-1">Time Range</label>
-            <select value={timeRange} onChange={e => { setTimeRange(e.target.value); setWinner(null); }} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none bg-white">
-              <option value="week">This Week (Last 7 Days)</option>
-              <option value="month">This Month (Last 30 Days)</option>
-              <option value="all">All Time</option>
-            </select>
+      {/* --- TAB 1: RAFFLE DRUM & LIVE DRAW --- */}
+      {activeTab === 'drum' && (
+        <div className="space-y-6">
+          {/* Target Type Selector for Admins / Role Lock Banner */}
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-white p-4 rounded-2xl border border-gray-155 shadow-xs">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Drawing Category:</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setTargetType('student'); setWinner(null); }}
+                  className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition ${targetType === 'student' ? 'bg-brand-700 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                >
+                  Student Raffle
+                </button>
+                {isAdmin ? (
+                  <button
+                    onClick={() => { setTargetType('teacher'); setWinner(null); }}
+                    className={`px-3.5 py-1.5 text-xs font-bold rounded-xl transition ${targetType === 'teacher' ? 'bg-brand-700 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                  >
+                    Teacher Raffle
+                  </button>
+                ) : (
+                  <button
+                    disabled
+                    title="Only administrators can run school-wide teacher raffles"
+                    className="px-3.5 py-1.5 text-xs font-bold rounded-xl bg-slate-100 text-slate-400 opacity-60 cursor-not-allowed flex items-center gap-1"
+                  >
+                    <Lock className="w-3 h-3" />
+                    Teacher Raffle (Admin Only)
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Cooldown pill shortcut */}
+            {cooldownExcluded.length > 0 && (
+              <button
+                onClick={() => setActiveTab('cooldown')}
+                className="text-xs bg-purple-50 text-purple-800 border border-purple-200/80 hover:bg-purple-100 px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition"
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
+                <span>{cooldownExcluded.length} student{cooldownExcluded.length === 1 ? '' : 's'} currently on 4-week victory cooldown</span>
+              </button>
+            )}
           </div>
 
-          {targetType === 'student' && (
-            <>
+          {/* Control Filters and Visual Drawer */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_2fr] gap-6">
+            {/* Filters Sidebar */}
+            <div className="bg-white p-5 rounded-3xl border border-gray-155 shadow-sm space-y-4">
+              <h3 className="font-display font-black text-navy-950 text-sm border-b pb-2 uppercase tracking-wider flex items-center justify-between">
+                <span>Configure Drawing Pool</span>
+                <Filter className="w-4 h-4 text-gray-400" />
+              </h3>
+              
               <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Grade Level</label>
-                <select value={selectedGrade} onChange={e => { setSelectedGrade(e.target.value); setWinner(null); }} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none bg-white">
-                  <option value="">All Grades</option>
-                  {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                <label className="block text-xs font-bold text-gray-500 mb-1">Ticket Time Period</label>
+                <select
+                  value={timeRange}
+                  onChange={e => { setTimeRange(e.target.value); setWinner(null); }}
+                  className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-emerald-500 focus:border-emerald-500 outline-none bg-white font-medium"
+                >
+                  <option value="week">This Week (Last 7 Days)</option>
+                  <option value="month">This Month (Last 30 Days)</option>
+                  <option value="all">All Time</option>
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-500 mb-1">Homeroom</label>
-                <select value={selectedHomeroom} onChange={e => { setSelectedHomeroom(e.target.value); setWinner(null); }} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none bg-white">
-                  <option value="">All Homerooms</option>
-                  {homerooms.map(h => <option key={h} value={h}>{h}</option>)}
-                </select>
-              </div>
-            </>
-          )}
+              {targetType === 'student' && (
+                <>
+                  {isAdmin ? (
+                    <div>
+                      <label className="block text-xs font-bold text-gray-500 mb-1">Grade Level Filter</label>
+                      <select
+                        value={selectedGrade}
+                        onChange={e => { setSelectedGrade(e.target.value); setWinner(null); }}
+                        className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-emerald-500 focus:border-emerald-500 outline-none bg-white font-medium"
+                      >
+                        <option value="">All Grades (School-Wide)</option>
+                        {grades.map(g => <option key={g} value={g}>{g}</option>)}
+                      </select>
+                    </div>
+                  ) : null}
 
-          <div className="bg-slate-50 border border-slate-100 p-3 rounded-2xl text-xs space-y-1.5">
-            <div className="flex justify-between">
-              <span className="text-gray-400 font-bold">Total Candidates:</span>
-              <span className="font-black text-navy-950">{candidates.length}</span>
+                  <div>
+                    <label className="block text-xs font-bold text-gray-500 mb-1">
+                      {isAdmin ? 'Homeroom Filter' : 'Your Class Homeroom'}
+                    </label>
+                    <select
+                      value={selectedHomeroom}
+                      onChange={e => { setSelectedHomeroom(e.target.value); setWinner(null); }}
+                      className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-emerald-500 focus:border-emerald-500 outline-none bg-white font-medium"
+                    >
+                      {isAdmin ? (
+                        <>
+                          <option value="">All Homerooms (Whole School)</option>
+                          {allHomeroomsList.map(h => <option key={h} value={h}>{h}</option>)}
+                        </>
+                      ) : (
+                        allowedHomerooms.map(h => (
+                          <option key={h} value={h}>{h} (My Class)</option>
+                        ))
+                      )}
+                    </select>
+                    {!isAdmin && (
+                      <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+                        <Info className="w-3 h-3 text-emerald-600 shrink-0" />
+                        Homeroom teachers can only draw for their class students.
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
+              {/* Pool Statistics Card */}
+              <div className="bg-slate-50 border border-slate-200/80 p-3.5 rounded-2xl text-xs space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500 font-bold">Eligible Candidates:</span>
+                  <span className="font-black text-navy-950 text-sm bg-white px-2 py-0.5 rounded-lg border border-slate-200">
+                    {candidates.length}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500 font-bold">Total Weighted Entries:</span>
+                  <span className="font-black text-brand-700 text-sm bg-brand-50 px-2 py-0.5 rounded-lg border border-brand-200">
+                    {totalTickets}
+                  </span>
+                </div>
+                {cooldownExcluded.length > 0 && (
+                  <div className="flex justify-between items-center text-purple-900 bg-purple-50 p-2 rounded-xl border border-purple-200/60 font-semibold">
+                    <span>On 4-Week Cooldown:</span>
+                    <span className="font-black text-purple-700">-{cooldownExcluded.length}</span>
+                  </div>
+                )}
+                <p className="text-[10px] text-gray-400 italic pt-1 border-t border-slate-200/60">
+                  Each student's chance of winning is proportional to tickets earned during this period.
+                </p>
+              </div>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-400 font-bold">Total Entries:</span>
-              <span className="font-black text-navy-950">{totalTickets}</span>
+
+            {/* Visual Drawing Stage */}
+            <div className="bg-gradient-to-br from-navy-900 via-navy-950 to-slate-950 p-6 rounded-3xl border border-navy-700 shadow-xl flex flex-col items-center justify-center min-h-[420px] relative overflow-hidden text-center text-white">
+              {/* Decorative Background Rays */}
+              <div className="absolute inset-0 opacity-15 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-yellow-300 via-emerald-400 to-transparent pointer-events-none"></div>
+
+              {!isDrawing && !winner ? (
+                <div className="space-y-6 z-10 max-w-md">
+                  <div className="w-24 h-24 bg-navy-800/90 border-2 border-yellow-500 rounded-full flex items-center justify-center mx-auto text-yellow-500 shadow-lg shadow-yellow-500/20 animate-pulse">
+                    <Ticket className="w-12 h-12" />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl sm:text-3xl font-black font-display text-white">Ready for Draw</h2>
+                    <p className="text-xs sm:text-sm text-navy-200 mt-2">
+                      {targetType === 'student'
+                        ? (isAdmin && !selectedHomeroom
+                            ? "Drawing across the entire school with 4-week cooldown protection."
+                            : `Drawing for class: ${selectedHomeroom || profile?.name || 'Students'}`)
+                        : "Drawing among teachers who awarded tickets."}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleDraw}
+                    disabled={candidates.length === 0}
+                    className="bg-yellow-500 hover:bg-yellow-400 disabled:opacity-40 disabled:hover:bg-yellow-500 text-navy-950 font-black px-8 py-3.5 rounded-2xl shadow-lg shadow-yellow-500/20 transition text-base transform hover:scale-105 active:scale-95 cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    Start Raffle Draw
+                  </button>
+                  {candidates.length === 0 && (
+                    <p className="text-xs text-yellow-400 font-semibold">
+                      No candidates currently meet criteria in this pool.
+                    </p>
+                  )}
+                </div>
+              ) : isDrawing ? (
+                <div className="space-y-6 z-10 w-full max-w-md">
+                  <div className="text-yellow-400 uppercase tracking-widest text-xs font-black animate-pulse flex items-center justify-center gap-1.5">
+                    <Sparkles className="w-4 h-4 animate-spin" />
+                    <span>Rolling the Weighted Ticket Drum...</span>
+                  </div>
+                  <div className="h-32 flex items-center justify-center border-2 border-yellow-500/40 bg-navy-950/80 p-4 rounded-2xl shadow-2xl backdrop-blur-xs">
+                    <div className="text-3xl sm:text-4xl font-black font-display tracking-tight text-yellow-300 animate-fade-in truncate w-full">
+                      {tickerName}
+                    </div>
+                  </div>
+                  <p className="text-xs text-navy-300 italic">Selecting winner weighted by ticket volume...</p>
+                </div>
+              ) : (
+                <div className="space-y-6 z-10 animate-fade-in max-w-lg w-full">
+                  <div className="text-yellow-400 uppercase tracking-widest text-xs font-black flex items-center justify-center gap-1.5">
+                    <Crown className="w-4 h-4 fill-current text-yellow-400" />
+                    <span>Winner Drawn & Recorded! 🎉</span>
+                  </div>
+
+                  <div className="bg-yellow-500 text-navy-950 p-6 rounded-3xl shadow-2xl shadow-yellow-500/30 border-4 border-white inline-block w-full text-center">
+                    <Crown className="w-14 h-14 mx-auto mb-2 text-navy-950 fill-current animate-bounce" />
+                    <h2 className="text-3xl sm:text-4xl font-black font-display truncate leading-tight tracking-tight">
+                      {winner.name}
+                    </h2>
+                    {winner.homeroom && (
+                      <p className="text-sm font-extrabold text-navy-900 mt-1 uppercase tracking-wider">
+                        {winner.homeroom} {winner.grade ? `· ${winner.grade}` : ''}
+                      </p>
+                    )}
+                    <div className="bg-navy-900 text-white rounded-2xl px-4 py-2 mt-4 inline-block text-xs font-bold shadow-inner">
+                      {winner.count} Tickets This Period · {Math.round((winner.count / Math.max(1, totalTickets + winner.count)) * 100)}% Win Chance
+                    </div>
+
+                    {/* Auto-saved notice */}
+                    <div className="mt-4 pt-3 border-t border-navy-900/20 text-xs font-bold text-navy-900 flex items-center justify-center gap-1.5">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-800" />
+                      <span>Saved to Raffle History · Excluded from drawing for 4 weeks</span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-3 justify-center mt-6">
+                    <button
+                      onClick={handleDraw}
+                      disabled={candidates.length === 0}
+                      className="bg-navy-800 hover:bg-navy-700 disabled:opacity-50 text-white font-bold px-6 py-2.5 rounded-xl border border-navy-700 transition text-sm flex items-center gap-1.5"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Draw Another
+                    </button>
+                    {recentlySavedWinner && (
+                      <button
+                        onClick={() => handleDeleteWinner(recentlySavedWinner.id)}
+                        disabled={isDeletingWinnerId === recentlySavedWinner.id}
+                        className="bg-red-500/80 hover:bg-red-600 text-white font-bold px-4 py-2.5 rounded-xl transition text-sm flex items-center gap-1.5"
+                        title="Undo this drawing in case of a test or mistake"
+                      >
+                        <Undo2 className="w-4 h-4" />
+                        Undo Draw
+                      </button>
+                    )}
+                    <button
+                      onClick={() => { setWinner(null); setShowConfetti(false); }}
+                      className="bg-white hover:bg-gray-100 text-navy-950 font-bold px-6 py-2.5 rounded-xl transition text-sm"
+                    >
+                      Reset Stage
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-            <p className="text-[10px] text-gray-400 italic mt-2">Chance of winning is proportional to tickets earned during the period.</p>
+          </div>
+
+          {/* Candidate List Table */}
+          <div className="bg-white rounded-3xl border border-gray-155 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
+              <div>
+                <h3 className="font-display font-black text-navy-955 text-sm">
+                  Active Candidates Pool ({candidates.length})
+                </h3>
+                <p className="text-xs text-gray-500">Candidates with active tickets (excluding recent winners)</p>
+              </div>
+              <span className="text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                {totalTickets} Total Tickets
+              </span>
+            </div>
+            <div className="max-h-[300px] overflow-y-auto">
+              {candidates.length === 0 ? (
+                <div className="p-8 text-center text-gray-500 italic">
+                  No eligible candidates matching the current filters.
+                </div>
+              ) : (
+                <table className="w-full text-left text-sm text-gray-600">
+                  <thead className="bg-gray-50 text-[10px] font-bold uppercase text-gray-450 border-b sticky top-0">
+                    <tr>
+                      <th className="px-6 py-3">Candidate</th>
+                      {targetType === 'student' && <th className="px-6 py-3">Homeroom / Grade</th>}
+                      <th className="px-6 py-3 text-center">Tickets Earned</th>
+                      <th className="px-6 py-3 text-right">Win Probability</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {candidates.sort((a, b) => b.count - a.count).map(c => (
+                      <tr key={c.name} className="hover:bg-slate-50 transition">
+                        <td className="px-6 py-3 font-bold text-navy-955">{c.name}</td>
+                        {targetType === 'student' && (
+                          <td className="px-6 py-3 text-xs text-gray-500">{c.homeroom} · {c.grade}</td>
+                        )}
+                        <td className="px-6 py-3 text-center font-bold text-brand-700">{c.count}</td>
+                        <td className="px-6 py-3 text-right font-medium text-gray-500">
+                          {Math.round((c.count / totalTickets) * 100)}%
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Visual Drawing Stage */}
-        <div className="bg-gradient-to-br from-navy-900 to-navy-950 p-6 rounded-3xl border border-navy-700 shadow-xl flex flex-col items-center justify-center min-h-[400px] relative overflow-hidden text-center text-white">
-          {/* Decorative Stars */}
-          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-yellow-300 via-transparent to-transparent pointer-events-none"></div>
+      {/* --- TAB 2: RAFFLE WINNERS HISTORY --- */}
+      {activeTab === 'history' && (
+        <div className="space-y-6">
+          <div className="bg-white p-5 rounded-3xl border border-gray-155 shadow-sm space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+              <div>
+                <h3 className="font-display font-black text-navy-950 text-base flex items-center gap-2">
+                  <History className="w-5 h-5 text-brand-700" />
+                  <span>Raffle Winners History Log</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">Chronological record of every raffle winner drawn in RRD Ticket Tracker.</p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={handleExportCSV}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition border border-slate-200"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export CSV</span>
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => setShowClearHistoryConfirm(true)}
+                    className="bg-red-50 hover:bg-red-100 text-red-700 font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition border border-red-200"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Reset History</span>
+                  </button>
+                )}
+              </div>
+            </div>
 
-          {!isDrawing && !winner ? (
-            <div className="space-y-6 z-10">
-              <div className="w-24 h-24 bg-navy-800 border-2 border-yellow-500 rounded-full flex items-center justify-center mx-auto text-yellow-500 shadow-lg shadow-yellow-500/20">
-                <Ticket className="w-12 h-12" />
+            {/* Search and Filters for History */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search winner or teacher..."
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-xl text-xs outline-none focus:ring-emerald-500 focus:border-emerald-500"
+                />
+              </div>
+
+              <div>
+                <select
+                  value={historyFilterType}
+                  onChange={e => setHistoryFilterType(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+                >
+                  <option value="all">All Winner Types</option>
+                  <option value="student">Student Winners</option>
+                  <option value="teacher">Teacher Winners</option>
+                </select>
+              </div>
+
+              <div>
+                <select
+                  value={historyFilterHomeroom}
+                  onChange={e => setHistoryFilterHomeroom(e.target.value)}
+                  className="w-full p-2 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+                >
+                  <option value="">All Homerooms</option>
+                  {allHomeroomsList.map(h => (
+                    <option key={h} value={h}>{h}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* History Table */}
+          <div className="bg-white rounded-3xl border border-gray-155 shadow-sm overflow-hidden">
+            <div className="max-h-[500px] overflow-y-auto">
+              {filteredHistory.length === 0 ? (
+                <div className="p-12 text-center text-gray-500 italic">
+                  No raffle history matches the selected filters.
+                </div>
+              ) : (
+                <table className="w-full text-left text-sm text-gray-600">
+                  <thead className="bg-gray-50 text-[10px] font-bold uppercase text-gray-450 border-b sticky top-0 z-10">
+                    <tr>
+                      <th className="px-6 py-3">Winner</th>
+                      <th className="px-6 py-3">Type</th>
+                      <th className="px-6 py-3">Homeroom / Grade</th>
+                      <th className="px-6 py-3 text-center">Tickets</th>
+                      <th className="px-6 py-3">Drawn By / Scope</th>
+                      <th className="px-6 py-3">Date Drawn</th>
+                      <th className="px-6 py-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {filteredHistory.map(w => {
+                      const canDelete = isAdmin || (w.drawnByEmail || '').toLowerCase() === (profile?.email || '').toLowerCase();
+                      const isRecentCooldown = (Date.now() - new Date(w.timestamp).getTime()) < FOUR_WEEKS_MS;
+
+                      return (
+                        <tr key={w.id || w.timestamp} className="hover:bg-slate-50 transition">
+                          <td className="px-6 py-3 font-bold text-navy-955 flex items-center gap-2">
+                            <Crown className="w-4 h-4 text-yellow-500 fill-current shrink-0" />
+                            <span>{w.winnerName}</span>
+                            {isRecentCooldown && (
+                              <span className="bg-purple-100 text-purple-800 text-[10px] font-bold px-1.5 py-0.5 rounded-md" title="On 4-week cooldown">
+                                Cooldown
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-6 py-3 text-xs">
+                            <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${w.winnerType === 'teacher' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                              {w.winnerType || 'student'}
+                            </span>
+                          </td>
+                          <td className="px-6 py-3 text-xs text-gray-600">
+                            {w.homeroom ? `${w.homeroom}` : '—'} {w.grade ? `(${w.grade})` : ''}
+                          </td>
+                          <td className="px-6 py-3 text-center font-bold text-brand-700">
+                            {w.ticketCount || 1}
+                          </td>
+                          <td className="px-6 py-3 text-xs text-gray-500">
+                            <div><span className="font-semibold text-navy-900">{w.drawnByName || 'Admin'}</span></div>
+                            <div className="text-[10px] text-gray-400">Scope: {w.scope || 'School'}</div>
+                          </td>
+                          <td className="px-6 py-3 text-xs text-gray-500">
+                            {new Date(w.timestamp).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit'
+                            })}
+                          </td>
+                          <td className="px-6 py-3 text-right">
+                            {canDelete ? (
+                              <button
+                                onClick={() => handleDeleteWinner(w.id)}
+                                disabled={isDeletingWinnerId === w.id}
+                                className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition"
+                                title="Delete this winner record"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            ) : (
+                              <span className="text-gray-300 text-xs">—</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- TAB 3: 4-WEEK COOLDOWN LIST --- */}
+      {activeTab === 'cooldown' && (
+        <div className="space-y-6">
+          <div className="bg-white p-5 rounded-3xl border border-gray-155 shadow-sm space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-purple-100 text-purple-800 flex items-center justify-center font-black">
+                <Clock className="w-5 h-5" />
               </div>
               <div>
-                <h2 className="text-2xl font-black font-display text-white">Ready for Draw</h2>
-                <p className="text-sm text-navy-200 mt-2 max-w-sm mx-auto">Click below to start the weighted draw. Candidates with more tickets have a higher chance of winning!</p>
+                <h3 className="font-display font-black text-navy-950 text-base">
+                  4-Week Victory Cooldown System
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Winners are temporarily removed from the drawing drum for 28 days to give other students an equitable opportunity to win.
+                </p>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-3xl border border-gray-155 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
+              <h3 className="font-display font-black text-navy-955 text-sm">
+                Students & Teachers Currently Ineligible ({allActiveCooldowns.length})
+              </h3>
+              <span className="text-xs text-gray-500">28-day window active</span>
+            </div>
+
+            <div className="max-h-[500px] overflow-y-auto">
+              {allActiveCooldowns.length === 0 ? (
+                <div className="p-12 text-center text-gray-500 italic space-y-2">
+                  <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto opacity-70" />
+                  <p className="font-bold text-navy-950 text-base">All students are currently eligible!</p>
+                  <p className="text-xs text-gray-400 max-w-sm mx-auto">There are no active 4-week victory cooldowns in effect. Every student with tickets can enter the next draw.</p>
+                </div>
+              ) : (
+                <table className="w-full text-left text-sm text-gray-600">
+                  <thead className="bg-gray-50 text-[10px] font-bold uppercase text-gray-450 border-b sticky top-0 z-10">
+                    <tr>
+                      <th className="px-6 py-3">Winner Name</th>
+                      <th className="px-6 py-3">Type</th>
+                      <th className="px-6 py-3">Homeroom / Grade</th>
+                      <th className="px-6 py-3">Won On</th>
+                      <th className="px-6 py-3">Days Remaining</th>
+                      <th className="px-6 py-3 text-right">Eligible Again On</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {allActiveCooldowns.map(c => (
+                      <tr key={c.id || c.timestamp} className="hover:bg-slate-50 transition">
+                        <td className="px-6 py-3 font-bold text-navy-955 flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-purple-600 shrink-0" />
+                          <span>{c.winnerName}</span>
+                        </td>
+                        <td className="px-6 py-3 text-xs">
+                          <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${c.winnerType === 'teacher' ? 'bg-blue-100 text-blue-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                            {c.winnerType || 'student'}
+                          </span>
+                        </td>
+                        <td className="px-6 py-3 text-xs text-gray-600">
+                          {c.homeroom || '—'} {c.grade ? `(${c.grade})` : ''}
+                        </td>
+                        <td className="px-6 py-3 text-xs text-gray-500">
+                          {new Date(c.timestamp).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric'
+                          })}
+                        </td>
+                        <td className="px-6 py-3 text-xs">
+                          <span className="bg-purple-100 text-purple-900 px-2.5 py-1 rounded-full font-extrabold text-xs inline-flex items-center gap-1">
+                            <span>{c.daysLeft} day{c.daysLeft === 1 ? '' : 's'} left</span>
+                          </span>
+                        </td>
+                        <td className="px-6 py-3 text-right text-xs font-bold text-emerald-700">
+                          {c.eligibleDate.toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric'
+                          })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Clear History Confirmation Modal */}
+      {showClearHistoryConfirm && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-gray-155 space-y-4">
+            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-lg font-black text-navy-950">Reset All Raffle History?</h3>
+              <p className="text-xs text-gray-500 mt-1.5">
+                This will permanently delete all past raffle winner records and reset all 4-week victory cooldowns across the school.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-2">
               <button
-                onClick={handleDraw}
-                disabled={candidates.length === 0}
-                className="bg-yellow-500 hover:bg-yellow-600 disabled:opacity-40 disabled:hover:bg-yellow-500 text-navy-950 font-black px-8 py-3.5 rounded-2xl shadow-lg shadow-yellow-500/10 transition text-base"
+                onClick={() => setShowClearHistoryConfirm(false)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-gray-300 font-bold text-gray-700 hover:bg-gray-50 text-sm transition"
               >
-                Start Raffle Draw
+                Cancel
+              </button>
+              <button
+                onClick={handleClearAllHistory}
+                disabled={isClearingHistory}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-sm transition shadow-sm disabled:opacity-50"
+              >
+                {isClearingHistory ? 'Clearing...' : 'Confirm Reset'}
               </button>
             </div>
-          ) : isDrawing ? (
-            <div className="space-y-6 z-10 w-full max-w-md">
-              <div className="text-yellow-400 uppercase tracking-widest text-xs font-black animate-pulse">Drawing Winner...</div>
-              <div className="h-28 flex items-center justify-center border-y-2 border-navy-800 bg-navy-950/60 p-4 rounded-xl shadow-inner">
-                <div className="text-3xl font-black font-display tracking-tight text-white animate-fade-in truncate w-full">
-                  {tickerName}
-                </div>
-              </div>
-              <p className="text-xs text-navy-300 italic">Rolling the weighted ticket drum...</p>
-            </div>
-          ) : (
-            <div className="space-y-6 z-10 animate-fade-in max-w-md">
-              <div className="text-yellow-400 uppercase tracking-widest text-xs font-black">Winner Drawn! 🎉</div>
-              <div className="bg-yellow-500 text-navy-955 p-6 rounded-3xl shadow-xl shadow-yellow-500/20 border-4 border-white inline-block w-full">
-                <Crown className="w-12 h-12 mx-auto mb-2 text-navy-950 fill-current" />
-                <h2 className="text-3xl font-black font-display truncate leading-tight">{winner.name}</h2>
-                {winner.homeroom && (
-                  <p className="text-xs font-bold text-navy-900 mt-1 uppercase tracking-wider">
-                    {winner.homeroom} · {winner.grade}
-                  </p>
-                )}
-                <div className="bg-navy-900 text-white rounded-2xl px-4 py-2 mt-4 inline-block text-xs font-bold">
-                  {winner.count} Tickets Earned This Period ({Math.round((winner.count / totalTickets) * 100)}% Chance)
-                </div>
-              </div>
-              <div className="flex gap-3 justify-center mt-6">
-                <button
-                  onClick={handleDraw}
-                  className="bg-navy-800 hover:bg-navy-750 text-white font-bold px-6 py-2.5 rounded-xl border border-navy-700 transition text-sm"
-                >
-                  Draw Another
-                </button>
-                <button
-                  onClick={() => { setWinner(null); setShowConfetti(false); }}
-                  className="bg-white hover:bg-gray-50 text-navy-950 font-bold px-6 py-2.5 rounded-xl transition text-sm"
-                >
-                  Reset
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
-      </div>
-
-      {/* Candidate List Table */}
-      <div className="bg-white rounded-3xl border border-gray-155 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
-          <h3 className="font-display font-black text-navy-955 text-sm">Raffle Candidates ({candidates.length})</h3>
-          <span className="text-xs text-gray-505">Weighted entry list</span>
-        </div>
-        <div className="max-h-[300px] overflow-y-auto">
-          {candidates.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 italic">No candidates matching the current filters.</div>
-          ) : (
-            <table className="w-full text-left text-sm text-gray-600">
-              <thead className="bg-gray-50 text-[10px] font-bold uppercase text-gray-450 border-b">
-                <tr>
-                  <th className="px-6 py-3">Candidate</th>
-                  {targetType === 'student' && <th className="px-6 py-3">Homeroom / Grade</th>}
-                  <th className="px-6 py-3 text-center">Entries</th>
-                  <th className="px-6 py-3 text-right">Win Probability</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {candidates.sort((a, b) => b.count - a.count).map(c => (
-                  <tr key={c.name} className="hover:bg-slate-50 transition">
-                    <td className="px-6 py-3 font-bold text-navy-955">{c.name}</td>
-                    {targetType === 'student' && (
-                      <td className="px-6 py-3 text-xs text-gray-500">{c.homeroom} · {c.grade}</td>
-                    )}
-                    <td className="px-6 py-3 text-center font-bold text-brand-700">{c.count}</td>
-                    <td className="px-6 py-3 text-right font-medium text-gray-500">
-                      {Math.round((c.count / totalTickets) * 100)}%
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      </div>
+      )}
     </div>
   );
 }
