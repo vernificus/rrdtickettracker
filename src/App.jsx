@@ -3961,12 +3961,53 @@ function StudentDashboard({ studentData, onSignOut, onOpenAccessibility, onOpenI
 }
 
 // --- Group Management Modal ---
-function GroupManagementModal({ isOpen, onClose, students, customGroups = [], onSaveGroup, onDeleteGroup, onSelectGroupMembers, onAwardGroupTickets }) {
+function GroupManagementModal({
+  isOpen,
+  onClose,
+  students,
+  customGroups = [],
+  onSaveGroup,
+  onDeleteGroup,
+  onSelectGroupMembers,
+  onAwardGroupTickets,
+  currentSelectedCount = 0,
+  isSubmitting = false
+}) {
   const [newGroupName, setNewGroupName] = useState('');
   const [selectedMembers, setSelectedMembers] = useState(new Set());
   const [isCreating, setIsCreating] = useState(false);
+  const [selectedGroupIds, setSelectedGroupIds] = useState(new Set());
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedGroupIds(new Set());
+      setIsCreating(false);
+      setNewGroupName('');
+      setSelectedMembers(new Set());
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const toggleGroupSelection = (groupId) => {
+    setSelectedGroupIds(prev => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
+
+  const handleSelectAllGroups = () => {
+    if (selectedGroupIds.size === customGroups.length) {
+      setSelectedGroupIds(new Set());
+    } else {
+      setSelectedGroupIds(new Set(customGroups.map(g => g.id)));
+    }
+  };
+
+  const checkedGroups = customGroups.filter(g => selectedGroupIds.has(g.id));
+  const uniqueSelectedMembers = Array.from(new Set(checkedGroups.flatMap(g => g.members)));
 
   const toggleMember = (name) => {
     setSelectedMembers(prev => {
@@ -3992,114 +4033,280 @@ function GroupManagementModal({ isOpen, onClose, students, customGroups = [], on
 
   return (
     <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
-      <div className="bg-white rounded-3xl p-6 max-w-xl w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center border-b pb-3">
-          <div className="flex items-center gap-2">
-            <div className="bg-emerald-100 p-2 rounded-xl text-emerald-700">
-              <Layers className="w-5 h-5" />
+      <div className="bg-white rounded-3xl p-6 max-w-2xl w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto flex flex-col justify-between">
+        <div className="space-y-5">
+          <div className="flex justify-between items-center border-b pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-700">
+                <Layers className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-display font-extrabold text-gray-900 text-lg">Custom Student Groups</h2>
+                <p className="text-xs text-gray-500">Select multiple groups, manage tables, or award tickets by PBIS category</p>
+              </div>
             </div>
-            <div>
-              <h2 className="font-display font-extrabold text-gray-900 text-lg">Custom Student Groups</h2>
-              <p className="text-xs text-gray-500">Create groups for tables, reading teams, or projects</p>
-            </div>
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px] cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px]">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
-        {/* Existing Groups List */}
-        {customGroups.length > 0 && (
-          <div className="space-y-3">
-            <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Your Saved Groups</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {customGroups.map(grp => (
-                <div key={grp.id} className="bg-gray-50 border border-gray-200 rounded-2xl p-3.5 flex flex-col justify-between space-y-2">
-                  <div>
-                    <div className="flex justify-between items-start">
-                      <span className="font-bold text-gray-900 text-sm">{grp.name}</span>
-                      <button onClick={() => onDeleteGroup(grp.id)} className="text-gray-400 hover:text-red-600 p-1">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">{grp.members.length} members ({grp.members.slice(0, 3).join(', ')}{grp.members.length > 3 ? '...' : ''})</p>
-                  </div>
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      onClick={() => { onSelectGroupMembers(grp.members); onClose(); }}
-                      className="flex-1 py-1.5 px-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl text-xs font-bold transition"
-                    >
-                      Select Members
-                    </button>
-                    <button
-                      onClick={() => { onAwardGroupTickets(grp.members, grp.name); onClose(); }}
-                      className="flex-1 py-1.5 px-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition"
-                    >
-                      Award Ticket
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Create Group Form */}
-        {!isCreating ? (
-          <button
-            onClick={() => setIsCreating(true)}
-            className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-2xl font-bold text-sm transition flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Plus className="w-4 h-4" /> Create New Group
-          </button>
-        ) : (
-          <form onSubmit={handleCreateGroup} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
-            <h4 className="font-bold text-sm text-gray-900">Create New Group</h4>
-            <div>
-              <label htmlFor="group-name-input" className="block text-xs font-bold text-gray-600 mb-1">Group Name</label>
-              <input
-                id="group-name-input"
-                type="text"
-                required
-                placeholder="e.g. Table 1 / Reading Group Blue"
-                value={newGroupName}
-                onChange={e => setNewGroupName(e.target.value)}
-                className="w-full p-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-emerald-500 focus:border-emerald-500 bg-white"
-              />
-            </div>
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label className="block text-xs font-bold text-gray-600">Select Group Members ({selectedMembers.size})</label>
+          {/* Existing Groups List */}
+          {customGroups.length > 0 && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Your Saved Groups ({customGroups.length})
+                </h3>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (selectedMembers.size === students.length) setSelectedMembers(new Set());
-                    else setSelectedMembers(new Set(students));
-                  }}
-                  className="text-xs text-emerald-700 font-bold hover:underline"
+                  onClick={handleSelectAllGroups}
+                  className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer flex items-center gap-1"
                 >
-                  {selectedMembers.size === students.length ? 'Deselect All' : 'Select All'}
+                  {selectedGroupIds.size === customGroups.length ? (
+                    <><Square className="w-3.5 h-3.5" /> Deselect All Groups</>
+                  ) : (
+                    <><CheckSquare className="w-3.5 h-3.5" /> Select All Groups ({customGroups.length})</>
+                  )}
                 </button>
               </div>
-              <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-xl bg-white p-2 divide-y divide-gray-100">
-                {students.map(sName => (
-                  <label key={sName} className="flex items-center gap-2.5 p-2 hover:bg-gray-50 rounded-lg cursor-pointer text-xs font-medium text-gray-800">
-                    <input
-                      type="checkbox"
-                      checked={selectedMembers.has(sName)}
-                      onChange={() => toggleMember(sName)}
-                      className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
-                    />
-                    <span>{sName}</span>
-                  </label>
-                ))}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {customGroups.map(grp => {
+                  const isChecked = selectedGroupIds.has(grp.id);
+                  return (
+                    <div
+                      key={grp.id}
+                      className={`border rounded-2xl p-3.5 flex flex-col justify-between space-y-3 transition ${isChecked ? 'bg-emerald-50/70 border-emerald-400 shadow-sm ring-1 ring-emerald-300' : 'bg-gray-50 border-gray-200 hover:border-gray-300'}`}
+                    >
+                      <div>
+                        <div className="flex justify-between items-start gap-2">
+                          <label className="flex items-center gap-2 cursor-pointer select-none">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleGroupSelection(grp.id)}
+                              className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <span className="font-extrabold text-gray-900 text-sm">{grp.name}</span>
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => onDeleteGroup(grp.id)}
+                            className="text-gray-400 hover:text-red-600 p-1 transition cursor-pointer"
+                            title="Delete group"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-1 pl-6">
+                          <span className="font-semibold text-emerald-800 bg-emerald-100/70 px-1.5 py-0.5 rounded text-xxs mr-1.5">{grp.members.length} students</span>
+                          {grp.members.slice(0, 3).join(', ')}{grp.members.length > 3 ? '...' : ''}
+                        </p>
+                      </div>
+
+                      {/* Individual Group Action Buttons */}
+                      <div className="space-y-2 pt-1 border-t border-gray-200/60">
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => { onSelectGroupMembers(grp.members, false); onClose(); }}
+                            className="flex-1 py-1.5 px-2 bg-white hover:bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition cursor-pointer text-center"
+                            title="Select only this group's members"
+                          >
+                            Select
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { onSelectGroupMembers(grp.members, true); onClose(); }}
+                            className="flex-1 py-1.5 px-2 bg-emerald-100/70 hover:bg-emerald-200/70 text-emerald-900 border border-emerald-300 rounded-xl text-xs font-bold transition cursor-pointer text-center"
+                            title="Add this group's members to active selection"
+                          >
+                            + Add
+                          </button>
+                        </div>
+
+                        {/* PBIS Ticket Reason Award Buttons */}
+                        <div>
+                          <div className="text-xxs font-bold uppercase tracking-wider text-gray-500 mb-1 flex items-center gap-1">
+                            <Ticket className="w-3 h-3 text-emerald-600" /> Award Ticket Type:
+                          </div>
+                          <div className="grid grid-cols-3 gap-1">
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => { onAwardGroupTickets(grp.members, grp.name, 'Respectful'); onClose(); }}
+                              className="py-1 px-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xxs font-extrabold transition cursor-pointer disabled:opacity-50 text-center"
+                              title="Award +1 Respectful Ticket to this group"
+                            >
+                              +1 Respectful
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => { onAwardGroupTickets(grp.members, grp.name, 'Responsible'); onClose(); }}
+                              className="py-1 px-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xxs font-extrabold transition cursor-pointer disabled:opacity-50 text-center"
+                              title="Award +1 Responsible Ticket to this group"
+                            >
+                              +1 Responsible
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => { onAwardGroupTickets(grp.members, grp.name, 'Determined'); onClose(); }}
+                              className="py-1 px-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xxs font-extrabold transition cursor-pointer disabled:opacity-50 text-center"
+                              title="Award +1 Determined Ticket to this group"
+                            >
+                              +1 Determined
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border rounded-xl text-xs font-bold text-gray-600 bg-white">Cancel</button>
-              <button type="submit" disabled={!newGroupName.trim() || selectedMembers.size === 0} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold disabled:opacity-50">Save Group</button>
+          )}
+
+          {/* Create Group Form */}
+          {!isCreating ? (
+            <button
+              onClick={() => setIsCreating(true)}
+              className="w-full py-3 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 rounded-2xl font-bold text-sm transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Create New Group
+            </button>
+          ) : (
+            <form onSubmit={handleCreateGroup} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
+              <h4 className="font-bold text-sm text-gray-900">Create New Group</h4>
+              <div>
+                <label htmlFor="group-name-input" className="block text-xs font-bold text-gray-600 mb-1">Group Name</label>
+                <input
+                  id="group-name-input"
+                  type="text"
+                  required
+                  placeholder="e.g. Table 1 / Reading Group Blue"
+                  value={newGroupName}
+                  onChange={e => setNewGroupName(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                />
+              </div>
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="block text-xs font-bold text-gray-600">Select Group Members ({selectedMembers.size})</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (selectedMembers.size === students.length) setSelectedMembers(new Set());
+                      else setSelectedMembers(new Set(students));
+                    }}
+                    className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer"
+                  >
+                    {selectedMembers.size === students.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
+                <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-xl bg-white p-2 divide-y divide-gray-100">
+                  {students.map(sName => (
+                    <label key={sName} className="flex items-center gap-2.5 p-2 hover:bg-gray-50 rounded-lg cursor-pointer text-xs font-medium text-gray-800">
+                      <input
+                        type="checkbox"
+                        checked={selectedMembers.has(sName)}
+                        onChange={() => toggleMember(sName)}
+                        className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                      />
+                      <span>{sName}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setIsCreating(false)} className="px-4 py-2 border rounded-xl text-xs font-bold text-gray-600 bg-white cursor-pointer">Cancel</button>
+                <button type="submit" disabled={!newGroupName.trim() || selectedMembers.size === 0} className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 cursor-pointer">Save Group</button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        {/* Multi-Group Bottom Sticky Action Bar */}
+        {selectedGroupIds.size > 0 && (
+          <div className="sticky bottom-0 -mx-6 -mb-6 p-4 bg-navy-950 text-white rounded-b-3xl border-t border-emerald-500/40 shadow-2xl space-y-3 animate-slide-up">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="bg-emerald-600 text-white font-extrabold px-2.5 py-0.5 rounded-full text-xs">
+                  {selectedGroupIds.size} {selectedGroupIds.size === 1 ? 'Group' : 'Groups'} Checked
+                </span>
+                <span className="text-xs text-gray-300 font-medium">
+                  ({uniqueSelectedMembers.length} unique students)
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedGroupIds(new Set())}
+                className="text-xs text-gray-400 hover:text-white underline cursor-pointer"
+              >
+                Clear Group Selection
+              </button>
             </div>
-          </form>
+
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+              <div className="flex gap-2 flex-1">
+                <button
+                  type="button"
+                  onClick={() => { onSelectGroupMembers(uniqueSelectedMembers, false); onClose(); }}
+                  className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition shadow-xs cursor-pointer text-center"
+                >
+                  Select {uniqueSelectedMembers.length} Students
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onSelectGroupMembers(uniqueSelectedMembers, true); onClose(); }}
+                  className="flex-1 py-2 px-3 bg-white/10 hover:bg-white/20 text-emerald-200 border border-emerald-400/40 rounded-xl text-xs font-extrabold transition cursor-pointer text-center"
+                >
+                  + Add to Active Selection {currentSelectedCount > 0 ? `(${currentSelectedCount} active)` : ''}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 justify-end">
+                <span className="text-xxs font-bold uppercase tracking-wider text-gray-300 mr-1 hidden sm:inline">Award:</span>
+                <button
+                  type="button"
+                  disabled={isSubmitting || uniqueSelectedMembers.length === 0}
+                  onClick={() => {
+                    const groupNames = checkedGroups.map(g => g.name).join(' & ');
+                    onAwardGroupTickets(uniqueSelectedMembers, groupNames, 'Respectful');
+                    onClose();
+                  }}
+                  className="px-2.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-extrabold transition disabled:opacity-50 cursor-pointer text-center"
+                >
+                  +1 Respectful
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || uniqueSelectedMembers.length === 0}
+                  onClick={() => {
+                    const groupNames = checkedGroups.map(g => g.name).join(' & ');
+                    onAwardGroupTickets(uniqueSelectedMembers, groupNames, 'Responsible');
+                    onClose();
+                  }}
+                  className="px-2.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-extrabold transition disabled:opacity-50 cursor-pointer text-center"
+                >
+                  +1 Responsible
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || uniqueSelectedMembers.length === 0}
+                  onClick={() => {
+                    const groupNames = checkedGroups.map(g => g.name).join(' & ');
+                    onAwardGroupTickets(uniqueSelectedMembers, groupNames, 'Determined');
+                    onClose();
+                  }}
+                  className="px-2.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-extrabold transition disabled:opacity-50 cursor-pointer text-center"
+                >
+                  +1 Determined
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -4107,11 +4314,28 @@ function GroupManagementModal({ isOpen, onClose, students, customGroups = [], on
 }
 
 // --- Automatic Group Generator Modal ("Specific Numbers in Groups") ---
-function GroupGeneratorModal({ isOpen, onClose, students, absentStudents = new Set(), onSelectGroupMembers, onAwardGroupTickets, onSaveGroup }) {
+function GroupGeneratorModal({
+  isOpen,
+  onClose,
+  students,
+  absentStudents = new Set(),
+  onSelectGroupMembers,
+  onAwardGroupTickets,
+  onSaveGroup,
+  currentSelectedCount = 0,
+  isSubmitting = false
+}) {
   const [splitMode, setSplitMode] = useState('size'); // 'size' (per group) or 'count' (total groups)
   const [groupVal, setGroupVal] = useState(3);
   const [excludeAbsent, setExcludeAbsent] = useState(true);
   const [generatedGroups, setGeneratedGroups] = useState([]);
+  const [selectedTeamIds, setSelectedTeamIds] = useState(new Set());
+
+  useEffect(() => {
+    if (!isOpen) {
+      setSelectedTeamIds(new Set());
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -4145,127 +4369,299 @@ function GroupGeneratorModal({ isOpen, onClose, students, absentStudents = new S
       });
     }
 
-    setGeneratedGroups(groups.filter(g => g.members.length > 0));
+    const filtered = groups.filter(g => g.members.length > 0);
+    setGeneratedGroups(filtered);
+    setSelectedTeamIds(new Set());
   };
+
+  const toggleTeamSelection = (teamId) => {
+    setSelectedTeamIds(prev => {
+      const next = new Set(prev);
+      if (next.has(teamId)) next.delete(teamId);
+      else next.add(teamId);
+      return next;
+    });
+  };
+
+  const handleSelectAllTeams = () => {
+    if (selectedTeamIds.size === generatedGroups.length) {
+      setSelectedTeamIds(new Set());
+    } else {
+      setSelectedTeamIds(new Set(generatedGroups.map(g => g.id)));
+    }
+  };
+
+  const checkedTeams = generatedGroups.filter(g => selectedTeamIds.has(g.id));
+  const uniqueSelectedMembers = Array.from(new Set(checkedTeams.flatMap(g => g.members)));
 
   return (
     <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
-      <div className="bg-white rounded-3xl p-6 max-w-2xl w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center border-b pb-3">
-          <div className="flex items-center gap-2">
-            <div className="bg-emerald-100 p-2 rounded-xl text-emerald-700">
-              <Shuffle className="w-5 h-5" />
+      <div className="bg-white rounded-3xl p-6 max-w-2xl w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto flex flex-col justify-between">
+        <div className="space-y-5">
+          <div className="flex justify-between items-center border-b pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="bg-emerald-100 p-2.5 rounded-xl text-emerald-700">
+                <Shuffle className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-display font-extrabold text-gray-900 text-lg">Automatic Group Generator</h2>
+                <p className="text-xs text-gray-500">Split your class into teams with specific sizes, select multiple teams, or award tickets</p>
+              </div>
             </div>
-            <div>
-              <h2 className="font-display font-extrabold text-gray-900 text-lg">Automatic Group Generator</h2>
-              <p className="text-xs text-gray-500">Split your class into teams with specific group sizes</p>
-            </div>
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px] cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px]">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
 
-        {/* Generator Controls */}
-        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label htmlFor="group-split-mode" className="block text-xs font-bold text-gray-600 mb-1">Group By</label>
-              <select
-                id="group-split-mode"
-                value={splitMode}
-                onChange={e => setSplitMode(e.target.value)}
-                className="w-full p-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-800 bg-white"
-              >
-                <option value="size">Students per Group (e.g. 3 per group)</option>
-                <option value="count">Total Number of Groups (e.g. 4 groups)</option>
-              </select>
+          {/* Generator Controls */}
+          <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="group-split-mode" className="block text-xs font-bold text-gray-600 mb-1">Group By</label>
+                <select
+                  id="group-split-mode"
+                  value={splitMode}
+                  onChange={e => setSplitMode(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-800 bg-white"
+                >
+                  <option value="size">Students per Group (e.g. 3 per group)</option>
+                  <option value="count">Total Number of Groups (e.g. 4 groups)</option>
+                </select>
+              </div>
+              <div>
+                <label htmlFor="group-val-input" className="block text-xs font-bold text-gray-600 mb-1">
+                  {splitMode === 'size' ? 'Number of Students per Group' : 'Total Groups to Create'}
+                </label>
+                <input
+                  id="group-val-input"
+                  type="number"
+                  min="1"
+                  max={eligibleStudents.length || 30}
+                  value={groupVal}
+                  onChange={e => setGroupVal(Number(e.target.value))}
+                  className="w-full p-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-800 bg-white"
+                />
+              </div>
             </div>
-            <div>
-              <label htmlFor="group-val-input" className="block text-xs font-bold text-gray-600 mb-1">
-                {splitMode === 'size' ? 'Number of Students per Group' : 'Total Groups to Create'}
+
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700 select-none">
+                <input
+                  type="checkbox"
+                  checked={excludeAbsent}
+                  onChange={e => setExcludeAbsent(e.target.checked)}
+                  className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                />
+                <span>Exclude absent students ({absentStudents.size} absent)</span>
               </label>
-              <input
-                id="group-val-input"
-                type="number"
-                min="1"
-                max={eligibleStudents.length || 30}
-                value={groupVal}
-                onChange={e => setGroupVal(Number(e.target.value))}
-                className="w-full p-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-800 bg-white"
-              />
+              <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
+                {eligibleStudents.length} Students Active
+              </span>
             </div>
+
+            <button
+              type="button"
+              onClick={handleGenerate}
+              className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-extrabold text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Shuffle className="w-4 h-4" /> Generate Random Groups
+            </button>
           </div>
 
-          <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-gray-700">
-              <input
-                type="checkbox"
-                checked={excludeAbsent}
-                onChange={e => setExcludeAbsent(e.target.checked)}
-                className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500"
-              />
-              <span>Exclude absent students ({absentStudents.size} absent)</span>
-            </label>
-            <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full">
-              {eligibleStudents.length} Students Active
-            </span>
-          </div>
+          {/* Generated Teams Grid */}
+          {generatedGroups.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div className="flex justify-between items-center flex-wrap gap-2">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Generated Teams ({generatedGroups.length})
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllTeams}
+                    className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer flex items-center gap-1"
+                  >
+                    {selectedTeamIds.size === generatedGroups.length ? (
+                      <><Square className="w-3.5 h-3.5" /> Deselect All Teams</>
+                    ) : (
+                      <><CheckSquare className="w-3.5 h-3.5" /> Select All Teams ({generatedGroups.length})</>
+                    )}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    generatedGroups.forEach(g => onSaveGroup({ id: Date.now().toString() + Math.random(), name: g.name, members: g.members }));
+                    onClose();
+                  }}
+                  className="text-xs text-emerald-700 font-extrabold hover:underline cursor-pointer"
+                >
+                  Save All as Saved Groups
+                </button>
+              </div>
 
-          <button
-            type="button"
-            onClick={handleGenerate}
-            className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl font-extrabold text-sm shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
-          >
-            <Shuffle className="w-4 h-4" /> Generate Random Groups
-          </button>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {generatedGroups.map(grp => {
+                  const isChecked = selectedTeamIds.has(grp.id);
+                  return (
+                    <div
+                      key={grp.id}
+                      className={`border rounded-2xl p-4 space-y-3 transition ${isChecked ? 'bg-emerald-50/70 border-emerald-400 shadow-sm ring-1 ring-emerald-300' : 'bg-emerald-50/40 border-emerald-200 hover:border-emerald-300'}`}
+                    >
+                      <div className="flex justify-between items-start">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleTeamSelection(grp.id)}
+                            className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                          />
+                          <span className="font-extrabold text-emerald-950 text-base">{grp.name}</span>
+                        </label>
+                        <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">{grp.members.length} students</span>
+                      </div>
+
+                      <ul className="text-xs text-gray-700 space-y-1 list-disc list-inside pl-6">
+                        {grp.members.map(m => <li key={m} className="font-medium">{m}</li>)}
+                      </ul>
+
+                      <div className="space-y-2 pt-1 border-t border-emerald-200/60">
+                        <div className="flex gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => { onSelectGroupMembers(grp.members, false); onClose(); }}
+                            className="flex-1 py-1.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 rounded-xl text-xs font-bold transition cursor-pointer text-center"
+                          >
+                            Select Team
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { onSelectGroupMembers(grp.members, true); onClose(); }}
+                            className="flex-1 py-1.5 bg-emerald-100/80 border border-emerald-300 text-emerald-900 hover:bg-emerald-200 rounded-xl text-xs font-bold transition cursor-pointer text-center"
+                          >
+                            + Add Team
+                          </button>
+                        </div>
+
+                        {/* PBIS Ticket Reason Award Buttons */}
+                        <div>
+                          <div className="text-xxs font-bold uppercase tracking-wider text-emerald-800/80 mb-1 flex items-center gap-1">
+                            <Ticket className="w-3 h-3 text-emerald-600" /> Award Ticket Type:
+                          </div>
+                          <div className="grid grid-cols-3 gap-1">
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => { onAwardGroupTickets(grp.members, grp.name, 'Respectful'); onClose(); }}
+                              className="py-1 px-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xxs font-extrabold transition cursor-pointer disabled:opacity-50 text-center"
+                            >
+                              +1 Respectful
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => { onAwardGroupTickets(grp.members, grp.name, 'Responsible'); onClose(); }}
+                              className="py-1 px-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xxs font-extrabold transition cursor-pointer disabled:opacity-50 text-center"
+                            >
+                              +1 Responsible
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isSubmitting}
+                              onClick={() => { onAwardGroupTickets(grp.members, grp.name, 'Determined'); onClose(); }}
+                              className="py-1 px-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xxs font-extrabold transition cursor-pointer disabled:opacity-50 text-center"
+                            >
+                              +1 Determined
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Generated Teams Grid */}
-        {generatedGroups.length > 0 && (
-          <div className="space-y-3 pt-2">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Generated Teams ({generatedGroups.length})</h3>
+        {/* Multi-Team Bottom Sticky Action Bar */}
+        {selectedTeamIds.size > 0 && (
+          <div className="sticky bottom-0 -mx-6 -mb-6 p-4 bg-navy-950 text-white rounded-b-3xl border-t border-emerald-500/40 shadow-2xl space-y-3 animate-slide-up">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <span className="bg-emerald-600 text-white font-extrabold px-2.5 py-0.5 rounded-full text-xs">
+                  {selectedTeamIds.size} {selectedTeamIds.size === 1 ? 'Team' : 'Teams'} Checked
+                </span>
+                <span className="text-xs text-gray-300 font-medium">
+                  ({uniqueSelectedMembers.length} unique students)
+                </span>
+              </div>
               <button
                 type="button"
-                onClick={() => {
-                  generatedGroups.forEach(g => onSaveGroup({ id: Date.now().toString() + Math.random(), name: g.name, members: g.members }));
-                  onClose();
-                }}
-                className="text-xs text-emerald-700 font-extrabold hover:underline cursor-pointer"
+                onClick={() => setSelectedTeamIds(new Set())}
+                className="text-xs text-gray-400 hover:text-white underline cursor-pointer"
               >
-                Save All as Saved Groups
+                Clear Team Selection
               </button>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {generatedGroups.map(grp => (
-                <div key={grp.id} className="bg-emerald-50/50 border border-emerald-200 rounded-2xl p-4 space-y-3">
-                  <div className="flex justify-between items-start">
-                    <span className="font-extrabold text-emerald-950 text-base">{grp.name}</span>
-                    <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">{grp.members.length} students</span>
-                  </div>
-                  <ul className="text-xs text-gray-700 space-y-1 list-disc list-inside">
-                    {grp.members.map(m => <li key={m} className="font-medium">{m}</li>)}
-                  </ul>
-                  <div className="flex gap-2 pt-1">
-                    <button
-                      type="button"
-                      onClick={() => { onSelectGroupMembers(grp.members); onClose(); }}
-                      className="flex-1 py-1.5 bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100 rounded-xl text-xs font-bold transition cursor-pointer"
-                    >
-                      Select Team
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { onAwardGroupTickets(grp.members, grp.name); onClose(); }}
-                      className="flex-1 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition cursor-pointer"
-                    >
-                      Award Team
-                    </button>
-                  </div>
-                </div>
-              ))}
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+              <div className="flex gap-2 flex-1">
+                <button
+                  type="button"
+                  onClick={() => { onSelectGroupMembers(uniqueSelectedMembers, false); onClose(); }}
+                  className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-extrabold transition shadow-xs cursor-pointer text-center"
+                >
+                  Select {uniqueSelectedMembers.length} Students
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { onSelectGroupMembers(uniqueSelectedMembers, true); onClose(); }}
+                  className="flex-1 py-2 px-3 bg-white/10 hover:bg-white/20 text-emerald-200 border border-emerald-400/40 rounded-xl text-xs font-extrabold transition cursor-pointer text-center"
+                >
+                  + Add to Active Selection {currentSelectedCount > 0 ? `(${currentSelectedCount} active)` : ''}
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5 justify-end">
+                <span className="text-xxs font-bold uppercase tracking-wider text-gray-300 mr-1 hidden sm:inline">Award:</span>
+                <button
+                  type="button"
+                  disabled={isSubmitting || uniqueSelectedMembers.length === 0}
+                  onClick={() => {
+                    const teamNames = checkedTeams.map(g => g.name).join(' & ');
+                    onAwardGroupTickets(uniqueSelectedMembers, teamNames, 'Respectful');
+                    onClose();
+                  }}
+                  className="px-2.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-extrabold transition disabled:opacity-50 cursor-pointer text-center"
+                >
+                  +1 Respectful
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || uniqueSelectedMembers.length === 0}
+                  onClick={() => {
+                    const teamNames = checkedTeams.map(g => g.name).join(' & ');
+                    onAwardGroupTickets(uniqueSelectedMembers, teamNames, 'Responsible');
+                    onClose();
+                  }}
+                  className="px-2.5 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-extrabold transition disabled:opacity-50 cursor-pointer text-center"
+                >
+                  +1 Responsible
+                </button>
+                <button
+                  type="button"
+                  disabled={isSubmitting || uniqueSelectedMembers.length === 0}
+                  onClick={() => {
+                    const teamNames = checkedTeams.map(g => g.name).join(' & ');
+                    onAwardGroupTickets(uniqueSelectedMembers, teamNames, 'Determined');
+                    onClose();
+                  }}
+                  className="px-2.5 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-extrabold transition disabled:opacity-50 cursor-pointer text-center"
+                >
+                  +1 Determined
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -4649,10 +5045,19 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     showToast("Deleted group.");
   };
 
-  const handleSelectGroupMembers = (memberNames) => {
+  const handleSelectGroupMembers = (memberNames, append = false) => {
     setIsMultiSelectMode(true);
-    setSelectedStudentNames(new Set(memberNames));
-    showToast(`Selected ${memberNames.length} group members!`);
+    if (append) {
+      setSelectedStudentNames(prev => {
+        const next = new Set(prev);
+        memberNames.forEach(name => next.add(name));
+        return next;
+      });
+      showToast(`Added ${memberNames.length} students to selection!`);
+    } else {
+      setSelectedStudentNames(new Set(memberNames));
+      showToast(`Selected ${memberNames.length} group members!`);
+    }
   };
 
   const handleBatchGiveTickets = async (reason) => {
@@ -4678,7 +5083,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
   };
 
-  const handleAwardGroupTickets = async (memberNames, groupName) => {
+  const handleAwardGroupTickets = async (memberNames, groupName, reason = 'Respectful') => {
     if (memberNames.length === 0) return;
     setIsSubmitting(true);
     try {
@@ -4687,11 +5092,11 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         teacherName: profile.name,
         recipient,
         recipientType: 'student',
-        reason: 'Respectful',
+        reason,
         customDate: resolveSelectedDate()
       }));
       await addDocsBatch('tickets', ticketsToCreate);
-      showToast(`Awarded Respectful ticket to ${memberNames.length} students in "${groupName}"!`);
+      showToast(`Awarded ${reason} ticket to ${memberNames.length} students in "${groupName}"!`);
     } catch (e) {
       console.error(e);
       showToast("Error awarding group tickets.");
@@ -5370,6 +5775,8 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         onDeleteGroup={handleDeleteCustomGroup}
         onSelectGroupMembers={handleSelectGroupMembers}
         onAwardGroupTickets={handleAwardGroupTickets}
+        currentSelectedCount={selectedStudentNames.size}
+        isSubmitting={isSubmitting}
       />
 
       <GroupGeneratorModal
@@ -5380,6 +5787,8 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         onSelectGroupMembers={handleSelectGroupMembers}
         onAwardGroupTickets={handleAwardGroupTickets}
         onSaveGroup={handleSaveCustomGroup}
+        currentSelectedCount={selectedStudentNames.size}
+        isSubmitting={isSubmitting}
       />
 
       <ShareClassModal
