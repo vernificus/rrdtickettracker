@@ -1675,6 +1675,48 @@ app.put('/api/students/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// Delete / remove student from roster (Admin or Homeroom Teacher for their class)
+app.delete('/api/students/:id', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+  const studentId = req.params.id;
+
+  try {
+    const studentsSheet = await db.getRows('Students');
+    const student = studentsSheet.find(s => s.id === studentId);
+    if (!student) {
+      return res.status(404).json({ message: 'Student not found.' });
+    }
+
+    // Permission check: Admins can remove any student.
+    // Homeroom teachers can remove students from their own homeroom or co-taught classes.
+    if (req.user.role !== 'admin') {
+      const users = await db.getRows('Users');
+      const userProfile = users.find(u => (u.email || '').trim().toLowerCase() === (req.user.email || '').trim().toLowerCase());
+      let coTaught = [];
+      if (userProfile && userProfile.coTaughtHomerooms) {
+        try {
+          coTaught = JSON.parse(userProfile.coTaughtHomerooms);
+        } catch (e) {
+          coTaught = typeof userProfile.coTaughtHomerooms === 'string' ? userProfile.coTaughtHomerooms.split(',').map(s => s.trim()) : [];
+        }
+      }
+      const allowedClasses = [req.user.name, ...(userProfile ? [userProfile.name] : []), ...coTaught].filter(Boolean);
+      const isAllowed = allowedClasses.some(c => matchHomeroomName(student.homeroom, c));
+
+      if (!isAllowed) {
+        return res.status(403).json({ message: 'Homeroom teachers can only remove students from their own assigned or co-taught homeroom.' });
+      }
+    }
+
+    await db.deleteRow('Students', student._rowNum);
+    res.json({ success: true, message: `Student ${student.name} removed from roster.` });
+  } catch (err) {
+    console.error("Error deleting student:", err);
+    res.status(500).json({ message: 'Failed to remove student from roster.' });
+  }
+});
+
+
 // Reset own password (Teacher / Admin)
 app.post('/api/auth/reset-password', authMiddleware, async (req, res) => {
   if (req.user.role === 'student') return res.status(403).json({ message: 'Only teachers and admins can reset passwords' });

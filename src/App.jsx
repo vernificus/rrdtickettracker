@@ -231,7 +231,8 @@ const deleteDoc = async (docRef) => {
     'tickets': `/api/tickets/${id}`,
     'goldenTickets': `/api/golden-tickets/${id}`,
     'spending': `/api/spending/${id}`,
-    'users': `/api/teachers/${id}`
+    'users': `/api/teachers/${id}`,
+    'students': `/api/students/${id}`
   };
   const url = endpointMap[collName] || `/api/${collName}/${id}`;
   await api.fetch(url, {
@@ -2494,6 +2495,582 @@ const ConfettiEffect = () => {
   );
 };
 
+// --- Average Spendable Tickets Breakdown Modal ---
+function SpendableTicketsBreakdownModal({ isOpen, onClose, students = [], balances = {}, tickets = [] }) {
+  const [activeTab, setActiveTab] = useState('classroom'); // 'classroom' | 'grade' | 'students'
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedGrade, setSelectedGrade] = useState('all');
+  const [sortBy, setSortBy] = useState('highestAvg'); // 'highestAvg' | 'lowestAvg' | 'mostStudents' | 'name'
+  const [dataLimit, setDataLimit] = useState('10'); // '5' | '10' | '25' | '50' | 'all'
+
+  if (!isOpen) return null;
+
+  const getSpendable = (name) => Math.max(0, (balances[name]?.earned || 0) - (balances[name]?.spent || 0));
+  const getEarned = (name) => (balances[name]?.earned || 0);
+  const getSpent = (name) => (balances[name]?.spent || 0);
+
+  const totalStudents = students.length;
+  const totalSpendableSchool = students.reduce((sum, s) => sum + getSpendable(s.name), 0);
+  const totalEarnedSchool = students.reduce((sum, s) => sum + getEarned(s.name), 0);
+  const totalSpentSchool = students.reduce((sum, s) => sum + getSpent(s.name), 0);
+  const schoolAvg = totalStudents > 0 ? (totalSpendableSchool / totalStudents) : 0;
+
+  // Grade list
+  const allGrades = [...new Set(students.map(s => s.grade || 'N/A').filter(Boolean))].sort();
+
+  // Grade Level Metrics
+  const gradeMetrics = allGrades.map(g => {
+    const gStudents = students.filter(s => (s.grade || 'N/A') === g);
+    const count = gStudents.length;
+    const spendable = gStudents.reduce((sum, s) => sum + getSpendable(s.name), 0);
+    const earned = gStudents.reduce((sum, s) => sum + getEarned(s.name), 0);
+    const spent = gStudents.reduce((sum, s) => sum + getSpent(s.name), 0);
+    const avg = count > 0 ? (spendable / count) : 0;
+    return {
+      grade: g,
+      studentCount: count,
+      totalSpendable: spendable,
+      totalEarned: earned,
+      totalSpent: spent,
+      avgSpendable: avg
+    };
+  });
+
+  // Classroom Metrics
+  const allHomerooms = [...new Set(students.map(s => s.homeroom || 'Unassigned').filter(Boolean))].sort();
+  const classroomMetrics = allHomerooms.map(h => {
+    const cStudents = students.filter(s => (s.homeroom || 'Unassigned') === h);
+    const count = cStudents.length;
+    const gradesInClass = [...new Set(cStudents.map(s => s.grade).filter(Boolean))].join(', ') || 'N/A';
+    const spendable = cStudents.reduce((sum, s) => sum + getSpendable(s.name), 0);
+    const earned = cStudents.reduce((sum, s) => sum + getEarned(s.name), 0);
+    const spent = cStudents.reduce((sum, s) => sum + getSpent(s.name), 0);
+    const avg = count > 0 ? (spendable / count) : 0;
+    return {
+      homeroom: h,
+      grades: gradesInClass,
+      studentCount: count,
+      totalSpendable: spendable,
+      totalEarned: earned,
+      totalSpent: spent,
+      avgSpendable: avg
+    };
+  });
+
+  // Student Metrics
+  const studentMetrics = students.map(s => {
+    const spendable = getSpendable(s.name);
+    const earned = getEarned(s.name);
+    const spent = getSpent(s.name);
+    return {
+      id: s.id,
+      name: s.name,
+      homeroom: s.homeroom || 'Unassigned',
+      grade: s.grade || 'N/A',
+      spendable,
+      earned,
+      spent,
+      avgSpendable: spendable
+    };
+  });
+
+  // Filter & Sort
+  let list = [];
+  if (activeTab === 'classroom') list = [...classroomMetrics];
+  else if (activeTab === 'grade') list = [...gradeMetrics];
+  else list = [...studentMetrics];
+
+  if (searchTerm.trim()) {
+    const q = searchTerm.trim().toLowerCase();
+    list = list.filter(item => {
+      if (activeTab === 'classroom') {
+        return item.homeroom.toLowerCase().includes(q) || item.grades.toLowerCase().includes(q);
+      } else if (activeTab === 'grade') {
+        return item.grade.toLowerCase().includes(q);
+      } else {
+        return item.name.toLowerCase().includes(q) || item.homeroom.toLowerCase().includes(q) || item.grade.toLowerCase().includes(q) || String(item.id).includes(q);
+      }
+    });
+  }
+
+  if (selectedGrade !== 'all') {
+    list = list.filter(item => {
+      if (activeTab === 'classroom') return item.grades.includes(selectedGrade);
+      if (activeTab === 'grade') return item.grade === selectedGrade;
+      return item.grade === selectedGrade;
+    });
+  }
+
+  list.sort((a, b) => {
+    if (sortBy === 'highestAvg') return b.avgSpendable - a.avgSpendable;
+    if (sortBy === 'lowestAvg') return a.avgSpendable - b.avgSpendable;
+    if (sortBy === 'mostStudents') return (b.studentCount || 0) - (a.studentCount || 0);
+    if (sortBy === 'name') {
+      const nameA = a.homeroom || a.grade || a.name;
+      const nameB = b.homeroom || b.grade || b.name;
+      return nameA.localeCompare(nameB);
+    }
+    return 0;
+  });
+
+  const totalBeforeLimit = list.length;
+  const limitedItems = dataLimit === 'all' ? list : list.slice(0, Number(dataLimit));
+  const maxAvg = Math.max(1, ...limitedItems.map(i => i.avgSpendable));
+
+  const handleExportCSV = () => {
+    let csv = '';
+    if (activeTab === 'classroom') {
+      csv = 'Classroom,Grade(s),Students,Avg Spendable Tickets,Total Spendable,Total Lifetime Earned,Total Spent\n';
+      limitedItems.forEach(c => {
+        csv += `"${c.homeroom}","${c.grades}",${c.studentCount},${c.avgSpendable.toFixed(2)},${c.totalSpendable},${c.totalEarned},${c.totalSpent}\n`;
+      });
+    } else if (activeTab === 'grade') {
+      csv = 'Grade Level,Students,Avg Spendable Tickets,Total Spendable,Total Lifetime Earned,Total Spent\n';
+      limitedItems.forEach(g => {
+        csv += `"${g.grade}",${g.studentCount},${g.avgSpendable.toFixed(2)},${g.totalSpendable},${g.totalEarned},${g.totalSpent}\n`;
+      });
+    } else {
+      csv = 'Student ID,Student Name,Homeroom,Grade,Spendable Balance,Lifetime Earned,Total Spent\n';
+      limitedItems.forEach(s => {
+        csv += `"${s.id}","${s.name}","${s.homeroom}","${s.grade}",${s.spendable},${s.earned},${s.spent}\n`;
+      });
+    }
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Spendable_Tickets_${activeTab}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-3xl p-6 max-w-4xl w-full border border-gray-155 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-emerald-100 text-emerald-800 rounded-2xl">
+              <Ticket className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black font-display text-navy-955">Average Spendable Tickets Breakdown</h2>
+              <p className="text-xs text-gray-500">Compare average spendable wallet balances across classrooms, grade levels, and individual students.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs transition border border-slate-200 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition" aria-label="Close modal">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* KPI Banner */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50/50 p-3.5 rounded-2xl border border-emerald-200/70">
+          <div className="text-center sm:text-left sm:pl-2">
+            <div className="text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider">School-Wide Average</div>
+            <div className="text-2xl font-black text-emerald-950">{schoolAvg.toFixed(1)} <span className="text-xs font-normal text-emerald-800">tickets/student</span></div>
+          </div>
+          <div className="text-center">
+            <div className="text-[10px] font-extrabold uppercase text-teal-700 tracking-wider">Total Spendable Tickets</div>
+            <div className="text-2xl font-black text-teal-950">{totalSpendableSchool} <span className="text-xs font-normal text-teal-800">in circulation</span></div>
+          </div>
+          <div className="text-center sm:text-right sm:pr-2">
+            <div className="text-[10px] font-extrabold uppercase text-navy-700 tracking-wider">Total Students in School</div>
+            <div className="text-2xl font-black text-navy-950">{totalStudents} <span className="text-xs font-normal text-navy-800">enrolled</span></div>
+          </div>
+        </div>
+
+        {/* Tab Switcher & Filters */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+            <div className="flex bg-gray-100 p-1 rounded-xl gap-1">
+              <button
+                onClick={() => setActiveTab('classroom')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${activeTab === 'classroom' ? 'bg-white shadow-xs text-navy-950' : 'text-gray-500 hover:text-gray-900'}`}
+              >
+                By Classroom ({allHomerooms.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('grade')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${activeTab === 'grade' ? 'bg-white shadow-xs text-navy-950' : 'text-gray-500 hover:text-gray-900'}`}
+              >
+                By Grade Level ({allGrades.length})
+              </button>
+              <button
+                onClick={() => setActiveTab('students')}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${activeTab === 'students' ? 'bg-white shadow-xs text-navy-950' : 'text-gray-500 hover:text-gray-900'}`}
+              >
+                Individual Students ({students.length})
+              </button>
+            </div>
+
+            {/* Data Points Shown Limit Control */}
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl">
+              <span className="text-[11px] font-bold text-slate-500">Show:</span>
+              {['5', '10', '25', '50', 'all'].map(lim => (
+                <button
+                  key={lim}
+                  onClick={() => setDataLimit(lim)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-black transition cursor-pointer ${dataLimit === lim ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
+                >
+                  {lim === 'all' ? 'All' : lim}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Filter Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder={activeTab === 'classroom' ? 'Search classroom or teacher...' : activeTab === 'grade' ? 'Search grade...' : 'Search student or ID...'}
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-xl text-xs outline-none focus:ring-emerald-500 focus:border-emerald-500"
+              />
+            </div>
+
+            <div>
+              <select
+                value={selectedGrade}
+                onChange={e => setSelectedGrade(e.target.value)}
+                className="w-full p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+              >
+                <option value="all">All Grades</option>
+                {allGrades.map(g => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value)}
+                className="w-full p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+              >
+                <option value="highestAvg">Sort: Highest Average First</option>
+                <option value="lowestAvg">Sort: Lowest Average First</option>
+                {activeTab !== 'students' && <option value="mostStudents">Sort: Most Students First</option>}
+                <option value="name">Sort: Alphabetical (A-Z)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Results List / Table */}
+        <div className="overflow-y-auto flex-1 pr-1">
+          {limitedItems.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 italic">No matching records found for the current filters.</div>
+          ) : (
+            <table className="w-full text-left text-xs text-gray-600">
+              <thead className="bg-slate-50 text-[10px] font-extrabold uppercase text-slate-500 border-b sticky top-0 z-10">
+                <tr>
+                  <th className="px-3 py-2 w-10 text-center">#</th>
+                  <th className="px-3 py-2">{activeTab === 'classroom' ? 'Classroom / Homeroom' : activeTab === 'grade' ? 'Grade Level' : 'Student Name'}</th>
+                  <th className="px-3 py-2 text-right">Avg Spendable</th>
+                  <th className="px-3 py-2 w-1/3">Comparison to Max</th>
+                  {activeTab !== 'students' && <th className="px-3 py-2 text-center">Students</th>}
+                  <th className="px-3 py-2 text-right">Total Spendable</th>
+                  <th className="px-3 py-2 text-right">Earned / Spent</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {limitedItems.map((item, idx) => {
+                  const avgVal = item.avgSpendable || 0;
+                  const ratio = (avgVal / maxAvg) * 100;
+                  const isAboveSchoolAvg = avgVal >= schoolAvg;
+
+                  return (
+                    <tr key={item.homeroom || item.grade || item.id || idx} className="hover:bg-slate-50/80 transition">
+                      <td className="px-3 py-2.5 text-center font-bold text-gray-400">{idx + 1}</td>
+                      <td className="px-3 py-2.5">
+                        <div className="font-extrabold text-navy-950 text-xs">{item.homeroom || item.grade || item.name}</div>
+                        {activeTab === 'classroom' && <div className="text-[10px] text-gray-400">{item.grades}</div>}
+                        {activeTab === 'students' && <div className="text-[10px] text-gray-400">{item.homeroom} · {item.grade} (ID: {item.id})</div>}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md font-black text-xs ${isAboveSchoolAvg ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                          {avgVal.toFixed(1)}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5">
+                        <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${isAboveSchoolAvg ? 'bg-gradient-to-r from-emerald-500 to-teal-400' : 'bg-gradient-to-r from-amber-400 to-amber-500'}`}
+                            style={{ width: `${ratio}%` }}
+                          />
+                        </div>
+                      </td>
+                      {activeTab !== 'students' && (
+                        <td className="px-3 py-2.5 text-center font-bold text-gray-700">{item.studentCount}</td>
+                      )}
+                      <td className="px-3 py-2.5 text-right font-black text-emerald-700">{item.totalSpendable || item.spendable}</td>
+                      <td className="px-3 py-2.5 text-right text-[10px] text-gray-500">
+                        <span className="text-green-700 font-bold">+{item.totalEarned || item.earned}</span> / <span className="text-red-600 font-bold">-{item.totalSpent || item.spent}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer info */}
+        <div className="flex justify-between items-center text-[11px] text-gray-500 border-t pt-2">
+          <span>Showing {limitedItems.length} of {totalBeforeLimit} {activeTab === 'classroom' ? 'classrooms' : activeTab === 'grade' ? 'grade levels' : 'students'}</span>
+          <button onClick={onClose} className="px-4 py-2 border rounded-xl text-xs font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- Full Top Students Leaderboard Modal ---
+function TopStudentsLeaderboardModal({ isOpen, onClose, students = [], balances = {}, tickets = [] }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('all');
+  const [homeroomFilter, setHomeroomFilter] = useState('all');
+  const [sortBy, setSortBy] = useState('earned'); // 'earned' | 'spendable' | 'spent' | 'name'
+  const [dataLimit, setDataLimit] = useState('25'); // '10' | '25' | '50' | '100' | 'all'
+
+  if (!isOpen) return null;
+
+  const allGrades = [...new Set(students.map(s => s.grade).filter(Boolean))].sort();
+  const allHomerooms = [...new Set(students.map(s => s.homeroom).filter(Boolean))].sort();
+
+  let list = students.map(s => {
+    const b = balances[s.name] || { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
+    const earned = b.earned || 0;
+    const spent = b.spent || 0;
+    const spendable = Math.max(0, earned - spent);
+    return {
+      ...s,
+      earned,
+      spent,
+      spendable,
+      Respectful: b.Respectful || 0,
+      Responsible: b.Responsible || 0,
+      Determined: b.Determined || 0
+    };
+  });
+
+  if (searchTerm.trim()) {
+    const q = searchTerm.trim().toLowerCase();
+    list = list.filter(s => (s.name || '').toLowerCase().includes(q) || (s.homeroom || '').toLowerCase().includes(q) || (s.id || '').toLowerCase().includes(q));
+  }
+  if (gradeFilter !== 'all') {
+    list = list.filter(s => s.grade === gradeFilter);
+  }
+  if (homeroomFilter !== 'all') {
+    list = list.filter(s => s.homeroom === homeroomFilter);
+  }
+
+  list.sort((a, b) => {
+    if (sortBy === 'earned') return b.earned - a.earned;
+    if (sortBy === 'spendable') return b.spendable - a.spendable;
+    if (sortBy === 'spent') return b.spent - a.spent;
+    if (sortBy === 'name') return (a.name || '').localeCompare(b.name || '');
+    return 0;
+  });
+
+  const totalCount = list.length;
+  const limited = dataLimit === 'all' ? list : list.slice(0, Number(dataLimit));
+  const maxScore = Math.max(1, ...limited.map(s => (sortBy === 'spendable' ? s.spendable : s.earned)));
+
+  const handleExportCSV = () => {
+    let csv = 'Rank,Student ID,Student Name,Homeroom,Grade,Lifetime Earned,Spendable Balance,Total Spent,Respectful,Responsible,Determined\n';
+    limited.forEach((s, i) => {
+      csv += `${i + 1},"${s.id}","${s.name}","${s.homeroom}","${s.grade}",${s.earned},${s.spendable},${s.spent},${s.Respectful},${s.Responsible},${s.Determined}\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `Student_Leaderboard_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-3xl p-6 max-w-4xl w-full border border-gray-155 shadow-2xl space-y-4 max-h-[90vh] flex flex-col">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-yellow-100 text-yellow-800 rounded-2xl">
+              <Crown className="w-6 h-6" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black font-display text-navy-955">Student Ticket Leaderboard</h2>
+              <p className="text-xs text-gray-500">Comprehensive student ticket standings, spendable wallet balances, and PBIS core value breakdowns.</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleExportCSV}
+              className="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold px-3 py-2 rounded-xl text-xs transition border border-slate-200 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export CSV</span>
+            </button>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition" aria-label="Close modal">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Filter controls */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder="Search student or ID..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-xl text-xs outline-none focus:ring-emerald-500 focus:border-emerald-500"
+            />
+          </div>
+
+          <div>
+            <select
+              value={gradeFilter}
+              onChange={e => setGradeFilter(e.target.value)}
+              className="w-full p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+            >
+              <option value="all">All Grades</option>
+              {allGrades.map(g => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={homeroomFilter}
+              onChange={e => setHomeroomFilter(e.target.value)}
+              className="w-full p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+            >
+              <option value="all">All Homerooms</option>
+              {allHomerooms.map(h => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <select
+              value={sortBy}
+              onChange={e => setSortBy(e.target.value)}
+              className="w-full p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+            >
+              <option value="earned">Sort: Most Lifetime Tickets</option>
+              <option value="spendable">Sort: Highest Spendable Balance</option>
+              <option value="spent">Sort: Most Tickets Spent</option>
+              <option value="name">Sort: Alphabetical (A-Z)</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Data points limit selector */}
+        <div className="flex items-center justify-between text-xs border-b pb-2">
+          <span className="text-gray-500">Showing <strong>{limited.length}</strong> of {totalCount} students</span>
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl">
+            <span className="text-[11px] font-bold text-slate-500">Data Points:</span>
+            {['10', '25', '50', '100', 'all'].map(lim => (
+              <button
+                key={lim}
+                onClick={() => setDataLimit(lim)}
+                className={`px-2 py-0.5 rounded-md text-[11px] font-black transition cursor-pointer ${dataLimit === lim ? 'bg-amber-500 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
+              >
+                {lim === 'all' ? 'All' : lim}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Leaderboard Table */}
+        <div className="overflow-y-auto flex-1 pr-1">
+          {limited.length === 0 ? (
+            <div className="p-8 text-center text-gray-500 italic">No matching students found for the selected filters.</div>
+          ) : (
+            <table className="w-full text-left text-xs text-gray-600">
+              <thead className="bg-slate-50 text-[10px] font-extrabold uppercase text-slate-500 border-b sticky top-0 z-10">
+                <tr>
+                  <th className="px-3 py-2 w-12 text-center">Rank</th>
+                  <th className="px-3 py-2">Student</th>
+                  <th className="px-3 py-2">Homeroom / Grade</th>
+                  <th className="px-3 py-2 text-right">Lifetime Earned</th>
+                  <th className="px-3 py-2 text-right">Spendable Balance</th>
+                  <th className="px-3 py-2 text-right">Spent</th>
+                  <th className="px-3 py-2 text-center">Pillars (R / R / D)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {limited.map((s, idx) => {
+                  const score = sortBy === 'spendable' ? s.spendable : s.earned;
+                  const ratio = (score / maxScore) * 100;
+
+                  return (
+                    <tr key={s.id || s.name} className="hover:bg-slate-50/80 transition">
+                      <td className="px-3 py-2.5 text-center font-extrabold">
+                        {idx === 0 ? <span className="text-yellow-600 font-black">🥇 1</span> : idx === 1 ? <span className="text-gray-500 font-black">🥈 2</span> : idx === 2 ? <span className="text-amber-700 font-black">🥉 3</span> : <span className="text-gray-400">{idx + 1}</span>}
+                      </td>
+                      <td className="px-3 py-2.5 font-extrabold text-navy-950">
+                        {s.name}
+                        <span className="text-[10px] text-gray-400 block font-normal">ID: {s.id}</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-gray-600">
+                        {s.homeroom} <span className="text-gray-400">({s.grade})</span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-black text-green-700 text-sm">
+                        {s.earned}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-black text-emerald-600 text-sm">
+                        {s.spendable}
+                      </td>
+                      <td className="px-3 py-2.5 text-right font-bold text-red-600">
+                        {s.spent}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className="text-[10px] font-bold">
+                          <span className="text-blue-600">{s.Respectful}</span> / <span className="text-amber-600">{s.Responsible}</span> / <span className="text-purple-600">{s.Determined}</span>
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex justify-end border-t pt-2">
+          <button onClick={onClose} className="px-4 py-2 border rounded-xl text-xs font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 transition cursor-pointer">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Edit Student Modal ---
 function EditStudentModal({ student, onClose, showToast }) {
   const [studentId, setStudentId] = useState(student.id);
@@ -2502,6 +3079,8 @@ function EditStudentModal({ student, onClose, showToast }) {
   const [grade, setGrade] = useState(student.grade);
   const [pinCode, setPinCode] = useState(student.pinCode);
   const [loading, setLoading] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -2532,41 +3111,110 @@ function EditStudentModal({ student, onClose, showToast }) {
     }
   };
 
+  const handleDeleteStudent = async () => {
+    setIsDeleting(true);
+    try {
+      await api.fetch(`/api/students/${student.id}`, {
+        method: 'DELETE'
+      });
+      showToast(`Removed "${student.name}" from class roster.`);
+      onClose();
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to remove student.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-navy-950/45 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
       <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-100 shadow-xl space-y-4">
         <div className="flex justify-between items-center border-b pb-3">
-          <h3 className="font-display font-black text-navy-955 text-base">Edit Student Credentials</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-705"><X className="w-5 h-5" /></button>
+          <h3 className="font-display font-black text-navy-955 text-base">
+            {showConfirmDelete ? 'Remove Student from Class' : 'Edit Student Credentials'}
+          </h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-705 p-1 rounded-lg hover:bg-gray-100 transition" aria-label="Close modal">
+            <X className="w-5 h-5" />
+          </button>
         </div>
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div>
-            <label className="block text-xs font-bold text-gray-500 mb-1">Student Full Name</label>
-            <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+
+        {showConfirmDelete ? (
+          <div className="space-y-4 py-1 animate-fade-in">
+            <div className="bg-red-50 border border-red-200 rounded-2xl p-4 space-y-2">
+              <div className="flex items-center gap-2 text-red-700 font-bold text-sm">
+                <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0" />
+                <span>Remove from Class Roster?</span>
+              </div>
+              <p className="text-xs text-gray-700 leading-relaxed">
+                Are you sure you want to remove <strong className="text-gray-900 font-bold">{student.name}</strong> from <strong className="text-gray-900 font-bold">{student.homeroom || 'your class'}</strong>?
+              </p>
+              <p className="text-xxs text-gray-500 italic">
+                This student will be removed from your active roster. Historical ticket and spending logs will remain safely recorded in the school system.
+              </p>
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowConfirmDelete(false)}
+                className="px-4 py-2 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 bg-white hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteStudent}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-bold text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 transition shadow-sm"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>{isDeleting ? 'Removing...' : 'Yes, Remove'}</span>
+              </button>
+            </div>
           </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-500 mb-1">Login Student ID (Editable)</label>
-            <input type="text" required value={studentId} onChange={e => setStudentId(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-gray-500 mb-1">Login PIN (4 digits)</label>
-            <input type="text" required maxLength={6} value={pinCode} onChange={e => setPinCode(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+        ) : (
+          <form onSubmit={handleSubmit} className="space-y-3">
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Homeroom</label>
-              <input type="text" required value={homeroom} onChange={e => setHomeroom(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+              <label className="block text-xs font-bold text-gray-500 mb-1">Student Full Name</label>
+              <input type="text" required value={name} onChange={e => setName(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-500 mb-1">Grade</label>
-              <input type="text" required value={grade} onChange={e => setGrade(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+              <label className="block text-xs font-bold text-gray-500 mb-1">Login Student ID (Editable)</label>
+              <input type="text" required value={studentId} onChange={e => setStudentId(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
             </div>
-          </div>
-          <div className="flex gap-2 justify-end pt-2">
-            <button type="button" onClick={onClose} className="px-4 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white">Cancel</button>
-            <button type="submit" disabled={loading} className="px-4 py-2 border rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50">{loading ? 'Saving...' : 'Save Changes'}</button>
-          </div>
-        </form>
+            <div>
+              <label className="block text-xs font-bold text-gray-500 mb-1">Login PIN (4 digits)</label>
+              <input type="text" required maxLength={6} value={pinCode} onChange={e => setPinCode(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Homeroom</label>
+                <input type="text" required value={homeroom} onChange={e => setHomeroom(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-gray-500 mb-1">Grade</label>
+                <input type="text" required value={grade} onChange={e => setGrade(e.target.value)} className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-green-500 focus:border-green-500 outline-none" />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-2 pt-2 border-t">
+              <button
+                type="button"
+                onClick={() => setShowConfirmDelete(true)}
+                className="flex items-center gap-1 px-2.5 py-2 border border-red-200 rounded-xl text-xs font-bold text-red-600 hover:bg-red-50 hover:border-red-300 transition"
+                title="Remove student from class roster"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                <span>Remove</span>
+              </button>
+              <div className="flex gap-2">
+                <button type="button" onClick={onClose} className="px-3.5 py-2 border rounded-xl text-sm font-bold text-gray-600 bg-white hover:bg-gray-50 transition">Cancel</button>
+                <button type="submit" disabled={loading} className="px-3.5 py-2 border rounded-xl text-sm font-bold text-white bg-green-600 hover:bg-green-700 disabled:opacity-50 transition">{loading ? 'Saving...' : 'Save'}</button>
+              </div>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
@@ -6198,7 +6846,32 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [showManualPaste, setShowManualPaste] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [sortBy, setSortBy] = useState('lastName');
-  const ITEMS_PER_PAGE = 25;
+
+  // Modals state
+  const [showSpendableModal, setShowSpendableModal] = useState(false);
+  const [showTopStudentsModal, setShowTopStudentsModal] = useState(false);
+
+  // Overview quick-filters & data limit states
+  const [overviewSpendableLimit, setOverviewSpendableLimit] = useState('5');
+  const [topStudentLimit, setTopStudentLimit] = useState('10');
+  const [topStudentGradeFilter, setTopStudentGradeFilter] = useState('all');
+  const [topStudentSearch, setTopStudentSearch] = useState('');
+
+  const [teacherSearch, setTeacherSearch] = useState('');
+  const [teacherSort, setTeacherSort] = useState('tickets'); // 'tickets' | 'name'
+  const [teacherLimit, setTeacherLimit] = useState('10');
+
+  const [classSearch, setClassSearch] = useState('');
+  const [classGradeFilter, setClassGradeFilter] = useState('all');
+  const [classLimit, setClassLimit] = useState('10');
+
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityTypeFilter, setActivityTypeFilter] = useState('all');
+  const [activityLimit, setActivityLimit] = useState(25);
+
+  const [profileSearch, setProfileSearch] = useState('');
+  const [profileRoleFilter, setProfileRoleFilter] = useState('all');
+  const [profileLimit, setProfileLimit] = useState('25');
 
   // Grade Goals state
   const [gradeGoalGrade, setGradeGoalGrade] = useState('');
@@ -6208,6 +6881,52 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
   const reasons = { Respectful: 0, Responsible: 0, Determined: 0 };
   tickets.forEach(t => { if (reasons[t.reason] !== undefined) reasons[t.reason]++; });
+
+  // Spendable statistics breakdown
+  const spendableStats = useMemo(() => {
+    const getSpendable = (name) => Math.max(0, (balances[name]?.earned || 0) - (balances[name]?.spent || 0));
+    const totalStudents = students.length;
+    const totalSpendable = students.reduce((sum, s) => sum + getSpendable(s.name), 0);
+    const totalEarned = students.reduce((sum, s) => sum + (balances[s.name]?.earned || 0), 0);
+    const totalSpent = students.reduce((sum, s) => sum + (balances[s.name]?.spent || 0), 0);
+    const schoolAvg = totalStudents > 0 ? (totalSpendable / totalStudents) : 0;
+
+    // Grade Level
+    const allGrades = [...new Set(students.map(s => s.grade || 'N/A').filter(Boolean))].sort();
+    const grades = allGrades.map(g => {
+      const gStudents = students.filter(s => (s.grade || 'N/A') === g);
+      const count = gStudents.length;
+      const spend = gStudents.reduce((sum, s) => sum + getSpendable(s.name), 0);
+      const avg = count > 0 ? (spend / count) : 0;
+      return { grade: g, studentCount: count, totalSpendable: spend, avgSpendable: avg };
+    }).sort((a, b) => b.avgSpendable - a.avgSpendable);
+
+    // Classrooms
+    const allHomerooms = [...new Set(students.map(s => s.homeroom || 'Unassigned').filter(Boolean))].sort();
+    const classrooms = allHomerooms.map(h => {
+      const cStudents = students.filter(s => (s.homeroom || 'Unassigned') === h);
+      const count = cStudents.length;
+      const gradesInClass = [...new Set(cStudents.map(s => s.grade).filter(Boolean))].join(', ') || 'N/A';
+      const spend = cStudents.reduce((sum, s) => sum + getSpendable(s.name), 0);
+      const avg = count > 0 ? (spend / count) : 0;
+      return { homeroom: h, grades: gradesInClass, studentCount: count, totalSpendable: spend, avgSpendable: avg };
+    }).sort((a, b) => b.avgSpendable - a.avgSpendable);
+
+    const topGrade = grades[0] || { grade: 'N/A', avgSpendable: 0, studentCount: 0 };
+    const topClass = classrooms[0] || { homeroom: 'N/A', avgSpendable: 0, studentCount: 0 };
+
+    return {
+      totalStudents,
+      totalSpendable,
+      totalEarned,
+      totalSpent,
+      schoolAvg,
+      grades,
+      classrooms,
+      topGrade,
+      topClass
+    };
+  }, [students, balances]);
 
   const classes = useMemo(() => {
     const homerooms = students.map(s => s.homeroom).filter(Boolean);
@@ -6771,29 +7490,157 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
         <>
           {/* Summary stat cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="p-3 bg-green-100 rounded-full text-green-600"><Award className="w-7 h-7" /></div>
-              <div><div className="text-xs text-gray-500 font-medium">Total Tickets</div><div className="text-2xl font-bold">{tickets.length}</div></div>
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-150 flex items-center gap-4">
+              <div className="p-3 bg-green-100 rounded-2xl text-green-700"><Award className="w-7 h-7" /></div>
+              <div><div className="text-xs text-gray-500 font-medium">Total Tickets</div><div className="text-2xl font-black text-navy-950">{tickets.length}</div></div>
             </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="p-3 bg-yellow-100 rounded-full text-yellow-600"><Star className="w-7 h-7" /></div>
-              <div><div className="text-xs text-gray-500 font-medium">Golden Tickets</div><div className="text-2xl font-bold">{goldenTickets.length}</div></div>
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-150 flex items-center gap-4">
+              <div className="p-3 bg-yellow-100 rounded-2xl text-yellow-700"><Star className="w-7 h-7" /></div>
+              <div><div className="text-xs text-gray-500 font-medium">Golden Tickets</div><div className="text-2xl font-black text-navy-950">{goldenTickets.length}</div></div>
             </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="p-3 bg-blue-100 rounded-full text-blue-600"><Users className="w-7 h-7" /></div>
-              <div><div className="text-xs text-gray-500 font-medium">Active Teachers</div><div className="text-2xl font-bold">{new Set(tickets.map(t => (t.teacherEmail || t.teacherName || t.teacherId || '').toLowerCase()).filter(Boolean)).size}</div></div>
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-150 flex items-center gap-4">
+              <div className="p-3 bg-blue-100 rounded-2xl text-blue-700"><Users className="w-7 h-7" /></div>
+              <div><div className="text-xs text-gray-500 font-medium">Active Teachers</div><div className="text-2xl font-black text-navy-950">{new Set(tickets.map(t => (t.teacherEmail || t.teacherName || t.teacherId || '').toLowerCase()).filter(Boolean)).size}</div></div>
             </div>
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex items-center gap-4">
-              <div className="p-3 bg-purple-100 rounded-full text-purple-600"><PieChart className="w-7 h-7" /></div>
-              <div><div className="text-xs text-gray-500 font-medium">Students in Roster</div><div className="text-2xl font-bold">{students.length}</div></div>
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-150 flex items-center gap-4">
+              <div className="p-3 bg-purple-100 rounded-2xl text-purple-700"><PieChart className="w-7 h-7" /></div>
+              <div><div className="text-xs text-gray-500 font-medium">Students in Roster</div><div className="text-2xl font-black text-navy-950">{students.length}</div></div>
+            </div>
+          </div>
+
+          {/* --- AVERAGE SPENDABLE TICKETS SECTION (NEAR TOP) --- */}
+          <div className="bg-gradient-to-br from-emerald-900 via-teal-900 to-slate-900 text-white rounded-3xl p-6 shadow-xl border border-emerald-500/30 space-y-5 mt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-700/50 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-500/20 rounded-2xl border border-emerald-400/30 text-emerald-300">
+                  <Ticket className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-black font-display tracking-tight text-white">Average Spendable Tickets</h2>
+                    <span className="bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">
+                      Live Balance Metrics
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-200/80 mt-0.5">
+                    Live average spendable wallet balances per student across the school, by grade level, and by classroom
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowSpendableModal(true)}
+                className="flex items-center justify-center gap-2 bg-emerald-400 hover:bg-emerald-300 text-emerald-950 font-black px-4 py-2.5 rounded-xl text-xs transition shadow-md cursor-pointer flex-shrink-0"
+              >
+                <BarChart3 className="w-4 h-4" />
+                <span>View Detailed Modal & Export</span>
+              </button>
+            </div>
+
+            {/* 3 KPI Spotlight Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white/10 backdrop-blur-xs p-4 rounded-2xl border border-white/10">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 mb-1">🏫 School-Wide Average</div>
+                <div className="text-3xl font-black text-white">{spendableStats.schoolAvg.toFixed(1)} <span className="text-sm font-normal text-emerald-200">tickets/student</span></div>
+                <div className="text-xs text-emerald-200/70 mt-1">{spendableStats.totalSpendable} spendable tickets · {spendableStats.totalStudents} students</div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-xs p-4 rounded-2xl border border-white/10">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 mb-1">🏅 Top Grade Level Average</div>
+                <div className="text-3xl font-black text-white">{spendableStats.topGrade.avgSpendable.toFixed(1)} <span className="text-sm font-normal text-amber-200">tickets/student</span></div>
+                <div className="text-xs text-amber-200/70 mt-1">{spendableStats.topGrade.grade} ({spendableStats.topGrade.studentCount} students)</div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-xs p-4 rounded-2xl border border-white/10">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-teal-300 mb-1">🏆 Top Classroom Average</div>
+                <div className="text-3xl font-black text-white">{spendableStats.topClass.avgSpendable.toFixed(1)} <span className="text-sm font-normal text-teal-200">tickets/student</span></div>
+                <div className="text-xs text-teal-200/70 mt-1">{spendableStats.topClass.homeroom} ({spendableStats.topClass.studentCount} students)</div>
+              </div>
+            </div>
+
+            {/* Comparison Cards Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
+              {/* Grade Level Averages Card */}
+              <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/10 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-emerald-300 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" /> Grade Level Averages
+                  </h4>
+                  <span className="text-[11px] text-gray-400">{spendableStats.grades.length} grades</span>
+                </div>
+                <div className="space-y-2">
+                  {spendableStats.grades.map(g => {
+                    const maxGradeAvg = Math.max(1, ...spendableStats.grades.map(x => x.avgSpendable));
+                    return (
+                      <div key={g.grade} className="flex items-center gap-3 bg-white/5 p-2.5 rounded-xl">
+                        <span className="text-xs font-bold text-white w-28 truncate">{g.grade}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-emerald-400 to-teal-300 rounded-full transition-all duration-500" style={{ width: `${(g.avgSpendable / maxGradeAvg) * 100}%` }} />
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-xs font-black px-2 py-0.5 rounded-md">
+                            {g.avgSpendable.toFixed(1)} avg
+                          </span>
+                          <span className="text-[10px] text-gray-400 block mt-0.5">{g.studentCount} students</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Classroom Averages Card with search & data limit */}
+              <div className="bg-slate-900/60 p-4 rounded-2xl border border-white/10 space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-teal-300 flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5" /> Classroom Averages
+                  </h4>
+                  <div className="flex items-center gap-2">
+                    <div className="flex bg-white/10 p-0.5 rounded-lg text-[10px] font-bold">
+                      {['5', '10', 'all'].map(lim => (
+                        <button
+                          key={lim}
+                          onClick={() => setOverviewSpendableLimit(lim)}
+                          className={`px-2 py-0.5 rounded-md transition cursor-pointer ${overviewSpendableLimit === lim ? 'bg-teal-400 text-teal-950 font-black' : 'text-gray-300 hover:text-white'}`}
+                        >
+                          {lim === 'all' ? 'All' : `Top ${lim}`}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {spendableStats.classrooms.slice(0, overviewSpendableLimit === 'all' ? spendableStats.classrooms.length : Number(overviewSpendableLimit)).map(c => {
+                    const maxClassAvg = Math.max(1, ...spendableStats.classrooms.map(x => x.avgSpendable));
+                    return (
+                      <div key={c.homeroom} className="flex items-center gap-3 bg-white/5 p-2.5 rounded-xl">
+                        <div className="w-32 truncate">
+                          <span className="text-xs font-bold text-white block truncate">{c.homeroom}</span>
+                          <span className="text-[10px] text-gray-400 block truncate">{c.grades}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                            <div className="h-full bg-gradient-to-r from-teal-400 to-amber-300 rounded-full transition-all duration-500" style={{ width: `${(c.avgSpendable / maxClassAvg) * 100}%` }} />
+                          </div>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <span className="bg-teal-500/20 text-teal-300 border border-teal-500/30 text-xs font-black px-2 py-0.5 rounded-md">
+                            {c.avgSpendable.toFixed(1)} avg
+                          </span>
+                          <span className="text-[10px] text-gray-400 block mt-0.5">{c.studentCount} students</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
           </div>
 
           {/* Charts row */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
             {/* Ticket Type Breakdown */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h3 className="font-bold text-gray-800 text-sm mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-gray-400" /> Ticket Type Breakdown</h3>
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150">
+              <h3 className="font-black text-gray-800 text-sm mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-gray-400" /> Ticket Type Breakdown</h3>
               {tickets.length === 0 ? <p className="text-gray-400 text-sm">No tickets yet.</p> : (
                 <>
                   <div className="flex rounded-full overflow-hidden h-8 bg-gray-100 mb-4">
@@ -6810,27 +7657,93 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               )}
             </div>
 
-            {/* Top 10 Students */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h3 className="font-bold text-gray-800 text-sm mb-4 flex items-center gap-2"><Crown className="w-4 h-4 text-yellow-500" /> Top 10 Students (Most Tickets)</h3>
+            {/* Top Students (with filters & data limit) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-black text-gray-800 text-sm flex items-center gap-2">
+                  <Crown className="w-4 h-4 text-yellow-500" /> Top Students (Tickets)
+                </h3>
+                <button
+                  onClick={() => setShowTopStudentsModal(true)}
+                  className="text-xs font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                >
+                  <Crown className="w-3 h-3" />
+                  <span>Full Leaderboard</span>
+                </button>
+              </div>
+
+              {/* Controls bar */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+                <div className="relative">
+                  <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    placeholder="Search student..."
+                    value={topStudentSearch}
+                    onChange={e => setTopStudentSearch(e.target.value)}
+                    className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded-lg text-[11px] outline-none"
+                  />
+                </div>
+                <div>
+                  <select
+                    value={topStudentGradeFilter}
+                    onChange={e => setTopStudentGradeFilter(e.target.value)}
+                    className="w-full p-1 border border-gray-300 rounded-lg text-[11px] outline-none bg-white font-medium"
+                  >
+                    <option value="all">All Grades</option>
+                    {[...new Set(students.map(s => s.grade).filter(Boolean))].sort().map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center justify-end gap-1 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-bold">
+                  <span className="text-gray-400">Show:</span>
+                  {['5', '10', '25', '50', 'all'].map(lim => (
+                    <button
+                      key={lim}
+                      onClick={() => setTopStudentLimit(lim)}
+                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${topStudentLimit === lim ? 'bg-amber-500 text-white font-black' : 'text-gray-600 hover:bg-slate-200'}`}
+                    >
+                      {lim === 'all' ? 'All' : lim}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {(() => {
                 const studentCounts = {};
                 tickets.filter(t => t.recipientType === 'student').forEach(t => { studentCounts[t.recipient] = (studentCounts[t.recipient] || 0) + 1; });
-                const sorted = Object.entries(studentCounts).sort((a, b) => b[1] - a[1]).slice(0, 10);
-                const maxCount = sorted[0]?.[1] || 1;
-                if (sorted.length === 0) return <p className="text-gray-400 text-sm">No student tickets yet.</p>;
+                
+                let list = Object.entries(studentCounts).map(([name, count]) => {
+                  const sObj = students.find(s => s.name === name) || {};
+                  return { name, count, grade: sObj.grade, homeroom: sObj.homeroom };
+                });
+
+                if (topStudentSearch.trim()) {
+                  const q = topStudentSearch.trim().toLowerCase();
+                  list = list.filter(s => s.name.toLowerCase().includes(q) || (s.homeroom || '').toLowerCase().includes(q));
+                }
+                if (topStudentGradeFilter !== 'all') {
+                  list = list.filter(s => s.grade === topStudentGradeFilter);
+                }
+
+                list.sort((a, b) => b.count - a.count);
+                const limited = topStudentLimit === 'all' ? list : list.slice(0, Number(topStudentLimit));
+                const maxCount = Math.max(1, ...(limited[0]?.count ? [limited[0].count] : [1]));
+
+                if (limited.length === 0) return <p className="text-gray-400 text-xs py-4 text-center">No student tickets found.</p>;
                 return (
-                  <div className="space-y-2">
-                    {sorted.map(([name, count], i) => (
-                      <div key={name} className="flex items-center gap-3">
+                  <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                    {limited.map((item, i) => (
+                      <div key={item.name} className="flex items-center gap-3">
                         <span className={`w-6 text-xs font-bold text-right ${i < 3 ? 'text-yellow-600' : 'text-gray-400'}`}>{i + 1}.</span>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-0.5">
-                            <span className="text-sm font-medium text-gray-800 truncate">{name}</span>
-                            <span className="text-sm font-bold text-green-700 ml-2">{count}</span>
+                            <span className="text-xs font-bold text-gray-800 truncate">{item.name} <span className="text-[10px] text-gray-400 font-normal">({item.homeroom || '—'})</span></span>
+                            <span className="text-xs font-black text-green-700 ml-2">{item.count}</span>
                           </div>
-                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all duration-500 ${i === 0 ? 'bg-yellow-400' : i === 1 ? 'bg-gray-400' : i === 2 ? 'bg-amber-600' : 'bg-green-400'}`} style={{ width: `${(count / maxCount) * 100}%` }} />
+                          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-500 ${i === 0 ? 'bg-yellow-400' : i === 1 ? 'bg-gray-400' : i === 2 ? 'bg-amber-600' : 'bg-green-400'}`} style={{ width: `${(item.count / maxCount) * 100}%` }} />
                           </div>
                         </div>
                       </div>
@@ -6840,26 +7753,79 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               })()}
             </div>
 
-            {/* Tickets by Teacher */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h3 className="font-bold text-gray-800 text-sm mb-4 flex items-center gap-2"><TrendingUp className="w-4 h-4 text-green-500" /> Tickets by Teacher</h3>
+            {/* Tickets by Teacher (with search & data limit) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-black text-gray-800 text-sm flex items-center gap-2"><TrendingUp className="w-4 h-4 text-green-500" /> Tickets by Teacher</h3>
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-bold">
+                  <span className="text-gray-400">Show:</span>
+                  {['5', '10', '25', 'all'].map(lim => (
+                    <button
+                      key={lim}
+                      onClick={() => setTeacherLimit(lim)}
+                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${teacherLimit === lim ? 'bg-green-600 text-white font-black' : 'text-gray-600 hover:bg-slate-200'}`}
+                    >
+                      {lim === 'all' ? 'All' : lim}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <div className="relative">
+                  <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    placeholder="Search teacher..."
+                    value={teacherSearch}
+                    onChange={e => setTeacherSearch(e.target.value)}
+                    className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded-lg text-[11px] outline-none"
+                  />
+                </div>
+                <div>
+                  <select
+                    value={teacherSort}
+                    onChange={e => setTeacherSort(e.target.value)}
+                    className="w-full p-1 border border-gray-300 rounded-lg text-[11px] outline-none bg-white font-medium"
+                  >
+                    <option value="tickets">Sort: Most Tickets Awarded</option>
+                    <option value="name">Sort: Alphabetical (A-Z)</option>
+                  </select>
+                </div>
+              </div>
+
               {(() => {
                 const teacherCounts = {};
                 tickets.forEach(t => { teacherCounts[t.teacherName] = (teacherCounts[t.teacherName] || 0) + 1; });
-                const sorted = Object.entries(teacherCounts).sort((a, b) => b[1] - a[1]);
-                const maxCount = sorted[0]?.[1] || 1;
-                if (sorted.length === 0) return <p className="text-gray-400 text-sm">No tickets yet.</p>;
+                let list = Object.entries(teacherCounts).map(([name, count]) => ({ name, count }));
+
+                if (teacherSearch.trim()) {
+                  const q = teacherSearch.trim().toLowerCase();
+                  list = list.filter(t => t.name.toLowerCase().includes(q));
+                }
+
+                if (teacherSort === 'tickets') {
+                  list.sort((a, b) => b.count - a.count);
+                } else {
+                  list.sort((a, b) => a.name.localeCompare(b.name));
+                }
+
+                const limited = teacherLimit === 'all' ? list : list.slice(0, Number(teacherLimit));
+                const maxCount = Math.max(1, ...(limited[0]?.count ? [limited[0].count] : [1]));
+
+                if (limited.length === 0) return <p className="text-gray-400 text-xs py-4 text-center">No teacher tickets yet.</p>;
                 return (
-                  <div className="space-y-2">
-                    {sorted.map(([name, count]) => (
+                  <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                    {limited.map(({ name, count }) => (
                       <div key={name} className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{name.charAt(0).toUpperCase()}</div>
+                        <div className="w-7 h-7 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{name.charAt(0).toUpperCase()}</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-0.5">
-                            <span className="text-sm font-medium text-gray-800 truncate">{name}</span>
-                            <span className="text-sm font-bold text-green-700 ml-2">{count}</span>
+                            <span className="text-xs font-bold text-gray-800 truncate">{name}</span>
+                            <span className="text-xs font-black text-green-700 ml-2">{count}</span>
                           </div>
-                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full bg-green-500 transition-all duration-500" style={{ width: `${(count / maxCount) * 100}%` }} />
                           </div>
                         </div>
@@ -6870,31 +7836,96 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               })()}
             </div>
 
-            {/* Tickets by Class */}
-            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-              <h3 className="font-bold text-gray-800 text-sm mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-blue-500" /> Tickets by Homeroom Class</h3>
+            {/* Tickets by Class (with search & data limit) */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-black text-gray-800 text-sm flex items-center gap-2"><Users className="w-4 h-4 text-blue-500" /> Tickets by Homeroom Class</h3>
+                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-bold">
+                  <span className="text-gray-400">Show:</span>
+                  {['5', '10', '25', 'all'].map(lim => (
+                    <button
+                      key={lim}
+                      onClick={() => setClassLimit(lim)}
+                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${classLimit === lim ? 'bg-blue-600 text-white font-black' : 'text-gray-600 hover:bg-slate-200'}`}
+                    >
+                      {lim === 'all' ? 'All' : lim}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Controls */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <div className="relative">
+                  <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    placeholder="Search classroom..."
+                    value={classSearch}
+                    onChange={e => setClassSearch(e.target.value)}
+                    className="w-full pl-7 pr-2 py-1 border border-gray-300 rounded-lg text-[11px] outline-none"
+                  />
+                </div>
+                <div>
+                  <select
+                    value={classGradeFilter}
+                    onChange={e => setClassGradeFilter(e.target.value)}
+                    className="w-full p-1 border border-gray-300 rounded-lg text-[11px] outline-none bg-white font-medium"
+                  >
+                    <option value="all">All Grades</option>
+                    {[...new Set(students.map(s => s.grade).filter(Boolean))].sort().map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
               {(() => {
                 const studentHomeroom = {};
-                students.forEach(s => { studentHomeroom[s.name] = s.homeroom; });
+                const studentGrade = {};
+                students.forEach(s => {
+                  studentHomeroom[s.name] = s.homeroom;
+                  studentGrade[s.name] = s.grade;
+                });
                 const classCounts = {};
+                const classGrades = {};
                 tickets.filter(t => t.recipientType === 'student').forEach(t => {
                   const hr = studentHomeroom[t.recipient] || 'Unknown';
+                  const gr = studentGrade[t.recipient] || '';
                   classCounts[hr] = (classCounts[hr] || 0) + 1;
+                  if (gr && !classGrades[hr]) classGrades[hr] = gr;
                 });
-                const sorted = Object.entries(classCounts).sort((a, b) => b[1] - a[1]);
-                const maxCount = sorted[0]?.[1] || 1;
-                if (sorted.length === 0) return <p className="text-gray-400 text-sm">No student tickets yet.</p>;
+
+                let list = Object.entries(classCounts).map(([name, count]) => ({
+                  name,
+                  count,
+                  grade: classGrades[name] || ''
+                }));
+
+                if (classSearch.trim()) {
+                  const q = classSearch.trim().toLowerCase();
+                  list = list.filter(c => c.name.toLowerCase().includes(q));
+                }
+                if (classGradeFilter !== 'all') {
+                  list = list.filter(c => c.grade === classGradeFilter);
+                }
+
+                list.sort((a, b) => b.count - a.count);
+                const limited = classLimit === 'all' ? list : list.slice(0, Number(classLimit));
+                const maxCount = Math.max(1, ...(limited[0]?.count ? [limited[0].count] : [1]));
+
+                if (limited.length === 0) return <p className="text-gray-400 text-xs py-4 text-center">No classroom tickets yet.</p>;
                 return (
-                  <div className="space-y-2">
-                    {sorted.map(([name, count]) => (
+                  <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
+                    {limited.map(({ name, count, grade }) => (
                       <div key={name} className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{name.charAt(0).toUpperCase()}</div>
+                        <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{name.charAt(0).toUpperCase()}</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-0.5">
-                            <span className="text-sm font-medium text-gray-800 truncate">{name}</span>
-                            <span className="text-sm font-bold text-blue-700 ml-2">{count}</span>
+                            <span className="text-xs font-bold text-gray-800 truncate">{name} {grade && <span className="text-[10px] text-gray-400 font-normal">({grade})</span>}</span>
+                            <span className="text-xs font-black text-blue-700 ml-2">{count}</span>
                           </div>
-                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${(count / maxCount) * 100}%` }} />
                           </div>
                         </div>
@@ -6906,57 +7937,129 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             </div>
           </div>
 
-          {/* All Activity table (kept) */}
-          <div className="bg-white rounded-xl shadow-sm border mt-6 overflow-hidden">
-            <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
-              <h3 className="font-bold text-gray-800">All Activity</h3>
-              <span className="text-xs text-gray-500">{tickets.length + goldenTickets.length} total entries</span>
+          {/* All Activity table (with search, reason filter, and rows per page) */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-150 mt-6 overflow-hidden">
+            <div className="px-6 py-4 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="font-black text-gray-800 text-sm">All Ticket Activity</h3>
+                <span className="text-xs text-gray-500">{tickets.length + goldenTickets.length} total entries recorded</span>
+              </div>
+
+              {/* Activity Controls */}
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="relative">
+                  <Search className="w-3 h-3 text-gray-400 absolute left-2.5 top-2" />
+                  <input
+                    type="text"
+                    placeholder="Filter teacher or recipient..."
+                    value={activitySearch}
+                    onChange={e => { setActivitySearch(e.target.value); setActivityPage(0); }}
+                    className="pl-7 pr-2 py-1 border border-gray-300 rounded-lg text-xs outline-none focus:ring-emerald-500"
+                  />
+                </div>
+
+                <select
+                  value={activityTypeFilter}
+                  onChange={e => { setActivityTypeFilter(e.target.value); setActivityPage(0); }}
+                  className="p-1 border border-gray-300 rounded-lg text-xs outline-none bg-white font-medium"
+                >
+                  <option value="all">All Types / Reasons</option>
+                  <option value="Respectful">Respectful</option>
+                  <option value="Responsible">Responsible</option>
+                  <option value="Determined">Determined</option>
+                  <option value="golden">Golden Tickets</option>
+                </select>
+
+                <div className="flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded-lg text-xs font-bold">
+                  <span className="text-gray-400">Rows:</span>
+                  {[10, 25, 50, 100, 'all'].map(lim => (
+                    <button
+                      key={lim}
+                      onClick={() => { setActivityLimit(lim === 'all' ? 999999 : Number(lim)); setActivityPage(0); }}
+                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${(activityLimit === lim || (lim === 'all' && activityLimit >= 999999)) ? 'bg-navy-950 text-white font-black' : 'text-gray-600 hover:bg-gray-100'}`}
+                    >
+                      {lim === 'all' ? 'All' : lim}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
+
             <div className="overflow-x-auto">
               {(() => {
-                const allActivity = [
+                let allActivity = [
                   ...tickets.map(t => ({ ...t, _type: 'ticket' })),
                   ...goldenTickets.map(g => ({ ...g, _type: 'golden' }))
                 ].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
-                const totalPages = Math.max(1, Math.ceil(allActivity.length / ITEMS_PER_PAGE));
-                const pageItems = allActivity.slice(activityPage * ITEMS_PER_PAGE, (activityPage + 1) * ITEMS_PER_PAGE);
+
+                if (activitySearch.trim()) {
+                  const q = activitySearch.trim().toLowerCase();
+                  allActivity = allActivity.filter(t => {
+                    const recipient = (t.recipient || t.className || '').toLowerCase();
+                    const teacher = (t.teacherName || '').toLowerCase();
+                    return recipient.includes(q) || teacher.includes(q);
+                  });
+                }
+
+                if (activityTypeFilter !== 'all') {
+                  if (activityTypeFilter === 'golden') {
+                    allActivity = allActivity.filter(t => t._type === 'golden');
+                  } else {
+                    allActivity = allActivity.filter(t => t.reason === activityTypeFilter);
+                  }
+                }
+
+                const perPage = activityLimit;
+                const totalPages = Math.max(1, Math.ceil(allActivity.length / perPage));
+                const pageItems = allActivity.slice(activityPage * perPage, (activityPage + 1) * perPage);
+
+                if (allActivity.length === 0) {
+                  return <div className="p-8 text-center text-gray-500 italic text-xs">No activity entries match the selected filters.</div>;
+                }
+
                 return <>
-              <table className="w-full text-left text-sm text-gray-600">
-                <thead className="bg-gray-50 border-b">
-                  <tr><th className="px-6 py-3">Time</th><th className="px-6 py-3">Teacher</th><th className="px-6 py-3">Recipient</th><th className="px-6 py-3">Reason</th><th className="px-6 py-3 w-12"></th></tr>
-                </thead>
-                <tbody className="divide-y">
-                  {pageItems.map(t => (
-                    <tr key={t.id}>
-                      <td className="px-6 py-3">{t.timestamp ? t.timestamp.toDate().toLocaleString() : 'Now'}</td>
-                      <td className="px-6 py-3 font-medium text-gray-900">{t.teacherName}</td>
-                      <td className="px-6 py-3">{t._type === 'golden' ? `${t.className} (Class)` : <>{t.recipient} {t.recipientType === 'class' && '(Class)'}</>}</td>
-                      <td className="px-6 py-3">
-                        {t._type === 'golden'
-                          ? <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800 inline-flex items-center gap-1"><Star className="w-3 h-3" />Golden</span>
-                          : <span className={`px-2 py-1 rounded-full text-xs font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
-                        }
-                      </td>
-                      <td className="px-6 py-3">
-                        <button onClick={() => t._type === 'golden' ? handleRemoveGoldenTicket(t.id, t.className) : handleRemoveTicket(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {totalPages > 1 && (
-                <div className="px-6 py-3 border-t bg-gray-50 flex items-center justify-between">
-                  <button onClick={() => setActivityPage(p => Math.max(0, p - 1))} disabled={activityPage === 0} className="px-3 py-1.5 rounded-lg text-sm font-medium bg-white border hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
-                    Previous
-                  </button>
-                  <span className="text-sm text-gray-600">Page {activityPage + 1} of {totalPages}</span>
-                  <button onClick={() => setActivityPage(p => Math.min(totalPages - 1, p + 1))} disabled={activityPage >= totalPages - 1} className="px-3 py-1.5 rounded-lg text-sm font-medium bg-white border hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
-                    Next
-                  </button>
-                </div>
-              )}
+                  <table className="w-full text-left text-xs text-gray-600">
+                    <thead className="bg-gray-50 border-b text-[10px] font-bold uppercase text-gray-500">
+                      <tr>
+                        <th className="px-6 py-3">Time</th>
+                        <th className="px-6 py-3">Teacher</th>
+                        <th className="px-6 py-3">Recipient</th>
+                        <th className="px-6 py-3">Reason</th>
+                        <th className="px-6 py-3 w-12 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {pageItems.map(t => (
+                        <tr key={t.id} className="hover:bg-slate-50/70 transition">
+                          <td className="px-6 py-3">{t.timestamp ? t.timestamp.toDate().toLocaleString() : 'Now'}</td>
+                          <td className="px-6 py-3 font-medium text-gray-900">{t.teacherName}</td>
+                          <td className="px-6 py-3">{t._type === 'golden' ? `${t.className} (Class)` : <>{t.recipient} {t.recipientType === 'class' && '(Class)'}</>}</td>
+                          <td className="px-6 py-3">
+                            {t._type === 'golden'
+                              ? <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-800 inline-flex items-center gap-1"><Star className="w-3 h-3" />Golden</span>
+                              : <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
+                            }
+                          </td>
+                          <td className="px-6 py-3 text-right">
+                            <button onClick={() => t._type === 'golden' ? handleRemoveGoldenTicket(t.id, t.className) : handleRemoveTicket(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Delete record">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {totalPages > 1 && (
+                    <div className="px-6 py-3 border-t bg-gray-50 flex items-center justify-between text-xs">
+                      <button onClick={() => setActivityPage(p => Math.max(0, p - 1))} disabled={activityPage === 0} className="px-3 py-1.5 rounded-lg font-bold bg-white border hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                        Previous
+                      </button>
+                      <span className="text-gray-600">Page {activityPage + 1} of {totalPages} ({allActivity.length} entries)</span>
+                      <button onClick={() => setActivityPage(p => Math.min(totalPages - 1, p + 1))} disabled={activityPage >= totalPages - 1} className="px-3 py-1.5 rounded-lg font-bold bg-white border hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition">
+                        Next
+                      </button>
+                    </div>
+                  )}
                 </>;
               })()}
             </div>
@@ -7040,75 +8143,132 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           </div>
         </div>
       ) : activeTab === 'teachers' ? (
-        <div className="bg-white rounded-xl shadow-sm border max-w-3xl">
-          <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-150 max-w-4xl space-y-4 p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-4">
             <div>
-              <h2 className="text-xl font-bold text-gray-900">Teacher Profiles</h2>
-              <p className="text-sm text-gray-500 mt-0.5">Profiles with 0 tickets can be deleted.</p>
+              <h2 className="text-xl font-black font-display text-navy-950">Teacher Profiles</h2>
+              <p className="text-xs text-gray-500 mt-0.5">Manage staff permissions, view awarded ticket counts, and reset passwords.</p>
             </div>
-            <span className="text-xs text-gray-500">{profiles.length} total</span>
+            <span className="text-xs font-bold text-gray-500">{profiles.length} registered profiles</span>
           </div>
-          <div className="divide-y">
-            {profiles.length === 0 && (
-              <div className="px-6 py-8 text-center text-gray-500">No profiles found.</div>
-            )}
-            {[...profiles].filter(p => p.name && !p.linkedTo).sort((a, b) => {
-              return getProfileTicketCount(b) - getProfileTicketCount(a);
-            }).map(p => {
-              const count = getProfileTicketCount(p);
-              const key = (p.email || p.id || p.name || '').toLowerCase();
-              const isCurrentUser = (p.email && p.email.toLowerCase() === (profile?.email || '').toLowerCase()) || p.id === effectiveUid;
-              const linkedCount = profiles.filter(x => x.linkedTo && (
-                (x.linkedTo || '').toLowerCase() === (p.id || '').toLowerCase() ||
-                (x.linkedTo || '').toLowerCase() === (p.email || '').toLowerCase() ||
-                (x.linkedTo || '').toLowerCase() === key
-              )).length;
-              return (
-                <div key={p.email || p.id || p.name} className="flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold ${count === 0 ? 'bg-gray-100 text-gray-400' : 'bg-green-100 text-green-700'}`}>
-                      {p.name?.charAt(0)?.toUpperCase() || '?'}
-                    </div>
-                    <div>
-                      <div className="font-medium text-gray-900 flex items-center gap-2">
-                        {p.name}
-                        {isCurrentUser && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">You</span>}
-                        {p.linkedTo && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">Linked device</span>}
-                      </div>
-                      <div className="text-xs text-gray-500 capitalize">{p.role}{linkedCount > 0 ? ` · ${linkedCount} linked device${linkedCount > 1 ? 's' : ''}` : ''}</div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`text-sm font-medium ${count === 0 ? 'text-gray-400' : 'text-green-700'}`}>{count} ticket{count !== 1 ? 's' : ''}</span>
-                    
-                    <button
-                      onClick={() => setResetPasswordTarget(p)}
-                      className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold px-2.5 py-1.5 rounded-lg transition flex items-center gap-1 cursor-pointer min-h-[36px]"
-                      title="Reset teacher password"
-                    >
-                      <Key className="w-3.5 h-3.5" /> Reset Pass
-                    </button>
 
-                    {!isCurrentUser && count === 0 && !p.linkedTo && (
-                      confirmDeleteProfile?.email === p.email ? (
-                        <div className="flex items-center gap-2">
-                          <button onClick={() => handleDeleteProfile(p)} disabled={isDeletingProfile} className="text-xs bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg transition">
-                            {isDeletingProfile ? 'Deleting…' : 'Confirm'}
-                          </button>
-                          <button onClick={() => setConfirmDeleteProfile(null)} className="text-xs bg-white border hover:bg-gray-50 text-gray-700 font-bold px-3 py-1.5 rounded-lg transition">
-                            Cancel
-                          </button>
+          {/* Filter Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search teacher name or email..."
+                value={profileSearch}
+                onChange={e => setProfileSearch(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-xl text-xs outline-none focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <select
+                value={profileRoleFilter}
+                onChange={e => setProfileRoleFilter(e.target.value)}
+                className="w-full p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+              >
+                <option value="all">All Roles</option>
+                <option value="admin">Admin</option>
+                <option value="homeroom">Homeroom Teacher</option>
+                <option value="specialist">Specialist</option>
+              </select>
+            </div>
+
+            <div className="flex items-center justify-end gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-xl">
+              <span className="text-[11px] font-bold text-slate-500">Show:</span>
+              {['10', '25', '50', 'all'].map(lim => (
+                <button
+                  key={lim}
+                  onClick={() => setProfileLimit(lim)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-black transition cursor-pointer ${profileLimit === lim ? 'bg-navy-950 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'}`}
+                >
+                  {lim === 'all' ? 'All' : lim}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="divide-y divide-gray-100 max-h-[500px] overflow-y-auto">
+            {(() => {
+              let list = [...profiles].filter(p => p.name && !p.linkedTo);
+
+              if (profileSearch.trim()) {
+                const q = profileSearch.trim().toLowerCase();
+                list = list.filter(p => (p.name || '').toLowerCase().includes(q) || (p.email || '').toLowerCase().includes(q));
+              }
+
+              if (profileRoleFilter !== 'all') {
+                list = list.filter(p => (p.role || '').toLowerCase() === profileRoleFilter.toLowerCase());
+              }
+
+              list.sort((a, b) => getProfileTicketCount(b) - getProfileTicketCount(a));
+              const limited = profileLimit === 'all' ? list : list.slice(0, Number(profileLimit));
+
+              if (limited.length === 0) {
+                return <div className="px-6 py-8 text-center text-gray-500 text-xs italic">No matching teacher profiles found.</div>;
+              }
+
+              return limited.map(p => {
+                const count = getProfileTicketCount(p);
+                const key = (p.email || p.id || p.name || '').toLowerCase();
+                const isCurrentUser = (p.email && p.email.toLowerCase() === (profile?.email || '').toLowerCase()) || p.id === effectiveUid;
+                const linkedCount = profiles.filter(x => x.linkedTo && (
+                  (x.linkedTo || '').toLowerCase() === (p.id || '').toLowerCase() ||
+                  (x.linkedTo || '').toLowerCase() === (p.email || '').toLowerCase() ||
+                  (x.linkedTo || '').toLowerCase() === key
+                )).length;
+
+                return (
+                  <div key={p.email || p.id || p.name} className="flex items-center justify-between px-3 py-3.5 hover:bg-gray-50 transition rounded-xl">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-black ${count === 0 ? 'bg-gray-100 text-gray-400' : 'bg-green-100 text-green-700'}`}>
+                        {p.name?.charAt(0)?.toUpperCase() || '?'}
+                      </div>
+                      <div>
+                        <div className="font-bold text-gray-900 flex items-center gap-2 text-sm">
+                          {p.name}
+                          {isCurrentUser && <span className="text-[10px] bg-blue-100 text-blue-700 font-black px-2 py-0.5 rounded-full">You</span>}
+                          {p.linkedTo && <span className="text-[10px] bg-gray-100 text-gray-500 font-black px-2 py-0.5 rounded-full">Linked device</span>}
                         </div>
-                      ) : (
-                        <button onClick={() => setConfirmDeleteProfile(p)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )
-                    )}
+                        <div className="text-xs text-gray-500 capitalize">{p.role}{linkedCount > 0 ? ` · ${linkedCount} linked device${linkedCount > 1 ? 's' : ''}` : ''}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className={`text-xs font-black ${count === 0 ? 'text-gray-400' : 'text-green-700'}`}>{count} ticket{count !== 1 ? 's' : ''}</span>
+                      
+                      <button
+                        onClick={() => setResetPasswordTarget(p)}
+                        className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 cursor-pointer min-h-[34px]"
+                        title="Reset teacher password"
+                      >
+                        <Key className="w-3.5 h-3.5" /> Reset Pass
+                      </button>
+
+                      {!isCurrentUser && count === 0 && !p.linkedTo && (
+                        confirmDeleteProfile?.email === p.email ? (
+                          <div className="flex items-center gap-2">
+                            <button onClick={() => handleDeleteProfile(p)} disabled={isDeletingProfile} className="text-xs bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg transition">
+                              {isDeletingProfile ? 'Deleting…' : 'Confirm'}
+                            </button>
+                            <button onClick={() => setConfirmDeleteProfile(null)} className="text-xs bg-white border hover:bg-gray-50 text-gray-700 font-bold px-3 py-1.5 rounded-lg transition">
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setConfirmDeleteProfile(p)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         </div>
       ) : activeTab === 'roster' ? (
@@ -7149,22 +8309,19 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           </div>
 
           {showManualPaste && (
-            <div className="space-y-3 pt-2">
-              <p className="text-xs text-gray-500">
-                Paste your CSV content below. Must include column headers matching <strong>name</strong>, <strong>homeroom</strong>, and <strong>grade</strong>.
-              </p>
+            <div className="space-y-4 pt-2">
               <textarea
-                rows="6"
                 value={csvText}
-                onChange={(e) => setCsvText(e.target.value)}
-                className="w-full border-gray-300 rounded-lg p-4 font-mono text-sm bg-gray-50 focus:border-green-500 focus:ring-green-500 border"
-                placeholder={"name,homeroom,grade\nJane Doe, Mr. Smith, 3rd Grade\nJohn Smith, Ms. Davis, 4th Grade"}
+                onChange={e => setCsvText(e.target.value)}
+                placeholder="Paste CSV text with headers: Student ID, Name, Homeroom, Grade..."
+                className="w-full h-48 p-4 border rounded-xl font-mono text-xs focus:ring-2 focus:ring-green-500 outline-none"
               />
               <button
-                onClick={processCSV}
+                onClick={handleManualImport}
                 disabled={isProcessing || !csvText.trim()}
-                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-2.5 px-6 rounded-xl transition flex items-center gap-2 text-sm shadow-sm">
-                {isProcessing ? 'Processing...' : 'Upload & Sync Paste Data'}
+                className="bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white font-bold py-2.5 px-6 rounded-xl transition shadow-sm text-sm"
+              >
+                {isProcessing ? 'Importing...' : 'Parse & Update Roster'}
               </button>
             </div>
           )}
@@ -7242,9 +8399,9 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1">Reward Description</label>
-                <input type="text" value={gradeGoalReward} onChange={e => setGradeGoalReward(e.target.value)} placeholder="e.g. Ice Cream Party" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-amber-500 focus:border-amber-500 outline-none" />
+                <input type="text" value={gradeGoalReward} onChange={e => setGradeGoalReward(e.target.value)} placeholder="e.g. Extra Recess, Ice Cream Party" className="w-full p-3 border border-gray-300 rounded-xl focus:ring-amber-500 focus:border-amber-500 outline-none" />
               </div>
-              <button type="submit" disabled={isSavingGradeGoal || !gradeGoalGrade} className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl transition flex items-center gap-2 cursor-pointer">
+              <button type="submit" disabled={isSavingGradeGoal} className="bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl transition shadow-sm text-sm flex items-center gap-2">
                 <Star className="w-4 h-4" /> {isSavingGradeGoal ? 'Saving...' : 'Save Grade Goal'}
               </button>
             </form>
@@ -7275,6 +8432,24 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
         </div>
       ) : null}
 
+      {showSpendableModal && (
+        <SpendableTicketsBreakdownModal
+          isOpen={showSpendableModal}
+          onClose={() => setShowSpendableModal(false)}
+          students={students}
+          balances={balances}
+          tickets={tickets}
+        />
+      )}
+      {showTopStudentsModal && (
+        <TopStudentsLeaderboardModal
+          isOpen={showTopStudentsModal}
+          onClose={() => setShowTopStudentsModal(false)}
+          students={students}
+          balances={balances}
+          tickets={tickets}
+        />
+      )}
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
       {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
       <ResetTeacherPasswordModal targetProfile={resetPasswordTarget} onClose={() => setResetPasswordTarget(null)} showToast={showToast} />
@@ -7282,7 +8457,6 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   );
 }
 
-// --- Shared Modals ---
 // --- Shared Modals ---
 function HelpModal({ onClose }) {
   const [activeSection, setActiveSection] = useState('quickstart');
@@ -7649,29 +8823,112 @@ function GiveTicketModal({ data, onClose, onSelect, isSubmitting }) {
   );
 }
 
-function PrintableLoginCards({ students, onClose }) {
+function PrintableLoginCards({ students = [], onClose }) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [homeroomFilter, setHomeroomFilter] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('');
+  const [limit, setLimit] = useState('all');
+
+  const homerooms = useMemo(() => [...new Set(students.map(s => s.homeroom).filter(Boolean))].sort(), [students]);
+  const grades = useMemo(() => [...new Set(students.map(s => s.grade).filter(Boolean))].sort(), [students]);
+
+  const filteredStudents = useMemo(() => {
+    let list = students.filter(s => {
+      if (homeroomFilter && s.homeroom !== homeroomFilter) return false;
+      if (gradeFilter && s.grade !== gradeFilter) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        const matchesName = (s.name || '').toLowerCase().includes(q);
+        const matchesId = (s.id || '').toLowerCase().includes(q);
+        const matchesHr = (s.homeroom || '').toLowerCase().includes(q);
+        if (!matchesName && !matchesId && !matchesHr) return false;
+      }
+      return true;
+    });
+
+    if (limit !== 'all') {
+      list = list.slice(0, Number(limit));
+    }
+    return list;
+  }, [students, searchTerm, homeroomFilter, gradeFilter, limit]);
+
   return (
     <div className="printable-cards-wrapper fixed inset-0 bg-white z-[9999] overflow-y-auto p-8 font-sans text-gray-900">
       <div className="max-w-4xl mx-auto print:max-w-full">
         {/* Control bar (hidden when printing) */}
-        <div className="flex justify-between items-center mb-8 border-b pb-4 print:hidden">
-          <div>
-            <h2 className="text-xl font-bold text-navy-950">Student Login Cards Preview</h2>
-            <p className="text-sm text-gray-500">Each card contains the student's name, ID, PIN, and instructions. Cut them out to distribute.</p>
+        <div className="mb-6 border-b pb-4 print:hidden space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+            <div>
+              <h2 className="text-xl font-bold text-navy-950">Student Login Cards Preview</h2>
+              <p className="text-sm text-gray-500">Each card contains the student's name, ID, PIN, and instructions. Cut them out to distribute.</p>
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => window.print()}
+                className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 px-6 rounded-xl transition shadow-sm text-sm cursor-pointer"
+              >
+                Print {filteredStudents.length} Cards
+              </button>
+              <button
+                onClick={onClose}
+                className="bg-gray-100 hover:bg-gray-200 text-gray-750 font-bold py-2 px-6 rounded-xl transition text-sm cursor-pointer"
+              >
+                Close Preview
+              </button>
+            </div>
           </div>
-          <div className="flex gap-3">
-            <button
-              onClick={() => window.print()}
-              className="bg-brand-600 hover:bg-brand-700 text-white font-bold py-2 px-6 rounded-xl transition shadow-sm text-sm cursor-pointer"
-            >
-              Print Now
-            </button>
-            <button
-              onClick={onClose}
-              className="bg-gray-100 hover:bg-gray-200 text-gray-750 font-bold py-2 px-6 rounded-xl transition text-sm cursor-pointer"
-            >
-              Close Preview
-            </button>
+
+          {/* Filters & Limits Bar */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+              <input
+                type="text"
+                placeholder="Search name or ID..."
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white focus:ring-brand-500"
+              />
+            </div>
+
+            <div>
+              <select
+                value={homeroomFilter}
+                onChange={e => setHomeroomFilter(e.target.value)}
+                className="w-full p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+              >
+                <option value="">All Homerooms</option>
+                {homerooms.map(h => (
+                  <option key={h} value={h}>{h}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <select
+                value={gradeFilter}
+                onChange={e => setGradeFilter(e.target.value)}
+                className="w-full p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium"
+              >
+                <option value="">All Grades</option>
+                {grades.map(g => (
+                  <option key={g} value={g}>{g}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center justify-end gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-xl">
+              <span className="text-[11px] font-bold text-slate-500">Cards:</span>
+              {['12', '24', '48', 'all'].map(lim => (
+                <button
+                  key={lim}
+                  onClick={() => setLimit(lim)}
+                  className={`px-2 py-0.5 rounded-md text-[11px] font-black transition cursor-pointer ${limit === lim ? 'bg-brand-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-100'}`}
+                >
+                  {lim === 'all' ? 'All' : lim}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -7705,39 +8962,43 @@ function PrintableLoginCards({ students, onClose }) {
         `}} />
 
         {/* Cards Grid */}
-        <div className="printable-cards-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 print:grid-cols-2 print:gap-4">
-          {students.map(student => (
-            <div key={student.id} className="border-2 border-dashed border-brand-400 p-6 rounded-2xl bg-white shadow-xs flex flex-col justify-between min-h-[180px] print:break-inside-avoid relative overflow-hidden text-navy-950">
-              {/* Decorative Corner accent */}
-              <div className="absolute top-0 right-0 bg-brand-100 text-brand-700 font-black px-3 py-1 rounded-bl-xl text-[10px] tracking-wider print:border-l print:border-b print:border-brand-350 uppercase">
-                Student Ticket Portal
-              </div>
-              
-              <div>
-                <span className="text-xxs font-bold text-gray-400 uppercase tracking-widest block mb-1">Student Name</span>
-                <h3 className="text-lg font-black text-navy-950 leading-tight mb-3">{student.name}</h3>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mb-3">
-                <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Student Number</span>
-                  <code className="text-xs font-black text-slate-800 font-mono select-all">{student.id}</code>
+        {filteredStudents.length === 0 ? (
+          <div className="p-12 text-center text-gray-400 italic">No student cards match the selected filters.</div>
+        ) : (
+          <div className="printable-cards-container grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6 print:grid-cols-2 print:gap-4">
+            {filteredStudents.map(student => (
+              <div key={student.id} className="border-2 border-dashed border-brand-400 p-6 rounded-2xl bg-white shadow-xs flex flex-col justify-between min-h-[180px] print:break-inside-avoid relative overflow-hidden text-navy-950">
+                {/* Decorative Corner accent */}
+                <div className="absolute top-0 right-0 bg-brand-100 text-brand-700 font-black px-3 py-1 rounded-bl-xl text-[10px] tracking-wider print:border-l print:border-b print:border-brand-350 uppercase">
+                  Student Ticket Portal
                 </div>
+                
                 <div>
-                  <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">4-Digit PIN</span>
-                  <code className="text-xs font-black text-brand-650 font-mono tracking-widest">{student.pinCode}</code>
+                  <span className="text-xxs font-bold text-gray-400 uppercase tracking-widest block mb-1">Student Name</span>
+                  <h3 className="text-lg font-black text-navy-950 leading-tight mb-3">{student.name}</h3>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mb-3">
+                  <div>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">Student Number</span>
+                    <code className="text-xs font-black text-slate-800 font-mono select-all">{student.id}</code>
+                  </div>
+                  <div>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider block">4-Digit PIN</span>
+                    <code className="text-xs font-black text-brand-650 font-mono tracking-widest">{student.pinCode}</code>
+                  </div>
+                </div>
+
+                <div className="text-[9px] text-gray-500 leading-normal border-t pt-2.5">
+                  <span className="font-bold text-navy-950 block mb-0.5">How to log in:</span>
+                  1. Go to the ticket tracker website.<br />
+                  2. Select "Student Portal".<br />
+                  3. Enter your Student Number and 4-Digit PIN.
                 </div>
               </div>
-
-              <div className="text-[9px] text-gray-500 leading-normal border-t pt-2.5">
-                <span className="font-bold text-navy-950 block mb-0.5">How to log in:</span>
-                1. Go to the ticket tracker website.<br />
-                2. Select "Student Portal".<br />
-                3. Enter your Student Number and 4-Digit PIN.
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
