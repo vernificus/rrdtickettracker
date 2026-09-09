@@ -145,7 +145,7 @@ class GoogleSheetsDb {
 
   async ensureTables() {
     const requiredSheets = [
-      { name: 'Users', headers: ['Email', 'Name', 'Role', 'Password', 'CreatedAt'] },
+      { name: 'Users', headers: ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'] },
       { name: 'Students', headers: ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'] },
       { name: 'Tickets', headers: ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'RecipientType', 'Reason', 'Timestamp'] },
       { name: 'GoldenTickets', headers: ['Id', 'TeacherEmail', 'TeacherName', 'ClassName', 'Timestamp'] },
@@ -282,6 +282,10 @@ class GoogleSheetsDb {
             const key = h.charAt(0).toLowerCase() + h.slice(1);
             obj[key] = row[index] !== undefined ? row[index] : '';
           });
+          // Resilient fallback for Users sheet if CoTaughtHomerooms header is missing in row 1
+          if (sheetName === 'Users' && !obj.coTaughtHomerooms && row[5] !== undefined) {
+            obj.coTaughtHomerooms = row[5];
+          }
           return obj;
         });
         this.cache.set(sheetName, { data: parsed, timestamp: Date.now() });
@@ -565,9 +569,10 @@ app.post('/api/auth/teacher/register', async (req, res) => {
       name: name.trim(),
       role: role.trim(),
       password: hashedPassword,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      coTaughtHomerooms: '[]'
     };
-    await db.appendRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt'], newUser);
+    await db.appendRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'], newUser);
     res.json({ message: 'Registration successful! You can now log in.' });
   } catch (err) {
     console.error(err);
@@ -650,11 +655,18 @@ app.post('/api/auth/change-role', authMiddleware, async (req, res) => {
 
     // Update the role in the sheet
     user.role = newRole;
-    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt'], user._rowNum, user);
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'], user._rowNum, user);
+
+    let coTaught = [];
+    try {
+      coTaught = user.coTaughtHomerooms ? JSON.parse(user.coTaughtHomerooms) : [];
+    } catch (e) {
+      coTaught = typeof user.coTaughtHomerooms === 'string' ? user.coTaughtHomerooms.split(',').map(s => s.trim()).filter(Boolean) : [];
+    }
 
     // Issue a new JWT with the updated role
     const token = jwt.sign({ email: user.email, role: newRole, name: user.name }, JWT_SECRET, { expiresIn: '7d' });
-    res.json({ token, profile: { email: user.email, name: user.name, role: newRole } });
+    res.json({ token, profile: { email: user.email, name: user.name, role: newRole, coTaughtHomerooms: coTaught } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error changing role.' });
@@ -696,6 +708,51 @@ app.post('/api/teachers/share-class', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error("Error updating shared classes:", err);
     res.status(500).json({ message: 'Server error updating shared classes.' });
+  }
+});
+
+// Admin Manage Co-Teachers endpoint
+app.post('/api/admin/manage-coteachers', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin privileges required.' });
+  }
+  const { targetEmail, homeroomName, action, coTaughtHomerooms } = req.body;
+  if (!targetEmail) {
+    return res.status(400).json({ message: 'Target teacher email is required.' });
+  }
+
+  try {
+    const users = await db.getRows('Users');
+    const user = users.find(u => u.email.toLowerCase() === targetEmail.toLowerCase().trim());
+    if (!user) return res.status(404).json({ message: 'Teacher profile not found.' });
+
+    let currentShared = [];
+    if (Array.isArray(coTaughtHomerooms)) {
+      currentShared = coTaughtHomerooms.map(h => String(h).trim()).filter(Boolean);
+    } else {
+      try {
+        currentShared = user.coTaughtHomerooms ? JSON.parse(user.coTaughtHomerooms) : [];
+      } catch (e) {
+        currentShared = typeof user.coTaughtHomerooms === 'string' ? user.coTaughtHomerooms.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      if (homeroomName) {
+        if (action === 'remove') {
+          currentShared = currentShared.filter(h => h.toLowerCase() !== homeroomName.toLowerCase().trim());
+        } else {
+          if (!currentShared.some(h => h.toLowerCase() === homeroomName.toLowerCase().trim())) {
+            currentShared.push(homeroomName.trim());
+          }
+        }
+      }
+    }
+
+    user.coTaughtHomerooms = JSON.stringify(currentShared);
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'], user._rowNum, user);
+
+    res.json({ success: true, message: `Updated co-taught classes for ${user.name || user.email}.`, coTaughtHomerooms: currentShared });
+  } catch (err) {
+    console.error("Error managing co-teachers:", err);
+    res.status(500).json({ message: 'Server error managing co-teachers.' });
   }
 });
 
@@ -846,15 +903,27 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     const activeRole = (req.user && req.user.role) ? req.user.role : profile.role;
     profile.role = activeRole;
 
-    // Visibility rules: Specialists and Homerooms see only tickets/spending they created
+    // Visibility rules: Specialists and Homerooms see tickets/spending they or their co-teachers created
     // Admins see all tickets/spending
     if (activeRole !== 'admin') {
       const allowedEmails = new Set([email]);
+      const myName = (profile.name || '').trim().toLowerCase();
+      const myCoTaught = Array.isArray(profile.coTaughtHomerooms) ? profile.coTaughtHomerooms.map(h => (h || '').trim().toLowerCase()) : [];
+
       profiles.forEach(p => {
+        const pEmail = (p.email || '').trim().toLowerCase();
+        const pName = (p.name || '').trim().toLowerCase();
         let pCoTaught = [];
         try { pCoTaught = p.coTaughtHomerooms ? JSON.parse(p.coTaughtHomerooms) : []; } catch (e) {}
-        if (pCoTaught.some(h => (h || '').trim().toLowerCase() === (profile.name || '').trim().toLowerCase())) {
-          allowedEmails.add((p.email || '').trim().toLowerCase());
+        const pCoLower = pCoTaught.map(h => (h || '').trim().toLowerCase());
+
+        // 1. Other teacher lists current user's name or email in their coTaughtHomerooms
+        if (pCoLower.some(h => h === myName || h === email)) {
+          allowedEmails.add(pEmail);
+        }
+        // 2. Current user lists other teacher's name or email in their coTaughtHomerooms
+        if (myCoTaught.some(h => h === pName || h === pEmail)) {
+          allowedEmails.add(pEmail);
         }
       });
       tickets = tickets.filter(t => allowedEmails.has((t.teacherEmail || '').trim().toLowerCase()));
@@ -1737,7 +1806,7 @@ app.post('/api/auth/reset-password', authMiddleware, async (req, res) => {
     }
 
     user.password = hashPassword(newPassword);
-    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt'], user._rowNum, user);
+    await db.updateRow('Users', ['Email', 'Name', 'Role', 'Password', 'CreatedAt', 'CoTaughtHomerooms'], user._rowNum, user);
     res.json({ message: 'Password updated successfully!' });
   } catch (err) {
     console.error(err);

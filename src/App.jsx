@@ -695,11 +695,41 @@ export default function App() {
     );
   }
 
-  // Calculate myUids for ticket filter mapping
-  const myUids = new Set([profile.email]); // email is primary teacher ID
-  profiles.forEach(p => {
-    if (p.linkedTo === profile.email) myUids.add(p.email);
-  });
+  // Calculate myUids for ticket filter mapping (includes linked devices and bidirectional co-teachers)
+  const myUids = useMemo(() => {
+    const uids = new Set([profile?.email].filter(Boolean));
+    const myName = (profile?.name || '').trim().toLowerCase();
+    const myEmail = (profile?.email || '').trim().toLowerCase();
+    const myCo = Array.isArray(profile?.coTaughtHomerooms) ? profile.coTaughtHomerooms.map(h => (h || '').trim().toLowerCase()) : [];
+
+    (profiles || []).forEach(p => {
+      if (!p) return;
+      const pEmail = (p.email || '').trim().toLowerCase();
+      const pName = (p.name || '').trim().toLowerCase();
+
+      // Linked devices
+      if (p.linkedTo === profile?.email) {
+        if (p.email) uids.add(p.email);
+      }
+
+      // Bidirectional co-teachers
+      let pCo = [];
+      try {
+        pCo = Array.isArray(p.coTaughtHomerooms) ? p.coTaughtHomerooms : (p.coTaughtHomerooms ? JSON.parse(p.coTaughtHomerooms) : []);
+      } catch (e) {}
+      const pCoLower = pCo.map(h => (h || '').trim().toLowerCase());
+
+      if (
+        myCo.includes(pName) ||
+        myCo.includes(pEmail) ||
+        pCoLower.includes(myName) ||
+        pCoLower.includes(myEmail)
+      ) {
+        if (p.email) uids.add(p.email);
+      }
+    });
+    return uids;
+  }, [profile, profiles]);
 
   const handleRoleChange = async () => {
     if (!newRole || !profile) return;
@@ -1444,10 +1474,33 @@ function RaffleDashboard({
   // Navigation tab: 'drum' | 'history' | 'cooldown'
   const [activeTab, setActiveTab] = useState('drum');
 
-  // Co-taught classes list
+  // Co-taught classes list (includes direct and bidirectional co-teacher shares)
   const coTaughtList = useMemo(() => {
-    return Array.isArray(profile?.coTaughtHomerooms) ? profile.coTaughtHomerooms : [];
-  }, [profile]);
+    const set = new Set();
+    if (Array.isArray(profile?.coTaughtHomerooms)) {
+      profile.coTaughtHomerooms.forEach(h => {
+        if (h && typeof h === 'string' && h.trim()) set.add(h.trim());
+      });
+    }
+    const myName = (profile?.name || '').trim().toLowerCase();
+    const myEmail = (profile?.email || '').trim().toLowerCase();
+    if (Array.isArray(profiles)) {
+      profiles.forEach(p => {
+        if (!p || p.email === profile?.email) return;
+        let pCo = [];
+        try {
+          pCo = Array.isArray(p.coTaughtHomerooms) ? p.coTaughtHomerooms : (p.coTaughtHomerooms ? JSON.parse(p.coTaughtHomerooms) : []);
+        } catch (e) {}
+        if (pCo.some(h => {
+          const s = (h || '').trim().toLowerCase();
+          return s === myName || s === myEmail;
+        })) {
+          if (p.name) set.add(p.name);
+        }
+      });
+    }
+    return [...set].sort();
+  }, [profile, profiles]);
 
   // Allowed homerooms based on role
   const allowedHomerooms = useMemo(() => {
@@ -5374,29 +5427,64 @@ function BatchActionToolbar({ selectedCount, totalCount, onSelectAll, onDeselect
 }
 
 // --- Share Class & Co-Teacher Modal ---
-function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass, showToast }) {
-  const [coTeacherEmail, setCoTeacherEmail] = useState('');
+function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass, showToast, allSchoolClasses = [] }) {
+  const [selectedTeacherEmail, setSelectedTeacherEmail] = useState('');
+  const [customTeacherEmail, setCustomTeacherEmail] = useState('');
+  const [classToShare, setClassToShare] = useState(profile?.name || '');
+  const [selectedConnectClass, setSelectedConnectClass] = useState('');
   const [customSwitchClass, setCustomSwitchClass] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (profile?.name) setClassToShare(profile.name);
+  }, [profile?.name, isOpen]);
+
   if (!isOpen) return null;
 
-  const myShared = Array.isArray(profile.coTaughtHomerooms) ? profile.coTaughtHomerooms : [];
+  const myShared = Array.isArray(profile?.coTaughtHomerooms) ? profile.coTaughtHomerooms : [];
+
+  // Available teachers to share with (excluding current teacher)
+  const availableTeachers = (profiles || [])
+    .filter(p => p.email && p.email.toLowerCase() !== (profile?.email || '').toLowerCase())
+    .sort((a, b) => (a.name || a.email).localeCompare(b.name || b.email));
+
+  // Available school classes not already the teacher's primary or connected
+  const availableClassesToConnect = (allSchoolClasses || [])
+    .filter(c => c && c.toLowerCase() !== (profile?.name || '').toLowerCase() && !myShared.includes(c));
+
+  // Teachers who have the current user's class in their coTaughtHomerooms (Outgoing shares)
+  const myNameLower = (profile?.name || '').trim().toLowerCase();
+  const myEmailLower = (profile?.email || '').trim().toLowerCase();
+  const outgoingCoTeachers = (profiles || []).filter(p => {
+    if (!p || p.email === profile?.email) return false;
+    let pCo = [];
+    try {
+      pCo = Array.isArray(p.coTaughtHomerooms) ? p.coTaughtHomerooms : (p.coTaughtHomerooms ? JSON.parse(p.coTaughtHomerooms) : []);
+    } catch (e) {}
+    return pCo.some(h => {
+      const s = (h || '').trim().toLowerCase();
+      return s === myNameLower || s === myEmailLower || s === (classToShare || '').trim().toLowerCase();
+    });
+  });
 
   const handleAddCoTeacher = async (e) => {
     e.preventDefault();
-    if (!coTeacherEmail.trim()) return;
+    const targetEmail = selectedTeacherEmail === 'manual'
+      ? customTeacherEmail.trim()
+      : (selectedTeacherEmail || customTeacherEmail).trim();
+
+    if (!targetEmail) {
+      showToast("Please select or enter a co-teacher's email.");
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const targetUser = profiles.find(p => p.email.toLowerCase() === coTeacherEmail.trim().toLowerCase());
-      if (targetUser && targetUser.name) {
-        await onShareClass(targetUser.email, profile.name, 'add');
-        showToast(`Shared "${profile.name}" with ${targetUser.name}!`);
-      } else {
-        await onShareClass(coTeacherEmail.trim(), profile.name, 'add');
-        showToast(`Invited ${coTeacherEmail} as co-teacher!`);
-      }
-      setCoTeacherEmail('');
+      const targetUser = profiles.find(p => p.email.toLowerCase() === targetEmail.toLowerCase());
+      const shareName = (classToShare || profile.name).trim();
+      await onShareClass(targetEmail, shareName, 'add');
+      showToast(`Shared "${shareName}" with ${targetUser?.name || targetEmail}!`);
+      setSelectedTeacherEmail('');
+      setCustomTeacherEmail('');
     } catch (err) {
       showToast(err.message || 'Failed to add co-teacher.');
     } finally {
@@ -5404,13 +5492,18 @@ function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass
     }
   };
 
-  const handleAddSwitchClass = async (e) => {
+  const handleConnectClass = async (e) => {
     e.preventDefault();
-    if (!customSwitchClass.trim()) return;
+    const targetClass = (selectedConnectClass || customSwitchClass).trim();
+    if (!targetClass) {
+      showToast('Please select or type a class to connect.');
+      return;
+    }
     setIsSubmitting(true);
     try {
-      await onShareClass(profile.email, customSwitchClass.trim(), 'add');
-      showToast(`Added "${customSwitchClass.trim()}" to your class switcher!`);
+      await onShareClass(profile.email, targetClass, 'add');
+      showToast(`Added "${targetClass}" to your class switcher!`);
+      setSelectedConnectClass('');
       setCustomSwitchClass('');
     } catch (err) {
       showToast(err.message || 'Failed to add switch class.');
@@ -5440,55 +5533,112 @@ function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass
         {/* Co-Teacher Invite Form */}
         <form onSubmit={handleAddCoTeacher} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
           <h3 className="font-bold text-sm text-gray-900 flex items-center gap-1.5">
-            <Share className="w-4 h-4 text-emerald-600" /> Share My Class ("{profile.name}") with a Co-Teacher
+            <Share className="w-4 h-4 text-emerald-600" /> Share My Class with a Co-Teacher
           </h3>
-          <div className="flex gap-2">
-            <input
-              type="email"
-              required
-              placeholder="Co-Teacher / Resource Teacher Email"
-              value={coTeacherEmail}
-              onChange={e => setCoTeacherEmail(e.target.value)}
-              className="flex-1 p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-            />
-            <button
-              type="submit"
-              disabled={isSubmitting || !coTeacherEmail.trim()}
-              className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 min-h-[44px] cursor-pointer"
-            >
-              Add Co-Teacher
-            </button>
+          <p className="text-xs text-gray-500">Grant another teacher full access to award tickets and view your roster.</p>
+          
+          <div className="space-y-2.5">
+            <div>
+              <label className="block text-[11px] font-bold text-gray-600 mb-1">Select Co-Teacher</label>
+              <select
+                value={selectedTeacherEmail}
+                onChange={e => setSelectedTeacherEmail(e.target.value)}
+                className="w-full p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none font-medium"
+              >
+                <option value="">-- Choose Registered Teacher (e.g. Nasir, Alexander...) --</option>
+                {availableTeachers.map(t => (
+                  <option key={t.email} value={t.email}>
+                    {t.name} ({t.email}) — {t.role || 'Teacher'}
+                  </option>
+                ))}
+                <option value="manual">Enter custom / outside email address...</option>
+              </select>
+            </div>
+
+            {selectedTeacherEmail === 'manual' && (
+              <input
+                type="email"
+                required
+                placeholder="co-teacher@school.org"
+                value={customTeacherEmail}
+                onChange={e => setCustomTeacherEmail(e.target.value)}
+                className="w-full p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+              />
+            )}
+
+            <div className="flex gap-2 items-center">
+              <div className="flex-1">
+                <label className="block text-[11px] font-bold text-gray-600 mb-1">Class Name to Share</label>
+                <input
+                  type="text"
+                  required
+                  value={classToShare}
+                  onChange={e => setClassToShare(e.target.value)}
+                  placeholder="e.g. Alexander"
+                  className="w-full p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none font-bold"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={isSubmitting || (!selectedTeacherEmail && !customTeacherEmail.trim())}
+                className="self-end px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 min-h-[42px] cursor-pointer shadow-xs"
+              >
+                {isSubmitting ? 'Sharing...' : 'Share Class'}
+              </button>
+            </div>
           </div>
         </form>
 
         {/* Add Departmental Switch Block Form */}
-        <form onSubmit={handleAddSwitchClass} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
+        <form onSubmit={handleConnectClass} className="bg-gray-50 p-4 rounded-2xl border border-gray-200 space-y-3">
           <h3 className="font-bold text-sm text-gray-900 flex items-center gap-1.5">
-            <GitMerge className="w-4 h-4 text-brand-600" /> Add Departmental Switch Class / Block 2
+            <GitMerge className="w-4 h-4 text-brand-600" /> Connect to Class or Switch Block
           </h3>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              required
-              placeholder="e.g. Mr. Davis's Math Block / 4th Grade Reading Switch"
-              value={customSwitchClass}
-              onChange={e => setCustomSwitchClass(e.target.value)}
-              className="flex-1 p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-            />
-            <button
-              type="submit"
-              disabled={isSubmitting || !customSwitchClass.trim()}
-              className="px-4 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 min-h-[44px] cursor-pointer"
-            >
-              Add Block
-            </button>
+          <p className="text-xs text-gray-500">Add an existing school class or departmental block directly to your class switcher.</p>
+          
+          <div className="space-y-2.5">
+            {availableClassesToConnect.length > 0 && (
+              <div>
+                <label className="block text-[11px] font-bold text-gray-600 mb-1">Quick Select School Homeroom</label>
+                <select
+                  value={selectedConnectClass}
+                  onChange={e => setSelectedConnectClass(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none font-medium"
+                >
+                  <option value="">-- Choose School Class to Connect --</option>
+                  {availableClassesToConnect.map(c => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                placeholder="Or custom block name (e.g. Block 2 Math / Davis Switch)"
+                value={customSwitchClass}
+                onChange={e => setCustomSwitchClass(e.target.value)}
+                className="flex-1 p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+              />
+              <button
+                type="submit"
+                disabled={isSubmitting || (!selectedConnectClass && !customSwitchClass.trim())}
+                className="px-5 py-2.5 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 min-h-[42px] cursor-pointer shadow-xs"
+              >
+                {isSubmitting ? 'Connecting...' : 'Connect Class'}
+              </button>
+            </div>
           </div>
         </form>
 
-        {/* Connected Classes List */}
+        {/* Connected Classes in Switcher */}
         {myShared.length > 0 && (
           <div className="space-y-2">
-            <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Your Connected Homerooms & Blocks ({myShared.length})</h4>
+            <h4 className="text-xs font-bold text-gray-600 uppercase tracking-wider flex items-center justify-between">
+              <span>Your Connected Classes & Switch Blocks ({myShared.length})</span>
+              <span className="text-[10px] text-gray-400 font-normal">Shows in your class switcher</span>
+            </h4>
             <div className="divide-y divide-gray-100 border border-gray-200 rounded-2xl bg-white overflow-hidden">
               {myShared.map(hName => (
                 <div key={hName} className="p-3 flex justify-between items-center hover:bg-gray-50">
@@ -5497,6 +5647,7 @@ function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass
                     <span className="text-xs font-bold text-gray-900">{hName}</span>
                   </div>
                   <button
+                    type="button"
                     onClick={async () => {
                       await onShareClass(profile.email, hName, 'remove');
                       showToast(`Removed "${hName}".`);
@@ -5504,6 +5655,39 @@ function ShareClassModal({ isOpen, onClose, profile, profiles = [], onShareClass
                     className="text-xs font-bold text-red-600 hover:underline p-1 cursor-pointer"
                   >
                     Disconnect
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Outgoing Shares to Other Teachers */}
+        {outgoingCoTeachers.length > 0 && (
+          <div className="space-y-2">
+            <h4 className="text-xs font-bold text-gray-600 uppercase tracking-wider">
+              Co-Teachers With Access to Your Class ({outgoingCoTeachers.length})
+            </h4>
+            <div className="divide-y divide-gray-100 border border-gray-200 rounded-2xl bg-white overflow-hidden">
+              {outgoingCoTeachers.map(teacher => (
+                <div key={teacher.email} className="p-3 flex justify-between items-center hover:bg-gray-50">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                    <div>
+                      <span className="text-xs font-bold text-gray-900">{teacher.name}</span>
+                      <span className="text-[11px] text-gray-500 ml-1.5 font-normal">({teacher.email})</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const shareName = (classToShare || profile.name).trim();
+                      await onShareClass(teacher.email, shareName, 'remove');
+                      showToast(`Revoked access for ${teacher.name}.`);
+                    }}
+                    className="text-xs font-bold text-red-600 hover:underline p-1 cursor-pointer"
+                  >
+                    Revoke Access
                   </button>
                 </div>
               ))}
@@ -5632,8 +5816,34 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   const [showShareModal, setShowShareModal] = useState(false);
 
   const coTaughtList = useMemo(() => {
-    return Array.isArray(profile?.coTaughtHomerooms) ? profile.coTaughtHomerooms : [];
-  }, [profile]);
+    const set = new Set();
+    // 1. Direct coTaughtHomerooms on the current user's profile
+    if (Array.isArray(profile?.coTaughtHomerooms)) {
+      profile.coTaughtHomerooms.forEach(h => {
+        if (h && typeof h === 'string' && h.trim()) set.add(h.trim());
+      });
+    }
+    // 2. Bidirectional co-teacher links:
+    // Any other teacher in profiles who has listed current user's name or email in their coTaughtHomerooms
+    const myName = (profile?.name || '').trim().toLowerCase();
+    const myEmail = (profile?.email || '').trim().toLowerCase();
+    if (Array.isArray(profiles)) {
+      profiles.forEach(p => {
+        if (!p || p.email === profile?.email) return;
+        let pCo = [];
+        try {
+          pCo = Array.isArray(p.coTaughtHomerooms) ? p.coTaughtHomerooms : (p.coTaughtHomerooms ? JSON.parse(p.coTaughtHomerooms) : []);
+        } catch (e) {}
+        if (pCo.some(h => {
+          const s = (h || '').trim().toLowerCase();
+          return s === myName || s === myEmail;
+        })) {
+          if (p.name) set.add(p.name);
+        }
+      });
+    }
+    return [...set].sort();
+  }, [profile, profiles]);
 
   const handleShareClass = async (targetEmail, homeroomName, action) => {
     try {
@@ -5804,14 +6014,24 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
       targetHomerooms = [selectedClassFilter];
     }
 
+    // Resolve any corresponding profile names for homeroom matching
+    const expandedTargets = [...new Set(targetHomerooms.flatMap(target => {
+      const list = [target];
+      const matchProf = (profiles || []).find(p => p.name && matchHomeroom(p.name, target));
+      if (matchProf && matchProf.name && !list.includes(matchProf.name)) {
+        list.push(matchProf.name);
+      }
+      return list;
+    }))];
+
     const central = students
-      .filter(s => targetHomerooms.some(h => matchHomeroom(s.homeroom, h)))
+      .filter(s => expandedTargets.some(h => matchHomeroom(s.homeroom, h)))
       .map(s => s.name);
 
     const custom = (selectedClassFilter === 'primary' || selectedClassFilter === 'all') ? (profile.customStudents || []) : [];
     const allNames = [...new Set([...central, ...custom])];
     return sortStudentNames(allNames, sortBy, balances);
-  }, [students, profile, coTaughtList, selectedClassFilter, sortBy, balances]);
+  }, [students, profile, profiles, coTaughtList, selectedClassFilter, sortBy, balances]);
 
   const myStudentObjects = useMemo(() => {
     return students.filter(s => myStudents.includes(s.name));
@@ -6446,6 +6666,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         profiles={profiles}
         onShareClass={handleShareClass}
         showToast={showToast}
+        allSchoolClasses={allSchoolClasses}
       />
 
       <AwardGoldenTicketModal
@@ -6829,6 +7050,199 @@ function ResetTeacherPasswordModal({ targetProfile, onClose, showToast }) {
   );
 }
 
+// --- Admin Manage Co-Teachers Modal ---
+function AdminManageCoTeachersModal({ isOpen, onClose, targetProfile, profiles = [], allSchoolClasses = [], showToast }) {
+  const [selectedClassToAdd, setSelectedClassToAdd] = useState('');
+  const [customClassToAdd, setCustomClassToAdd] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  if (!isOpen || !targetProfile) return null;
+
+  let currentCoTaught = [];
+  try {
+    currentCoTaught = Array.isArray(targetProfile.coTaughtHomerooms)
+      ? targetProfile.coTaughtHomerooms
+      : (targetProfile.coTaughtHomerooms ? JSON.parse(targetProfile.coTaughtHomerooms) : []);
+  } catch (e) {
+    currentCoTaught = typeof targetProfile.coTaughtHomerooms === 'string'
+      ? targetProfile.coTaughtHomerooms.split(',').map(s => s.trim()).filter(Boolean)
+      : [];
+  }
+
+  // Available classes in the school not already in teacher's list
+  const availableClasses = (allSchoolClasses || []).filter(c =>
+    c && c.toLowerCase() !== (targetProfile.name || '').toLowerCase() && !currentCoTaught.includes(c)
+  );
+
+  // Other teacher names
+  const otherTeachers = (profiles || []).filter(p =>
+    p.email && p.email.toLowerCase() !== targetProfile.email.toLowerCase() && !currentCoTaught.includes(p.name)
+  );
+
+  const handleAddClass = async (e) => {
+    e.preventDefault();
+    const className = (selectedClassToAdd || customClassToAdd).trim();
+    if (!className) {
+      showToast('Please select or enter a class name.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await api.fetch('/api/admin/manage-coteachers', {
+        method: 'POST',
+        body: JSON.stringify({
+          targetEmail: targetProfile.email,
+          homeroomName: className,
+          action: 'add'
+        })
+      });
+      showToast(`Added "${className}" to ${targetProfile.name || targetProfile.email}'s co-taught classes.`);
+      setSelectedClassToAdd('');
+      setCustomClassToAdd('');
+      if (window.triggerRefresh) window.triggerRefresh();
+      onClose();
+    } catch (err) {
+      showToast(err.message || 'Failed to update co-taught classes.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRemoveClass = async (className) => {
+    setIsSubmitting(true);
+    try {
+      await api.fetch('/api/admin/manage-coteachers', {
+        method: 'POST',
+        body: JSON.stringify({
+          targetEmail: targetProfile.email,
+          homeroomName: className,
+          action: 'remove'
+        })
+      });
+      showToast(`Removed "${className}" from ${targetProfile.name || targetProfile.email}.`);
+      if (window.triggerRefresh) window.triggerRefresh();
+      onClose();
+    } catch (err) {
+      showToast(err.message || 'Failed to remove co-taught class.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-3xl p-6 max-w-lg w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center border-b pb-3">
+          <div className="flex items-center gap-2">
+            <div className="bg-emerald-100 p-2 rounded-xl text-emerald-700">
+              <Users className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="font-display font-extrabold text-gray-900 text-lg">Manage Co-Taught Classes</h2>
+              <p className="text-xs text-gray-500">For {targetProfile.name} ({targetProfile.email})</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px]">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Current Co-Taught Classes List */}
+        <div>
+          <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+            Current Co-Taught Classes / Switch Blocks ({currentCoTaught.length})
+          </h3>
+          {currentCoTaught.length === 0 ? (
+            <p className="text-xs text-gray-400 italic bg-gray-50 p-3 rounded-xl border border-dashed border-gray-200">
+              No co-taught or switch classes assigned to this teacher yet.
+            </p>
+          ) : (
+            <div className="divide-y divide-gray-100 border border-gray-200 rounded-2xl bg-white overflow-hidden">
+              {currentCoTaught.map(cName => (
+                <div key={cName} className="p-3 flex justify-between items-center hover:bg-gray-50">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    <span className="text-xs font-bold text-gray-900">{cName}</span>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => handleRemoveClass(cName)}
+                    className="text-xs font-bold text-red-600 hover:underline p-1 cursor-pointer disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Add Class Form */}
+        <form onSubmit={handleAddClass} className="bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200 space-y-3">
+          <h4 className="font-bold text-xs text-emerald-900 flex items-center gap-1.5">
+            <Plus className="w-4 h-4 text-emerald-700" /> Assign Another Class / Co-Teacher
+          </h4>
+          
+          <div className="space-y-2">
+            <div>
+              <label className="block text-[11px] font-bold text-gray-600 mb-1">Select Existing Homeroom or Teacher</label>
+              <select
+                value={selectedClassToAdd}
+                onChange={e => setSelectedClassToAdd(e.target.value)}
+                className="w-full p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none font-medium"
+              >
+                <option value="">-- Choose Class or Teacher to Assign --</option>
+                {availableClasses.length > 0 && (
+                  <optgroup label="School Homerooms">
+                    {availableClasses.map(c => (
+                      <option key={`c-${c}`} value={c}>{c}</option>
+                    ))}
+                  </optgroup>
+                )}
+                {otherTeachers.length > 0 && (
+                  <optgroup label="Other Teachers">
+                    {otherTeachers.map(t => (
+                      <option key={`t-${t.email}`} value={t.name}>{t.name} ({t.email})</option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+
+            <div className="flex gap-2 items-center">
+              <input
+                type="text"
+                placeholder="Or custom class / block name..."
+                value={customClassToAdd}
+                onChange={e => setCustomClassToAdd(e.target.value)}
+                className="flex-1 p-2.5 border border-gray-300 rounded-xl text-xs bg-white focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+              />
+              <button
+                type="submit"
+                disabled={isSubmitting || (!selectedClassToAdd && !customClassToAdd.trim())}
+                className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 min-h-[42px] cursor-pointer shadow-xs"
+              >
+                {isSubmitting ? 'Saving...' : 'Assign Class'}
+              </button>
+            </div>
+          </div>
+        </form>
+
+        <div className="flex justify-end pt-2">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-gray-300 rounded-xl text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 cursor-pointer min-h-[40px]"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
 function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
   const [activeTab, setActiveTab] = useState('overview');
@@ -6841,6 +7255,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [confirmDeleteProfile, setConfirmDeleteProfile] = useState(null);
   const [isDeletingProfile, setIsDeletingProfile] = useState(false);
   const [resetPasswordTarget, setResetPasswordTarget] = useState(null);
+  const [manageCoTeacherTarget, setManageCoTeacherTarget] = useState(null);
   const [activityPage, setActivityPage] = useState(0);
   const [spendData, setSpendData] = useState(null);
   const [showManualPaste, setShowManualPaste] = useState(false);
@@ -8241,6 +8656,14 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                       <span className={`text-xs font-black ${count === 0 ? 'text-gray-400' : 'text-green-700'}`}>{count} ticket{count !== 1 ? 's' : ''}</span>
                       
                       <button
+                        onClick={() => setManageCoTeacherTarget(p)}
+                        className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 cursor-pointer min-h-[34px]"
+                        title="Manage co-teachers and shared classes"
+                      >
+                        <Users className="w-3.5 h-3.5 text-emerald-700" /> Co-Teachers
+                      </button>
+
+                      <button
                         onClick={() => setResetPasswordTarget(p)}
                         className="text-xs bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 font-bold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 cursor-pointer min-h-[34px]"
                         title="Reset teacher password"
@@ -8453,6 +8876,16 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
       {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
       <ResetTeacherPasswordModal targetProfile={resetPasswordTarget} onClose={() => setResetPasswordTarget(null)} showToast={showToast} />
+      {manageCoTeacherTarget && (
+        <AdminManageCoTeachersModal
+          isOpen={!!manageCoTeacherTarget}
+          targetProfile={manageCoTeacherTarget}
+          onClose={() => setManageCoTeacherTarget(null)}
+          profiles={profiles}
+          allSchoolClasses={[...new Set(students.map(s => s.homeroom).filter(Boolean))].sort()}
+          showToast={showToast}
+        />
+      )}
     </div>
   );
 }
