@@ -563,6 +563,63 @@ export default function App() {
     loadInitialData();
   }, [refreshTrigger]);
 
+  // Calculate myUids for ticket filter mapping (includes linked devices and bidirectional co-teachers)
+  const myUids = useMemo(() => {
+    const uids = new Set([profile?.email].filter(Boolean));
+    const myName = (profile?.name || '').trim().toLowerCase();
+    const myEmail = (profile?.email || '').trim().toLowerCase();
+    
+    let myCo = [];
+    try {
+      if (Array.isArray(profile?.coTaughtHomerooms)) {
+        myCo = profile.coTaughtHomerooms.map(h => (typeof h === 'string' ? h.trim().toLowerCase() : '')).filter(Boolean);
+      } else if (typeof profile?.coTaughtHomerooms === 'string') {
+        const parsed = JSON.parse(profile.coTaughtHomerooms);
+        if (Array.isArray(parsed)) {
+          myCo = parsed.map(h => (typeof h === 'string' ? h.trim().toLowerCase() : '')).filter(Boolean);
+        }
+      }
+    } catch (e) {
+      myCo = [];
+    }
+
+    if (Array.isArray(profiles)) {
+      profiles.forEach(p => {
+        if (!p) return;
+        const pEmail = (p.email || '').trim().toLowerCase();
+        const pName = (p.name || '').trim().toLowerCase();
+
+        // Linked devices
+        if (profile?.email && p.linkedTo === profile.email) {
+          if (p.email) uids.add(p.email);
+        }
+
+        // Bidirectional co-teachers
+        let pCo = [];
+        try {
+          if (Array.isArray(p.coTaughtHomerooms)) {
+            pCo = p.coTaughtHomerooms.map(h => (typeof h === 'string' ? h.trim().toLowerCase() : '')).filter(Boolean);
+          } else if (typeof p.coTaughtHomerooms === 'string') {
+            const parsed = JSON.parse(p.coTaughtHomerooms);
+            if (Array.isArray(parsed)) {
+              pCo = parsed.map(h => (typeof h === 'string' ? h.trim().toLowerCase() : '')).filter(Boolean);
+            }
+          }
+        } catch (e) {
+          pCo = [];
+        }
+
+        if (
+          (myName && (myCo.includes(pName) || pCo.includes(myName))) ||
+          (myEmail && (myCo.includes(pEmail) || pCo.includes(myEmail)))
+        ) {
+          if (p.email) uids.add(p.email);
+        }
+      });
+    }
+    return uids;
+  }, [profile, profiles]);
+
   const handleSignOut = () => {
     api.setToken(null);
     setProfile(null);
@@ -694,42 +751,6 @@ export default function App() {
       </>
     );
   }
-
-  // Calculate myUids for ticket filter mapping (includes linked devices and bidirectional co-teachers)
-  const myUids = useMemo(() => {
-    const uids = new Set([profile?.email].filter(Boolean));
-    const myName = (profile?.name || '').trim().toLowerCase();
-    const myEmail = (profile?.email || '').trim().toLowerCase();
-    const myCo = Array.isArray(profile?.coTaughtHomerooms) ? profile.coTaughtHomerooms.map(h => (h || '').trim().toLowerCase()) : [];
-
-    (profiles || []).forEach(p => {
-      if (!p) return;
-      const pEmail = (p.email || '').trim().toLowerCase();
-      const pName = (p.name || '').trim().toLowerCase();
-
-      // Linked devices
-      if (p.linkedTo === profile?.email) {
-        if (p.email) uids.add(p.email);
-      }
-
-      // Bidirectional co-teachers
-      let pCo = [];
-      try {
-        pCo = Array.isArray(p.coTaughtHomerooms) ? p.coTaughtHomerooms : (p.coTaughtHomerooms ? JSON.parse(p.coTaughtHomerooms) : []);
-      } catch (e) {}
-      const pCoLower = pCo.map(h => (h || '').trim().toLowerCase());
-
-      if (
-        myCo.includes(pName) ||
-        myCo.includes(pEmail) ||
-        pCoLower.includes(myName) ||
-        pCoLower.includes(myEmail)
-      ) {
-        if (p.email) uids.add(p.email);
-      }
-    });
-    return uids;
-  }, [profile, profiles]);
 
   const handleRoleChange = async () => {
     if (!newRole || !profile) return;
