@@ -4,7 +4,8 @@ import {
   Award, PieChart, ChevronLeft, CheckCircle2, X, AlertTriangle, Trash2, Star, Search,
   Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv,
   Eye, Smartphone, Contrast, ShieldCheck, Share, ZoomIn, Volume2, ArrowUpDown, Layers, Shuffle, CheckSquare, Square,
-  Upload, Key, Menu, Printer, History, Clock, Calendar, AlertCircle, RefreshCw, Sparkles, Filter, Undo2, Info
+  Upload, Key, Menu, Printer, History, Clock, Calendar, AlertCircle, RefreshCw, Sparkles, Filter, Undo2, Info,
+  ShoppingBag, FileText, ChevronDown
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : 'https://ticket-tracker-639453420405.us-east1.run.app');
@@ -423,6 +424,7 @@ export default function App() {
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' or 'raffle'
   const [studentsToPrint, setStudentsToPrint] = useState(null);
+  const [showSpendingReportModal, setShowSpendingReportModal] = useState(false);
 
   // Accessibility state
   const [highContrast, setHighContrast] = useState(() => localStorage.getItem('accessibility_highcontrast') === 'true');
@@ -804,6 +806,7 @@ export default function App() {
         onOpenAccessibility={() => setShowAccessibilityModal(true)}
         onOpenInstall={() => setShowInstallModal(true)}
         isStandalone={isStandalone}
+        onOpenSpendingReport={() => setShowSpendingReportModal(true)}
       />
 
       <main id="main-content" tabIndex="-1" role="main" aria-label="Main Application Content" className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
@@ -888,6 +891,18 @@ export default function App() {
 
       {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+
+      {/* Admin Spending Report Modal */}
+      {showSpendingReportModal && (
+        <AdminSpendingReport
+          spending={spending}
+          students={students}
+          profiles={profiles}
+          showToast={showToast}
+          isModal={true}
+          onClose={() => setShowSpendingReportModal(false)}
+        />
+      )}
 
       {/* Accessibility & PWA Modals */}
       <AccessibilityModal
@@ -3145,6 +3160,886 @@ function TopStudentsLeaderboardModal({ isOpen, onClose, students = [], balances 
   );
 }
 
+// --- Admin Spending Report Component (School, Grade Level, and Teacher) ---
+function AdminSpendingReport({ spending = [], students = [], profiles = [], showToast, isModal = false, onClose = () => {} }) {
+  const [activeSection, setActiveSection] = useState('grades'); // 'grades' | 'homerooms' | 'teachers' | 'transactions'
+  const [dateFilter, setDateFilter] = useState('all'); // 'all' | 'today' | '7days' | '30days' | '90days'
+  const [gradeFilter, setGradeFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [txPage, setTxPage] = useState(0);
+  const TX_PAGE_SIZE = 25;
+
+  const allGrades = useMemo(() => {
+    return [...new Set(students.map(s => s.grade || 'Unassigned').filter(Boolean))].sort();
+  }, [students]);
+
+  const studentMap = useMemo(() => {
+    const map = new Map();
+    students.forEach(s => {
+      if (s.name) map.set(s.name.trim().toLowerCase(), s);
+    });
+    return map;
+  }, [students]);
+
+  // Enrich and filter transactions
+  const filteredTransactions = useMemo(() => {
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    return spending.map(s => {
+      const student = studentMap.get((s.recipient || '').trim().toLowerCase());
+      const ts = s.timestamp ? new Date(s.timestamp).getTime() : 0;
+      return {
+        ...s,
+        studentId: student?.id || '',
+        grade: student?.grade || 'Unassigned',
+        homeroom: student?.homeroom || 'Unassigned',
+        amount: Number(s.amount || 0),
+        timestampMs: ts,
+        teacherName: s.teacherName || 'Staff Member',
+        teacherEmail: s.teacherEmail || '',
+        item: s.item || 'Reward Item'
+      };
+    }).filter(t => {
+      // Date range filter
+      if (dateFilter === 'today') {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        if (t.timestampMs < todayStart.getTime()) return false;
+      } else if (dateFilter === '7days') {
+        if (now - t.timestampMs > 7 * dayMs) return false;
+      } else if (dateFilter === '30days') {
+        if (now - t.timestampMs > 30 * dayMs) return false;
+      } else if (dateFilter === '90days') {
+        if (now - t.timestampMs > 90 * dayMs) return false;
+      }
+
+      // Grade level filter
+      if (gradeFilter !== 'all' && t.grade !== gradeFilter) {
+        return false;
+      }
+
+      // Search filter
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        const matchRec = (t.recipient || '').toLowerCase().includes(q);
+        const matchItem = (t.item || '').toLowerCase().includes(q);
+        const matchTeach = (t.teacherName || '').toLowerCase().includes(q) || (t.teacherEmail || '').toLowerCase().includes(q);
+        const matchClass = (t.homeroom || '').toLowerCase().includes(q);
+        const matchGrade = (t.grade || '').toLowerCase().includes(q);
+        const matchId = String(t.studentId || '').toLowerCase().includes(q);
+        if (!matchRec && !matchItem && !matchTeach && !matchClass && !matchGrade && !matchId) {
+          return false;
+        }
+      }
+
+      return true;
+    }).sort((a, b) => (b.timestampMs || 0) - (a.timestampMs || 0));
+  }, [spending, studentMap, dateFilter, gradeFilter, searchTerm]);
+
+  // Reset pagination when filters change
+  useEffect(() => {
+    setTxPage(0);
+  }, [dateFilter, gradeFilter, searchTerm]);
+
+  // School-Wide Summary
+  const schoolSummary = useMemo(() => {
+    const totalSpent = filteredTransactions.reduce((acc, t) => acc + t.amount, 0);
+    const totalTransactions = filteredTransactions.length;
+    const spendersSet = new Set(filteredTransactions.map(t => (t.recipient || '').toLowerCase()).filter(Boolean));
+    const uniqueSpenders = spendersSet.size;
+    const filteredStudents = gradeFilter === 'all'
+      ? students
+      : students.filter(s => s.grade === gradeFilter);
+    const totalEnrolled = filteredStudents.length;
+    const avgPerEnrolled = totalEnrolled > 0 ? (totalSpent / totalEnrolled) : 0;
+    const avgPerSpender = uniqueSpenders > 0 ? (totalSpent / uniqueSpenders) : 0;
+
+    const itemMap = {};
+    filteredTransactions.forEach(t => {
+      itemMap[t.item] = (itemMap[t.item] || 0) + t.amount;
+    });
+    const topItems = Object.entries(itemMap)
+      .map(([item, total]) => ({ item, total }))
+      .sort((a, b) => b.total - a.total);
+
+    return {
+      totalSpent,
+      totalTransactions,
+      uniqueSpenders,
+      totalEnrolled,
+      avgPerEnrolled,
+      avgPerSpender,
+      topItems
+    };
+  }, [filteredTransactions, students, gradeFilter]);
+
+  // Grade Level Breakdown
+  const gradeReport = useMemo(() => {
+    const map = new Map();
+    allGrades.forEach(g => {
+      const gStudents = students.filter(s => (s.grade || 'Unassigned') === g);
+      map.set(g, {
+        grade: g,
+        totalStudents: gStudents.length,
+        spenders: new Set(),
+        totalSpent: 0,
+        transactions: 0,
+        itemCounts: {}
+      });
+    });
+
+    filteredTransactions.forEach(t => {
+      const g = t.grade || 'Unassigned';
+      if (!map.has(g)) {
+        map.set(g, {
+          grade: g,
+          totalStudents: 0,
+          spenders: new Set(),
+          totalSpent: 0,
+          transactions: 0,
+          itemCounts: {}
+        });
+      }
+      const rec = map.get(g);
+      rec.totalSpent += t.amount;
+      rec.transactions++;
+      if (t.recipient) rec.spenders.add(t.recipient.toLowerCase());
+      rec.itemCounts[t.item] = (rec.itemCounts[t.item] || 0) + t.amount;
+    });
+
+    return Array.from(map.values()).map(g => {
+      const topItemEntry = Object.entries(g.itemCounts).sort((a, b) => b[1] - a[1])[0];
+      const uniqueSpenders = g.spenders.size;
+      return {
+        grade: g.grade,
+        totalStudents: g.totalStudents,
+        uniqueSpenders,
+        totalSpent: g.totalSpent,
+        transactions: g.transactions,
+        avgPerStudent: g.totalStudents > 0 ? (g.totalSpent / g.totalStudents) : 0,
+        avgPerSpender: uniqueSpenders > 0 ? (g.totalSpent / uniqueSpenders) : 0,
+        topReward: topItemEntry ? `${topItemEntry[0]} (${topItemEntry[1]} tickets)` : 'None'
+      };
+    }).sort((a, b) => b.totalSpent - a.totalSpent || a.grade.localeCompare(b.grade));
+  }, [allGrades, students, filteredTransactions]);
+
+  // Homeroom Teachers Breakdown
+  const homeroomReport = useMemo(() => {
+    const allHomerooms = [...new Set(students.map(s => s.homeroom || 'Unassigned').filter(Boolean))].sort();
+    const map = new Map();
+    allHomerooms.forEach(h => {
+      const hStudents = students.filter(s => (s.homeroom || 'Unassigned') === h);
+      const gradesInClass = [...new Set(hStudents.map(s => s.grade).filter(Boolean))].join(', ') || 'N/A';
+      map.set(h, {
+        homeroom: h,
+        grade: gradesInClass,
+        totalStudents: hStudents.length,
+        spenders: new Set(),
+        totalSpent: 0,
+        transactions: 0,
+        itemCounts: {}
+      });
+    });
+
+    filteredTransactions.forEach(t => {
+      const h = t.homeroom || 'Unassigned';
+      if (!map.has(h)) {
+        map.set(h, {
+          homeroom: h,
+          grade: t.grade || 'N/A',
+          totalStudents: 0,
+          spenders: new Set(),
+          totalSpent: 0,
+          transactions: 0,
+          itemCounts: {}
+        });
+      }
+      const rec = map.get(h);
+      rec.totalSpent += t.amount;
+      rec.transactions++;
+      if (t.recipient) rec.spenders.add(t.recipient.toLowerCase());
+      rec.itemCounts[t.item] = (rec.itemCounts[t.item] || 0) + t.amount;
+    });
+
+    return Array.from(map.values()).map(h => {
+      const topItemEntry = Object.entries(h.itemCounts).sort((a, b) => b[1] - a[1])[0];
+      const uniqueSpenders = h.spenders.size;
+      return {
+        homeroom: h.homeroom,
+        grade: h.grade,
+        totalStudents: h.totalStudents,
+        uniqueSpenders,
+        totalSpent: h.totalSpent,
+        transactions: h.transactions,
+        avgPerStudent: h.totalStudents > 0 ? (h.totalSpent / h.totalStudents) : 0,
+        avgPerSpender: uniqueSpenders > 0 ? (h.totalSpent / uniqueSpenders) : 0,
+        topReward: topItemEntry ? `${topItemEntry[0]} (${topItemEntry[1]} tickets)` : 'None'
+      };
+    }).sort((a, b) => b.totalSpent - a.totalSpent || a.homeroom.localeCompare(b.homeroom));
+  }, [students, filteredTransactions]);
+
+  // Facilitating Store Staff Breakdown
+  const staffReport = useMemo(() => {
+    const map = new Map();
+    filteredTransactions.forEach(t => {
+      const key = (t.teacherEmail || t.teacherName || 'Unknown').trim().toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          teacherName: t.teacherName || 'Staff Member',
+          teacherEmail: t.teacherEmail || '',
+          totalSpent: 0,
+          transactions: 0,
+          studentsServed: new Set(),
+          itemCounts: {}
+        });
+      }
+      const rec = map.get(key);
+      rec.totalSpent += t.amount;
+      rec.transactions++;
+      if (t.recipient) rec.studentsServed.add(t.recipient.toLowerCase());
+      rec.itemCounts[t.item] = (rec.itemCounts[t.item] || 0) + t.amount;
+    });
+
+    return Array.from(map.values()).map(s => {
+      const topItemEntry = Object.entries(s.itemCounts).sort((a, b) => b[1] - a[1])[0];
+      return {
+        teacherName: s.teacherName,
+        teacherEmail: s.teacherEmail,
+        totalSpent: s.totalSpent,
+        transactions: s.transactions,
+        uniqueStudentsServed: s.studentsServed.size,
+        topReward: topItemEntry ? `${topItemEntry[0]} (${topItemEntry[1]} tickets)` : 'None'
+      };
+    }).sort((a, b) => b.totalSpent - a.totalSpent);
+  }, [filteredTransactions]);
+
+  // CSV Helpers
+  const escapeCsv = (str) => `"${String(str ?? '').replace(/"/g, '""')}"`;
+
+  const downloadCsv = (filename, csvContent) => {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    if (showToast) showToast(`Downloaded ${filename}!`);
+    setShowExportMenu(false);
+  };
+
+  // 1. Comprehensive Full Spending Report CSV
+  const handleExportComprehensiveCSV = () => {
+    const dateStr = new Date().toISOString().split('T')[0];
+    let csv = `ROLLING RIDGE ELEMENTARY - PBIS GREEN TICKET SPENDING REPORT\n`;
+    csv += `Exported On: ${new Date().toLocaleString()}\n`;
+    csv += `Timeframe: ${dateFilter.toUpperCase()}\n`;
+    csv += `Grade Filter: ${gradeFilter}\n`;
+    if (searchTerm.trim()) csv += `Search Query: ${searchTerm.trim()}\n`;
+    csv += `\n`;
+
+    // Section 1
+    csv += `=== 1. SCHOOL-WIDE SPENDING SUMMARY ===\n`;
+    csv += `Metric,Value\n`;
+    csv += `Total Tickets Spent,${schoolSummary.totalSpent}\n`;
+    csv += `Total Spending Transactions,${schoolSummary.totalTransactions}\n`;
+    csv += `Active Spending Students,${schoolSummary.uniqueSpenders}\n`;
+    csv += `Total Enrolled Students,${schoolSummary.totalEnrolled}\n`;
+    csv += `Average Spent Per Enrolled Student,${schoolSummary.avgPerEnrolled.toFixed(2)}\n`;
+    csv += `Average Spent Per Active Spender,${schoolSummary.avgPerSpender.toFixed(2)}\n`;
+    csv += `Top Reward Item,${escapeCsv(schoolSummary.topItems[0] ? `${schoolSummary.topItems[0].item} (${schoolSummary.topItems[0].total} tickets)` : 'None')}\n\n`;
+
+    // Section 2
+    csv += `=== 2. SPENDING BY GRADE LEVEL ===\n`;
+    csv += `Grade Level,Total Tickets Spent,Transactions,Active Spenders,Total Students,Avg Spent / Student,Top Reward\n`;
+    gradeReport.forEach(g => {
+      csv += `${escapeCsv(g.grade)},${g.totalSpent},${g.transactions},${g.uniqueSpenders},${g.totalStudents},${g.avgPerStudent.toFixed(2)},${escapeCsv(g.topReward)}\n`;
+    });
+    csv += `\n`;
+
+    // Section 3
+    csv += `=== 3. SPENDING BY HOMEROOM CLASSROOM (TEACHER'S CLASS) ===\n`;
+    csv += `Homeroom Classroom,Grade(s),Total Tickets Spent,Transactions,Active Spenders,Total Students,Avg Spent / Student,Top Reward\n`;
+    homeroomReport.forEach(h => {
+      csv += `${escapeCsv(h.homeroom)},${escapeCsv(h.grade)},${h.totalSpent},${h.transactions},${h.uniqueSpenders},${h.totalStudents},${h.avgPerStudent.toFixed(2)},${escapeCsv(h.topReward)}\n`;
+    });
+    csv += `\n`;
+
+    // Section 4
+    csv += `=== 4. SPENDING BY FACILITATING TEACHER (STORE STAFF) ===\n`;
+    csv += `Teacher Name,Teacher Email,Total Tickets Redeemed,Transactions Processed,Students Served,Top Reward\n`;
+    staffReport.forEach(s => {
+      csv += `${escapeCsv(s.teacherName)},${escapeCsv(s.teacherEmail)},${s.totalSpent},${s.transactions},${s.uniqueStudentsServed},${escapeCsv(s.topReward)}\n`;
+    });
+    csv += `\n`;
+
+    // Section 5
+    csv += `=== 5. DETAILED ITEMISED SPENDING TRANSACTIONS ===\n`;
+    csv += `Date,Time,Student Name,Student ID,Grade,Homeroom,Reward Item,Tickets Spent,Logged By Teacher,Teacher Email,Transaction ID\n`;
+    filteredTransactions.forEach(t => {
+      const d = t.timestamp ? new Date(t.timestamp) : new Date();
+      const dStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+      const tStr = isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+      csv += `${escapeCsv(dStr)},${escapeCsv(tStr)},${escapeCsv(t.recipient)},${escapeCsv(t.studentId)},${escapeCsv(t.grade)},${escapeCsv(t.homeroom)},${escapeCsv(t.item)},${t.amount},${escapeCsv(t.teacherName)},${escapeCsv(t.teacherEmail)},${escapeCsv(t.id || '')}\n`;
+    });
+
+    downloadCsv(`RRD_PBIS_Comprehensive_Spending_Report_${dateStr}.csv`, csv);
+  };
+
+  // 2. Grade Level CSV
+  const handleExportGradeCSV = () => {
+    const dateStr = new Date().toISOString().split('T')[0];
+    let csv = `Grade Level,Total Tickets Spent,Transactions,Active Spenders,Total Students,Avg Spent / Student,Top Reward\n`;
+    gradeReport.forEach(g => {
+      csv += `${escapeCsv(g.grade)},${g.totalSpent},${g.transactions},${g.uniqueSpenders},${g.totalStudents},${g.avgPerStudent.toFixed(2)},${escapeCsv(g.topReward)}\n`;
+    });
+    downloadCsv(`RRD_PBIS_Spending_By_Grade_${dateStr}.csv`, csv);
+  };
+
+  // 3. Teacher CSV
+  const handleExportTeacherCSV = () => {
+    const dateStr = new Date().toISOString().split('T')[0];
+    let csv = `=== HOMEROOM CLASSROOM TEACHERS ===\n`;
+    csv += `Homeroom Classroom,Grade(s),Total Tickets Spent,Transactions,Active Spenders,Total Students,Avg Spent / Student,Top Reward\n`;
+    homeroomReport.forEach(h => {
+      csv += `${escapeCsv(h.homeroom)},${escapeCsv(h.grade)},${h.totalSpent},${h.transactions},${h.uniqueSpenders},${h.totalStudents},${h.avgPerStudent.toFixed(2)},${escapeCsv(h.topReward)}\n`;
+    });
+    csv += `\n=== FACILITATING STORE TEACHERS / STAFF ===\n`;
+    csv += `Teacher Name,Teacher Email,Total Tickets Redeemed,Transactions Processed,Students Served,Top Reward\n`;
+    staffReport.forEach(s => {
+      csv += `${escapeCsv(s.teacherName)},${escapeCsv(s.teacherEmail)},${s.totalSpent},${s.transactions},${s.uniqueStudentsServed},${escapeCsv(s.topReward)}\n`;
+    });
+    downloadCsv(`RRD_PBIS_Spending_By_Teacher_${dateStr}.csv`, csv);
+  };
+
+  // 4. Detailed Transactions CSV
+  const handleExportTransactionsCSV = () => {
+    const dateStr = new Date().toISOString().split('T')[0];
+    let csv = `Date,Time,Student Name,Student ID,Grade,Homeroom,Reward Item,Tickets Spent,Logged By Teacher,Teacher Email,Transaction ID\n`;
+    filteredTransactions.forEach(t => {
+      const d = t.timestamp ? new Date(t.timestamp) : new Date();
+      const dStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+      const tStr = isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+      csv += `${escapeCsv(dStr)},${escapeCsv(tStr)},${escapeCsv(t.recipient)},${escapeCsv(t.studentId)},${escapeCsv(t.grade)},${escapeCsv(t.homeroom)},${escapeCsv(t.item)},${t.amount},${escapeCsv(t.teacherName)},${escapeCsv(t.teacherEmail)},${escapeCsv(t.id || '')}\n`;
+    });
+    downloadCsv(`RRD_PBIS_Spending_Transactions_${dateStr}.csv`, csv);
+  };
+
+  const paginatedTransactions = filteredTransactions.slice(txPage * TX_PAGE_SIZE, (txPage + 1) * TX_PAGE_SIZE);
+  const totalTxPages = Math.ceil(filteredTransactions.length / TX_PAGE_SIZE);
+
+  const content = (
+    <div className="space-y-6">
+      {/* Top Header & Export Actions */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b pb-4">
+        <div>
+          <div className="flex items-center gap-2">
+            <h2 className="text-2xl font-black font-display text-gray-900 tracking-tight flex items-center gap-2">
+              <ShoppingBag className="w-6 h-6 text-emerald-700" />
+              PBIS Ticket Spending Report
+            </h2>
+            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border border-emerald-300">
+              Admin Audit
+            </span>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Audit and export ticket redemptions across the school, grade levels, and teachers (both homeroom classes and store staff).
+          </p>
+        </div>
+
+        {/* Export Button Group */}
+        <div className="relative flex items-center gap-2 self-start md:self-auto">
+          <button
+            onClick={handleExportComprehensiveCSV}
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black px-4 py-2.5 rounded-xl text-xs shadow-md transition cursor-pointer min-h-[40px]"
+            title="Download Comprehensive Spending Report CSV"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export Full Report (CSV)</span>
+          </button>
+
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(prev => !prev)}
+              aria-label="More export options"
+              aria-expanded={showExportMenu}
+              className="flex items-center justify-center p-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition border border-gray-200 cursor-pointer min-h-[40px] min-w-[40px]"
+            >
+              <ChevronDown className="w-4 h-4" />
+            </button>
+
+            {showExportMenu && (
+              <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-gray-150 py-2 z-30 animate-fade-in text-xs">
+                <div className="px-3 py-1.5 font-extrabold uppercase text-[10px] text-gray-400 border-b border-gray-100">
+                  Select CSV Report
+                </div>
+                <button
+                  onClick={handleExportComprehensiveCSV}
+                  className="w-full text-left px-3.5 py-2 hover:bg-emerald-50 text-emerald-900 font-bold flex items-center gap-2 transition"
+                >
+                  <FileText className="w-3.5 h-3.5 text-emerald-600" />
+                  Full Report (All Sections in 1 CSV)
+                </button>
+                <button
+                  onClick={handleExportGradeCSV}
+                  className="w-full text-left px-3.5 py-2 hover:bg-slate-50 text-gray-800 font-medium flex items-center gap-2 transition"
+                >
+                  <Users className="w-3.5 h-3.5 text-blue-600" />
+                  Grade Level Breakdown (CSV)
+                </button>
+                <button
+                  onClick={handleExportTeacherCSV}
+                  className="w-full text-left px-3.5 py-2 hover:bg-slate-50 text-gray-800 font-medium flex items-center gap-2 transition"
+                >
+                  <Award className="w-3.5 h-3.5 text-purple-600" />
+                  Teacher Spending (CSV)
+                </button>
+                <button
+                  onClick={handleExportTransactionsCSV}
+                  className="w-full text-left px-3.5 py-2 hover:bg-slate-50 text-gray-800 font-medium flex items-center gap-2 transition"
+                >
+                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                  Detailed Itemized Log (CSV)
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Filter Toolbar */}
+      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Timeframe Filter */}
+          <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+            <Calendar className="w-3.5 h-3.5 text-gray-400" />
+            <select
+              value={dateFilter}
+              onChange={e => setDateFilter(e.target.value)}
+              className="text-xs font-bold text-gray-700 bg-transparent outline-none cursor-pointer"
+            >
+              <option value="all">Timeframe: All Time</option>
+              <option value="today">Today</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="30days">Last 30 Days</option>
+              <option value="90days">Last 90 Days / Quarter</option>
+            </select>
+          </div>
+
+          {/* Grade Level Filter */}
+          <div className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-xl px-2.5 py-1.5 shadow-2xs">
+            <Filter className="w-3.5 h-3.5 text-gray-400" />
+            <select
+              value={gradeFilter}
+              onChange={e => setGradeFilter(e.target.value)}
+              className="text-xs font-bold text-gray-700 bg-transparent outline-none cursor-pointer"
+            >
+              <option value="all">All Grade Levels</option>
+              {allGrades.map(g => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Search Bar */}
+        <div className="relative flex-1 max-w-sm">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+          <input
+            type="text"
+            placeholder="Search student, teacher, or item..."
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+          />
+        </div>
+      </div>
+
+      {/* 4 KPI Spotlight Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-white p-4 rounded-2xl shadow-xs border border-gray-150">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Tickets Spent</span>
+            <span className="p-1.5 bg-emerald-100 text-emerald-800 rounded-lg"><Ticket className="w-4 h-4" /></span>
+          </div>
+          <div className="text-2xl font-black text-navy-950">{schoolSummary.totalSpent}</div>
+          <div className="text-[11px] text-gray-400 mt-1">
+            Across {schoolSummary.totalTransactions} transactions
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl shadow-xs border border-gray-150">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Active Spenders</span>
+            <span className="p-1.5 bg-blue-100 text-blue-800 rounded-lg"><Users className="w-4 h-4" /></span>
+          </div>
+          <div className="text-2xl font-black text-navy-950">{schoolSummary.uniqueSpenders}</div>
+          <div className="text-[11px] text-gray-400 mt-1">
+            {schoolSummary.totalEnrolled > 0 ? `${((schoolSummary.uniqueSpenders / schoolSummary.totalEnrolled) * 100).toFixed(0)}% of roster (${schoolSummary.totalEnrolled})` : 'No roster'}
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl shadow-xs border border-gray-150">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Avg Spent / Student</span>
+            <span className="p-1.5 bg-amber-100 text-amber-800 rounded-lg"><TrendingUp className="w-4 h-4" /></span>
+          </div>
+          <div className="text-2xl font-black text-navy-950">{schoolSummary.avgPerEnrolled.toFixed(1)}</div>
+          <div className="text-[11px] text-gray-400 mt-1">
+            {schoolSummary.avgPerSpender.toFixed(1)} per active spender
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl shadow-xs border border-gray-150">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Top Reward Item</span>
+            <span className="p-1.5 bg-purple-100 text-purple-800 rounded-lg"><ShoppingBag className="w-4 h-4" /></span>
+          </div>
+          <div className="text-base font-black text-navy-950 truncate" title={schoolSummary.topItems[0]?.item || 'None'}>
+            {schoolSummary.topItems[0]?.item || 'None'}
+          </div>
+          <div className="text-[11px] text-gray-400 mt-1">
+            {schoolSummary.topItems[0] ? `${schoolSummary.topItems[0].total} tickets redeemed` : 'No redemptions'}
+          </div>
+        </div>
+      </div>
+
+      {/* Sub-Tabs Navigation */}
+      <div className="flex border-b border-gray-200">
+        <button
+          onClick={() => setActiveSection('grades')}
+          className={`px-4 py-2.5 text-xs font-bold transition border-b-2 flex items-center gap-1.5 cursor-pointer ${activeSection === 'grades' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span>School & Grade Levels ({gradeReport.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSection('homerooms')}
+          className={`px-4 py-2.5 text-xs font-bold transition border-b-2 flex items-center gap-1.5 cursor-pointer ${activeSection === 'homerooms' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Homeroom Teachers ({homeroomReport.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSection('teachers')}
+          className={`px-4 py-2.5 text-xs font-bold transition border-b-2 flex items-center gap-1.5 cursor-pointer ${activeSection === 'teachers' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+        >
+          <Award className="w-4 h-4" />
+          <span>Store / Facilitating Staff ({staffReport.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSection('transactions')}
+          className={`px-4 py-2.5 text-xs font-bold transition border-b-2 flex items-center gap-1.5 cursor-pointer ${activeSection === 'transactions' ? 'border-emerald-600 text-emerald-800' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+        >
+          <Clock className="w-4 h-4" />
+          <span>Detailed Itemized Log ({filteredTransactions.length})</span>
+        </button>
+      </div>
+
+      {/* Section 1: Grade Level Breakdown Table */}
+      {activeSection === 'grades' && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+          <div className="p-4 bg-slate-50 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-extrabold text-navy-950">Spending by Grade Level</h3>
+              <p className="text-[11px] text-gray-500">Compare ticket spending volume, transactions, and student participation across grades.</p>
+            </div>
+            <button
+              onClick={handleExportGradeCSV}
+              className="flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-white border border-emerald-300 px-3 py-1.5 rounded-lg shadow-2xs transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Grade CSV</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-gray-600">
+              <thead className="bg-slate-100/70 text-[10px] font-extrabold uppercase text-slate-500 border-b">
+                <tr>
+                  <th className="px-4 py-3">Grade Level</th>
+                  <th className="px-4 py-3 text-right">Total Spent</th>
+                  <th className="px-4 py-3 text-center">Transactions</th>
+                  <th className="px-4 py-3 text-center">Spenders / Enrolled</th>
+                  <th className="px-4 py-3 text-right">Avg / Student</th>
+                  <th className="px-4 py-3 text-right">Avg / Spender</th>
+                  <th className="px-4 py-3">Top Purchased Reward</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {gradeReport.length === 0 ? (
+                  <tr><td colSpan="7" className="p-8 text-center text-gray-400 italic">No grade-level data found.</td></tr>
+                ) : (
+                  gradeReport.map(g => (
+                    <tr key={g.grade} className="hover:bg-slate-50 transition">
+                      <td className="px-4 py-3 font-extrabold text-navy-950 flex items-center gap-2">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                        {g.grade}
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-emerald-700">
+                        {g.totalSpent} <span className="text-[10px] font-normal text-gray-400">tickets</span>
+                      </td>
+                      <td className="px-4 py-3 text-center font-bold text-gray-700">{g.transactions}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-extrabold text-navy-950">{g.uniqueSpenders}</span>
+                        <span className="text-gray-400"> / {g.totalStudents}</span>
+                        {g.totalStudents > 0 && (
+                          <span className="ml-1 text-[10px] text-gray-400">({((g.uniqueSpenders / g.totalStudents) * 100).toFixed(0)}%)</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-700">{g.avgPerStudent.toFixed(1)}</td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-700">{g.avgPerSpender.toFixed(1)}</td>
+                      <td className="px-4 py-3 text-gray-600 truncate max-w-xs" title={g.topReward}>
+                        {g.topReward}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Section 2: Homeroom Teacher Breakdown Table */}
+      {activeSection === 'homerooms' && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+          <div className="p-4 bg-slate-50 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-extrabold text-navy-950">Spending by Homeroom Classroom (Teacher's Class)</h3>
+              <p className="text-[11px] text-gray-500">Ticket spending aggregated by the student's assigned classroom and homeroom teacher.</p>
+            </div>
+            <button
+              onClick={handleExportTeacherCSV}
+              className="flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-white border border-emerald-300 px-3 py-1.5 rounded-lg shadow-2xs transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Teacher CSV</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-gray-600">
+              <thead className="bg-slate-100/70 text-[10px] font-extrabold uppercase text-slate-500 border-b">
+                <tr>
+                  <th className="px-4 py-3">Homeroom / Classroom</th>
+                  <th className="px-4 py-3">Grade Level</th>
+                  <th className="px-4 py-3 text-right">Total Spent</th>
+                  <th className="px-4 py-3 text-center">Transactions</th>
+                  <th className="px-4 py-3 text-center">Spenders / Class Size</th>
+                  <th className="px-4 py-3 text-right">Avg / Student</th>
+                  <th className="px-4 py-3">Most Popular Reward</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {homeroomReport.length === 0 ? (
+                  <tr><td colSpan="7" className="p-8 text-center text-gray-400 italic">No homeroom classroom data found.</td></tr>
+                ) : (
+                  homeroomReport.map(h => (
+                    <tr key={h.homeroom} className="hover:bg-slate-50 transition">
+                      <td className="px-4 py-3 font-extrabold text-navy-950">
+                        {h.homeroom}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500">{h.grade}</td>
+                      <td className="px-4 py-3 text-right font-black text-emerald-700">
+                        {h.totalSpent} <span className="text-[10px] font-normal text-gray-400">tickets</span>
+                      </td>
+                      <td className="px-4 py-3 text-center font-bold text-gray-700">{h.transactions}</td>
+                      <td className="px-4 py-3 text-center">
+                        <span className="font-extrabold text-navy-950">{h.uniqueSpenders}</span>
+                        <span className="text-gray-400"> / {h.totalStudents}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-gray-700">{h.avgPerStudent.toFixed(1)}</td>
+                      <td className="px-4 py-3 text-gray-600 truncate max-w-xs" title={h.topReward}>
+                        {h.topReward}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Section 3: Facilitating Staff Breakdown Table */}
+      {activeSection === 'teachers' && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+          <div className="p-4 bg-slate-50 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-extrabold text-navy-950">Spending by Store / Facilitating Staff</h3>
+              <p className="text-[11px] text-gray-500">Breakdown of redemptions recorded by each teacher and staff member facilitating the PBIS store.</p>
+            </div>
+            <button
+              onClick={handleExportTeacherCSV}
+              className="flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-white border border-emerald-300 px-3 py-1.5 rounded-lg shadow-2xs transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Teacher CSV</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-gray-600">
+              <thead className="bg-slate-100/70 text-[10px] font-extrabold uppercase text-slate-500 border-b">
+                <tr>
+                  <th className="px-4 py-3">Teacher / Staff Name</th>
+                  <th className="px-4 py-3">Email Address</th>
+                  <th className="px-4 py-3 text-right">Tickets Redeemed</th>
+                  <th className="px-4 py-3 text-center">Transactions</th>
+                  <th className="px-4 py-3 text-center">Students Assisted</th>
+                  <th className="px-4 py-3">Top Item Redeemed</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {staffReport.length === 0 ? (
+                  <tr><td colSpan="6" className="p-8 text-center text-gray-400 italic">No facilitating staff records found.</td></tr>
+                ) : (
+                  staffReport.map(s => (
+                    <tr key={s.teacherEmail || s.teacherName} className="hover:bg-slate-50 transition">
+                      <td className="px-4 py-3 font-extrabold text-navy-950">
+                        {s.teacherName}
+                      </td>
+                      <td className="px-4 py-3 text-gray-500 font-mono text-[11px]">{s.teacherEmail || 'N/A'}</td>
+                      <td className="px-4 py-3 text-right font-black text-emerald-700">
+                        {s.totalSpent} <span className="text-[10px] font-normal text-gray-400">tickets</span>
+                      </td>
+                      <td className="px-4 py-3 text-center font-bold text-gray-700">{s.transactions}</td>
+                      <td className="px-4 py-3 text-center font-extrabold text-navy-950">{s.uniqueStudentsServed}</td>
+                      <td className="px-4 py-3 text-gray-600 truncate max-w-xs" title={s.topReward}>
+                        {s.topReward}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Section 4: Itemized Transactions Log Table */}
+      {activeSection === 'transactions' && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+          <div className="p-4 bg-slate-50 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-extrabold text-navy-950">Detailed Itemized Spending Transactions</h3>
+              <p className="text-[11px] text-gray-500">Every recorded point spending purchase with student details and facilitating staff member.</p>
+            </div>
+            <button
+              onClick={handleExportTransactionsCSV}
+              className="flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-white border border-emerald-300 px-3 py-1.5 rounded-lg shadow-2xs transition cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Log (CSV)</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-gray-600">
+              <thead className="bg-slate-100/70 text-[10px] font-extrabold uppercase text-slate-500 border-b">
+                <tr>
+                  <th className="px-4 py-3">Date & Time</th>
+                  <th className="px-4 py-3">Student Name</th>
+                  <th className="px-4 py-3">Grade</th>
+                  <th className="px-4 py-3">Homeroom</th>
+                  <th className="px-4 py-3">Reward Item</th>
+                  <th className="px-4 py-3 text-right">Tickets Spent</th>
+                  <th className="px-4 py-3">Facilitating Staff</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {filteredTransactions.length === 0 ? (
+                  <tr><td colSpan="7" className="p-8 text-center text-gray-400 italic">No transactions match the selected filters.</td></tr>
+                ) : (
+                  paginatedTransactions.map(t => {
+                    const d = t.timestamp ? new Date(t.timestamp) : null;
+                    const dateText = d && !isNaN(d.getTime()) ? `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'N/A';
+                    return (
+                      <tr key={t.id} className="hover:bg-slate-50 transition">
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{dateText}</td>
+                        <td className="px-4 py-2.5 font-bold text-navy-950">
+                          {t.recipient}
+                          {t.studentId && <span className="ml-1 text-[10px] text-gray-400">({t.studentId})</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-600">{t.grade}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{t.homeroom}</td>
+                        <td className="px-4 py-2.5 font-medium text-gray-800">{t.item}</td>
+                        <td className="px-4 py-2.5 text-right font-black text-emerald-700">{t.amount}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{t.teacherName}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination Controls */}
+          {totalTxPages > 1 && (
+            <div className="p-3 bg-slate-50 border-t border-gray-200 flex items-center justify-between text-xs">
+              <span className="text-gray-500">
+                Showing {txPage * TX_PAGE_SIZE + 1} - {Math.min((txPage + 1) * TX_PAGE_SIZE, filteredTransactions.length)} of {filteredTransactions.length} transactions
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setTxPage(prev => Math.max(0, prev - 1))}
+                  disabled={txPage === 0}
+                  className="px-2.5 py-1 border rounded-lg bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 transition font-bold cursor-pointer"
+                >
+                  Prev
+                </button>
+                <span className="px-2 font-bold text-gray-700">Page {txPage + 1} of {totalTxPages}</span>
+                <button
+                  onClick={() => setTxPage(prev => Math.min(totalTxPages - 1, prev + 1))}
+                  disabled={txPage >= totalTxPages - 1}
+                  className="px-2.5 py-1 border rounded-lg bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-gray-100 transition font-bold cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  if (isModal) {
+    return (
+      <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+        <div className="bg-white rounded-3xl p-6 max-w-5xl w-full border border-gray-155 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
+          <div className="flex items-center justify-between border-b pb-3">
+            <div className="flex items-center gap-2">
+              <ShoppingBag className="w-5 h-5 text-emerald-700" />
+              <h2 className="text-lg font-black font-display text-navy-950">Spending Report & Export</h2>
+            </div>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-700 p-1.5 rounded-lg hover:bg-gray-100 transition cursor-pointer"
+              aria-label="Close modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="overflow-y-auto flex-1 pr-1">
+            {content}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return content;
+}
+
 // --- Edit Student Modal ---
 function EditStudentModal({ student, onClose, showToast }) {
   const [studentId, setStudentId] = useState(student.id);
@@ -3683,8 +4578,9 @@ function AppFooter({ onOpenAccessibility, onOpenInstall, isStandalone }) {
 }
 
 // --- Components ---
-function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword, onOpenAccessibility, onOpenInstall, isStandalone }) {
+function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword, onOpenAccessibility, onOpenInstall, isStandalone, onOpenSpendingReport }) {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [showAdminExportDropdown, setShowAdminExportDropdown] = useState(false);
 
   const handleExport = () => {
     let data = profile.role === 'admin' ? tickets : tickets.filter(t => t.teacherEmail === profile.email);
@@ -3793,9 +4689,53 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
               <HelpCircle className="w-4 h-4" aria-hidden="true" /> <span className="hidden xl:inline">Help</span>
             </button>
 
-            <button onClick={handleExport} aria-label="Export Ticket Data as CSV" className="hidden lg:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
-              <Download className="w-4 h-4" aria-hidden="true" /> <span className="hidden xl:inline">Export</span>
-            </button>
+            {/* Export Button / Dropdown */}
+            {profile.role === 'admin' ? (
+              <div className="relative hidden lg:block">
+                <button 
+                  onClick={() => setShowAdminExportDropdown(prev => !prev)} 
+                  aria-label="Export Reports Menu" 
+                  aria-expanded={showAdminExportDropdown}
+                  className="flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] cursor-pointer"
+                >
+                  <Download className="w-4 h-4" aria-hidden="true" />
+                  <span className="hidden xl:inline">Export</span>
+                  <ChevronDown className="w-3.5 h-3.5 opacity-80" />
+                </button>
+
+                {showAdminExportDropdown && (
+                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-gray-150 py-2 z-50 text-gray-800 text-xs animate-fade-in">
+                    <div className="px-3 py-1 font-extrabold uppercase text-[10px] text-gray-400 border-b border-gray-100">
+                      Admin Export Center
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowAdminExportDropdown(false);
+                        handleExport();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50 text-gray-700 hover:text-emerald-950 font-bold flex items-center gap-2 transition cursor-pointer"
+                    >
+                      <Ticket className="w-4 h-4 text-emerald-600" />
+                      <span>Export Awarded Tickets (CSV)</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowAdminExportDropdown(false);
+                        if (onOpenSpendingReport) onOpenSpendingReport();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50 text-emerald-900 font-bold flex items-center gap-2 transition cursor-pointer"
+                    >
+                      <ShoppingBag className="w-4 h-4 text-emerald-600" />
+                      <span>Spending Report & Export (CSV)</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button onClick={handleExport} aria-label="Export Ticket Data as CSV" className="hidden lg:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
+                <Download className="w-4 h-4" aria-hidden="true" /> <span className="hidden xl:inline">Export</span>
+              </button>
+            )}
 
             <button onClick={onSignOut} aria-label="Sign Out" className="hidden sm:flex items-center gap-1 bg-emerald-900 hover:bg-emerald-950 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
               <LogOut className="w-4 h-4" aria-hidden="true" /> <span className="hidden md:inline">Sign Out</span>
@@ -3857,13 +4797,32 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
                 <span>Help Guide</span>
               </button>
 
-              <button
-                onClick={() => { setShowMobileMenu(false); handleExport(); }}
-                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
-              >
-                <Download className="w-4 h-4 text-emerald-300" />
-                <span>Export CSV</span>
-              </button>
+              {profile.role === 'admin' ? (
+                <>
+                  <button
+                    onClick={() => { setShowMobileMenu(false); handleExport(); }}
+                    className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+                  >
+                    <Ticket className="w-4 h-4 text-emerald-300" />
+                    <span>Export Tickets</span>
+                  </button>
+                  <button
+                    onClick={() => { setShowMobileMenu(false); if (onOpenSpendingReport) onOpenSpendingReport(); }}
+                    className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+                  >
+                    <ShoppingBag className="w-4 h-4 text-amber-300" />
+                    <span>Spending Report</span>
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => { setShowMobileMenu(false); handleExport(); }}
+                  className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+                >
+                  <Download className="w-4 h-4 text-emerald-300" />
+                  <span>Export CSV</span>
+                </button>
+              )}
 
               <button
                 onClick={() => { setShowMobileMenu(false); onOpenAccessibility(); }}
@@ -7265,7 +8224,7 @@ function AdminManageCoTeachersModal({ isOpen, onClose, targetProfile, profiles =
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, spending = [], gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -7286,6 +8245,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   // Modals state
   const [showSpendableModal, setShowSpendableModal] = useState(false);
   const [showTopStudentsModal, setShowTopStudentsModal] = useState(false);
+  const [showSpendingModal, setShowSpendingModal] = useState(false);
 
   // Overview quick-filters & data limit states
   const [overviewSpendableLimit, setOverviewSpendableLimit] = useState('5');
@@ -7774,6 +8734,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
         <h1 className="text-3xl font-bold text-gray-900">Admin Controls</h1>
         <div className="flex flex-wrap bg-gray-200 p-1 rounded-lg gap-0.5">
           <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'overview' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Overview</button>
+          <button onClick={() => setActiveTab('spending')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'spending' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Spending Report</button>
           <button onClick={() => setActiveTab('tickets')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'tickets' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Give Tickets</button>
           <button onClick={() => setActiveTab('merge')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'merge' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Merge Students</button>
           <button onClick={() => setActiveTab('teachers')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'teachers' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Teachers{unusedProfiles.length > 0 && <span className="ml-1.5 bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 text-xs font-bold">{unusedProfiles.length}</span>}</button>
@@ -8068,6 +9029,77 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                     );
                   })}
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* --- TICKET SPENDING REPORT & EXPORT SECTION --- */}
+          <div className="bg-gradient-to-br from-slate-900 via-emerald-950 to-teal-950 text-white rounded-3xl p-6 shadow-xl border border-emerald-500/30 space-y-4 mt-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-emerald-700/50 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-3 bg-emerald-500/20 rounded-2xl border border-emerald-400/30 text-emerald-300">
+                  <ShoppingBag className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-xl font-black font-display tracking-tight text-white">PBIS Ticket Spending Report</h2>
+                    <span className="bg-emerald-500/30 text-emerald-200 border border-emerald-400/40 text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full">
+                      School, Grade & Teacher
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-200/80 mt-0.5">
+                    Audit and export points spent on rewards across the entire school, broken down by grade levels and teachers.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setActiveTab('spending')}
+                  className="flex items-center justify-center gap-2 bg-emerald-400 hover:bg-emerald-300 text-emerald-950 font-black px-4 py-2.5 rounded-xl text-xs transition shadow-md cursor-pointer flex-shrink-0"
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  <span>View Detailed Report</span>
+                </button>
+                <button
+                  onClick={() => setShowSpendingModal(true)}
+                  className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 text-white font-bold px-3.5 py-2.5 rounded-xl text-xs transition border border-white/20 cursor-pointer flex-shrink-0"
+                >
+                  <Download className="w-4 h-4 text-emerald-300" />
+                  <span>Quick Export (CSV)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick KPI stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white/10 backdrop-blur-xs p-4 rounded-2xl border border-white/10">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 mb-1">🎟️ Total Tickets Redeemed</div>
+                <div className="text-3xl font-black text-white">{spending.reduce((acc, s) => acc + Number(s.amount || 0), 0)} <span className="text-sm font-normal text-emerald-200">tickets</span></div>
+                <div className="text-xs text-emerald-200/70 mt-1">Across {spending.length} store redemptions</div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-xs p-4 rounded-2xl border border-white/10">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-teal-300 mb-1">🎒 Active Spenders</div>
+                <div className="text-3xl font-black text-white">{new Set(spending.map(s => (s.recipient || '').toLowerCase()).filter(Boolean)).size} <span className="text-sm font-normal text-teal-200">students</span></div>
+                <div className="text-xs text-teal-200/70 mt-1">
+                  {students.length > 0 ? `${((new Set(spending.map(s => (s.recipient || '').toLowerCase()).filter(Boolean)).size / students.length) * 100).toFixed(0)}% participation rate` : 'No roster'}
+                </div>
+              </div>
+              <div className="bg-white/10 backdrop-blur-xs p-4 rounded-2xl border border-white/10">
+                <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 mb-1">🏷️ Top Reward Purchased</div>
+                <div className="text-xl font-black text-white truncate" title={(() => {
+                  const m = {};
+                  spending.forEach(s => { m[s.item || 'Reward'] = (m[s.item || 'Reward'] || 0) + Number(s.amount || 0); });
+                  const top = Object.entries(m).sort((a,b)=>b[1]-a[1])[0];
+                  return top ? `${top[0]} (${top[1]} tickets)` : 'None';
+                })()}>
+                  {(() => {
+                    const m = {};
+                    spending.forEach(s => { m[s.item || 'Reward'] = (m[s.item || 'Reward'] || 0) + Number(s.amount || 0); });
+                    const top = Object.entries(m).sort((a,b)=>b[1]-a[1])[0];
+                    return top ? top[0] : 'None';
+                  })()}
+                </div>
+                <div className="text-xs text-amber-200/70 mt-1">Most redeemed in school store</div>
               </div>
             </div>
           </div>
@@ -8501,6 +9533,14 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             </div>
           </div>
         </>
+      ) : activeTab === 'spending' ? (
+        <AdminSpendingReport
+          spending={spending}
+          students={students}
+          profiles={profiles}
+          showToast={showToast}
+          isModal={false}
+        />
       ) : activeTab === 'merge' ? (
         <div className="max-w-2xl space-y-6">
           <div className="bg-white p-6 rounded-xl shadow-sm border">
@@ -8875,6 +9915,17 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           )}
         </div>
       ) : null}
+
+      {showSpendingModal && (
+        <AdminSpendingReport
+          spending={spending}
+          students={students}
+          profiles={profiles}
+          showToast={showToast}
+          isModal={true}
+          onClose={() => setShowSpendingModal(false)}
+        />
+      )}
 
       {showSpendableModal && (
         <SpendableTicketsBreakdownModal

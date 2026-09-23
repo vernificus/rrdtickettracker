@@ -1258,6 +1258,243 @@ app.delete('/api/spending/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// --- Admin Spending Reports API (Across School, Grade Level, and Teacher) ---
+app.get('/api/reports/spending', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required for spending reports' });
+  }
+
+  try {
+    const [students, spending, profiles] = await Promise.all([
+      db.getRows('Students'),
+      db.getRows('Spending'),
+      db.getRows('Users')
+    ]);
+
+    // Map student info by name
+    const studentMap = new Map();
+    students.forEach(s => {
+      if (s.name) studentMap.set(s.name.trim().toLowerCase(), s);
+    });
+
+    // Enriched transactions
+    const enrichedTransactions = spending.map(s => {
+      const student = studentMap.get((s.recipient || '').trim().toLowerCase());
+      return {
+        id: s.id,
+        recipient: s.recipient,
+        studentId: student ? student.id : '',
+        grade: student ? (student.grade || 'Unassigned') : 'Unassigned',
+        homeroom: student ? (student.homeroom || 'Unassigned') : 'Unassigned',
+        amount: Number(s.amount || 0),
+        item: s.item || 'Reward Item',
+        teacherEmail: s.teacherEmail || '',
+        teacherName: s.teacherName || 'Staff Member',
+        timestamp: s.timestamp
+      };
+    });
+
+    // School Summary
+    const totalSpent = enrichedTransactions.reduce((acc, t) => acc + t.amount, 0);
+    const totalTransactions = enrichedTransactions.length;
+    const uniqueSpenders = new Set(enrichedTransactions.map(t => (t.recipient || '').toLowerCase()).filter(Boolean)).size;
+    const totalStudents = students.length;
+    const avgSpentPerStudent = totalStudents > 0 ? (totalSpent / totalStudents) : 0;
+    const avgSpentPerSpender = uniqueSpenders > 0 ? (totalSpent / uniqueSpenders) : 0;
+
+    // Item popularity
+    const itemCounts = {};
+    enrichedTransactions.forEach(t => {
+      const itm = (t.item || 'Reward Item').trim();
+      itemCounts[itm] = (itemCounts[itm] || 0) + t.amount;
+    });
+    const topRewards = Object.entries(itemCounts)
+      .map(([item, total]) => ({ item, total }))
+      .sort((a, b) => b.total - a.total);
+
+    // Breakdown by Grade Level
+    const gradeMap = new Map();
+    students.forEach(s => {
+      const g = s.grade || 'Unassigned';
+      if (!gradeMap.has(g)) {
+        gradeMap.set(g, { grade: g, studentCount: 0, spenders: new Set(), totalSpent: 0, transactions: 0, itemCounts: {} });
+      }
+      gradeMap.get(g).studentCount++;
+    });
+
+    enrichedTransactions.forEach(t => {
+      const g = t.grade || 'Unassigned';
+      if (!gradeMap.has(g)) {
+        gradeMap.set(g, { grade: g, studentCount: 0, spenders: new Set(), totalSpent: 0, transactions: 0, itemCounts: {} });
+      }
+      const grp = gradeMap.get(g);
+      grp.totalSpent += t.amount;
+      grp.transactions++;
+      if (t.recipient) grp.spenders.add(t.recipient.toLowerCase());
+      grp.itemCounts[t.item] = (grp.itemCounts[t.item] || 0) + t.amount;
+    });
+
+    const gradesReport = Array.from(gradeMap.values()).map(g => {
+      const uniqueCount = g.spenders.size;
+      const topItem = Object.entries(g.itemCounts).sort((a, b) => b[1] - a[1])[0];
+      return {
+        grade: g.grade,
+        studentCount: g.studentCount,
+        uniqueSpenders: uniqueCount,
+        totalSpent: g.totalSpent,
+        transactions: g.transactions,
+        avgPerStudent: g.studentCount > 0 ? (g.totalSpent / g.studentCount) : 0,
+        avgPerSpender: uniqueCount > 0 ? (g.totalSpent / uniqueCount) : 0,
+        topReward: topItem ? topItem[0] : 'None'
+      };
+    }).sort((a, b) => a.grade.localeCompare(b.grade));
+
+    // Breakdown by Homeroom Teacher / Classroom
+    const homeroomMap = new Map();
+    students.forEach(s => {
+      const h = s.homeroom || 'Unassigned';
+      if (!homeroomMap.has(h)) {
+        homeroomMap.set(h, { homeroom: h, grade: s.grade || 'Unassigned', studentCount: 0, spenders: new Set(), totalSpent: 0, transactions: 0, itemCounts: {} });
+      }
+      homeroomMap.get(h).studentCount++;
+    });
+
+    enrichedTransactions.forEach(t => {
+      const h = t.homeroom || 'Unassigned';
+      if (!homeroomMap.has(h)) {
+        homeroomMap.set(h, { homeroom: h, grade: t.grade || 'Unassigned', studentCount: 0, spenders: new Set(), totalSpent: 0, transactions: 0, itemCounts: {} });
+      }
+      const hr = homeroomMap.get(h);
+      hr.totalSpent += t.amount;
+      hr.transactions++;
+      if (t.recipient) hr.spenders.add(t.recipient.toLowerCase());
+      hr.itemCounts[t.item] = (hr.itemCounts[t.item] || 0) + t.amount;
+    });
+
+    const homeroomsReport = Array.from(homeroomMap.values()).map(h => {
+      const uniqueCount = h.spenders.size;
+      const topItem = Object.entries(h.itemCounts).sort((a, b) => b[1] - a[1])[0];
+      return {
+        homeroom: h.homeroom,
+        grade: h.grade,
+        studentCount: h.studentCount,
+        uniqueSpenders: uniqueCount,
+        totalSpent: h.totalSpent,
+        transactions: h.transactions,
+        avgPerStudent: h.studentCount > 0 ? (h.totalSpent / h.studentCount) : 0,
+        avgPerSpender: uniqueCount > 0 ? (h.totalSpent / uniqueCount) : 0,
+        topReward: topItem ? topItem[0] : 'None'
+      };
+    }).sort((a, b) => a.homeroom.localeCompare(b.homeroom));
+
+    // Breakdown by Facilitating / Store Staff
+    const staffMap = new Map();
+    enrichedTransactions.forEach(t => {
+      const key = (t.teacherEmail || t.teacherName || 'Unknown').trim().toLowerCase();
+      if (!staffMap.has(key)) {
+        staffMap.set(key, {
+          teacherName: t.teacherName || 'Staff Member',
+          teacherEmail: t.teacherEmail || '',
+          totalSpent: 0,
+          transactions: 0,
+          studentsServed: new Set(),
+          itemCounts: {}
+        });
+      }
+      const st = staffMap.get(key);
+      st.totalSpent += t.amount;
+      st.transactions++;
+      if (t.recipient) st.studentsServed.add(t.recipient.toLowerCase());
+      st.itemCounts[t.item] = (st.itemCounts[t.item] || 0) + t.amount;
+    });
+
+    const staffReport = Array.from(staffMap.values()).map(s => {
+      const topItem = Object.entries(s.itemCounts).sort((a, b) => b[1] - a[1])[0];
+      return {
+        teacherName: s.teacherName,
+        teacherEmail: s.teacherEmail,
+        totalSpent: s.totalSpent,
+        transactions: s.transactions,
+        uniqueStudentsServed: s.studentsServed.size,
+        topReward: topItem ? topItem[0] : 'None'
+      };
+    }).sort((a, b) => b.totalSpent - a.totalSpent);
+
+    // CSV format handling if requested
+    if (req.query.format === 'csv') {
+      const escapeCsv = (str) => `"${String(str || '').replace(/"/g, '""')}"`;
+      const dateStr = new Date().toISOString().split('T')[0];
+
+      let csv = `ROLLING RIDGE ELEMENTARY - PBIS GREEN TICKET SPENDING REPORT\n`;
+      csv += `Generated Date: ${dateStr}\n`;
+      csv += `Scope: School, Grade Level, and Teacher\n\n`;
+
+      csv += `--- SECTION 1: SCHOOL-WIDE SPENDING SUMMARY ---\n`;
+      csv += `Metric,Value\n`;
+      csv += `Total Tickets Spent,${totalSpent}\n`;
+      csv += `Total Transactions,${totalTransactions}\n`;
+      csv += `Active Spending Students,${uniqueSpenders}\n`;
+      csv += `Total Enrolled Students,${totalStudents}\n`;
+      csv += `Average Spent Per Enrolled Student,${avgSpentPerStudent.toFixed(2)}\n`;
+      csv += `Average Spent Per Active Spender,${avgSpentPerSpender.toFixed(2)}\n`;
+      csv += `Top Reward Item,${escapeCsv(topRewards[0] ? `${topRewards[0].item} (${topRewards[0].total} tickets)` : 'None')}\n\n`;
+
+      csv += `--- SECTION 2: SPENDING BY GRADE LEVEL ---\n`;
+      csv += `Grade Level,Total Tickets Spent,Transactions,Active Spenders,Total Students,Avg Spent / Student,Top Reward\n`;
+      gradesReport.forEach(g => {
+        csv += `${escapeCsv(g.grade)},${g.totalSpent},${g.transactions},${g.uniqueSpenders},${g.studentCount},${g.avgPerStudent.toFixed(2)},${escapeCsv(g.topReward)}\n`;
+      });
+      csv += `\n`;
+
+      csv += `--- SECTION 3: SPENDING BY HOMEROOM CLASSROOM (STUDENT'S TEACHER) ---\n`;
+      csv += `Homeroom,Grade,Total Tickets Spent,Transactions,Active Spenders,Total Students,Avg Spent / Student,Top Reward\n`;
+      homeroomsReport.forEach(h => {
+        csv += `${escapeCsv(h.homeroom)},${escapeCsv(h.grade)},${h.totalSpent},${h.transactions},${h.uniqueSpenders},${h.studentCount},${h.avgPerStudent.toFixed(2)},${escapeCsv(h.topReward)}\n`;
+      });
+      csv += `\n`;
+
+      csv += `--- SECTION 4: SPENDING BY FACILITATING TEACHER (STORE STAFF) ---\n`;
+      csv += `Teacher Name,Teacher Email,Total Tickets Redeemed,Transactions,Students Served,Top Reward\n`;
+      staffReport.forEach(s => {
+        csv += `${escapeCsv(s.teacherName)},${escapeCsv(s.teacherEmail)},${s.totalSpent},${s.transactions},${s.uniqueStudentsServed},${escapeCsv(s.topReward)}\n`;
+      });
+      csv += `\n`;
+
+      csv += `--- SECTION 5: DETAILED ITEMISED SPENDING TRANSACTIONS ---\n`;
+      csv += `Date,Time,Student Name,Student ID,Grade,Homeroom,Reward Item,Tickets Spent,Logged By Teacher,Teacher Email,Transaction ID\n`;
+      enrichedTransactions.forEach(t => {
+        const d = t.timestamp ? new Date(t.timestamp) : new Date();
+        const dStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+        const tStr = isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+        csv += `${escapeCsv(dStr)},${escapeCsv(tStr)},${escapeCsv(t.recipient)},${escapeCsv(t.studentId)},${escapeCsv(t.grade)},${escapeCsv(t.homeroom)},${escapeCsv(t.item)},${t.amount},${escapeCsv(t.teacherName)},${escapeCsv(t.teacherEmail)},${escapeCsv(t.id)}\n`;
+      });
+
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="RRD_PBIS_Spending_Report_${dateStr}.csv"`);
+      return res.send(csv);
+    }
+
+    res.json({
+      school: {
+        totalSpent,
+        totalTransactions,
+        uniqueSpenders,
+        totalStudents,
+        avgSpentPerStudent,
+        avgSpentPerSpender,
+        topRewards: topRewards.slice(0, 10)
+      },
+      grades: gradesReport,
+      homerooms: homeroomsReport,
+      staff: staffReport,
+      transactions: enrichedTransactions
+    });
+  } catch (err) {
+    console.error("Error generating spending report:", err);
+    res.status(500).json({ message: 'Failed to generate spending report' });
+  }
+});
+
 // --- Class Goals Configuration ---
 app.post('/api/class-goals', authMiddleware, async (req, res) => {
   if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
