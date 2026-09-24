@@ -1073,6 +1073,37 @@ function StudentSearch({ students, onSelect }) {
   );
 }
 
+// Dynamic typography helpers to wrap and shrink-to-fit student names on teacher cards
+const getStudentCardNameSizeClass = (name) => {
+  const trimmed = (name || '').trim();
+  const len = trimmed.length;
+  const words = trimmed.split(/[\s-]+/);
+  const maxWordLen = Math.max(...words.map(w => w.length), 0);
+
+  if (len > 24 || maxWordLen >= 12) {
+    return 'text-[11px] sm:text-xs leading-snug';
+  }
+  if (len > 16 || maxWordLen >= 9) {
+    return 'text-xs sm:text-sm leading-snug';
+  }
+  return 'text-sm sm:text-base leading-tight';
+};
+
+const getDisplayCardNameSizeClass = (name) => {
+  const trimmed = (name || '').trim();
+  const len = trimmed.length;
+  const words = trimmed.split(/[\s-]+/);
+  const maxWordLen = Math.max(...words.map(w => w.length), 0);
+
+  if (len > 22 || maxWordLen >= 12) {
+    return 'text-xs leading-snug';
+  }
+  if (len > 15 || maxWordLen >= 9) {
+    return 'text-xs sm:text-sm leading-snug';
+  }
+  return 'text-sm leading-tight';
+};
+
 // --- Student Ticket Card (Inline ticket giving) ---
 function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor, balances, onSpend, students = [], onEditStudent, isAbsent, onToggleAbsent, tickets = [], teacherEmail, isMultiSelectMode, isSelected, onToggleSelect }) {
   const bal = balances[student] || { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
@@ -1106,27 +1137,32 @@ function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor,
   return (
     <div className={`bg-white rounded-3xl p-4 border shadow-sm flex flex-col justify-between space-y-3 hover:shadow-md transition duration-200 ${isSelected ? 'ring-2 ring-emerald-500 border-emerald-500 bg-emerald-50/20' : ''} ${isAbsent ? 'opacity-55 border-red-200 bg-red-50/20' : 'border-gray-150'}`}>
       {/* Header */}
-      <div className="flex justify-between items-start gap-1">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex justify-between items-start gap-1.5">
+        <div className="flex items-start gap-2 min-w-0 flex-1">
           {isMultiSelectMode && (
             <input
               type="checkbox"
               checked={!!isSelected}
               onChange={onToggleSelect}
-              className="w-4.5 h-4.5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer flex-shrink-0"
+              className="w-4.5 h-4.5 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer flex-shrink-0 mt-0.5"
               aria-label={`Select ${student}`}
             />
           )}
-          <div className="min-w-0">
-            <span className="font-display font-black text-navy-950 text-base leading-tight block truncate" title={student}>{student}</span>
+          <div className="min-w-0 flex-1">
+            <span
+              className={`font-display font-black text-navy-950 block break-words [overflow-wrap:anywhere] [word-break:break-word] ${getStudentCardNameSizeClass(student)}`}
+              title={student}
+            >
+              {student}
+            </span>
             {studentObj && (
-              <span className="text-[10px] text-gray-400 block truncate">
+              <span className="text-[10px] text-gray-400 block truncate mt-0.5">
                 ID: {studentObj.id}
               </span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-1.5 flex-shrink-0">
+        <div className="flex items-center gap-1.5 flex-shrink-0 ml-1">
           {studentObj && onEditStudent && (
             <button
               onClick={() => onEditStudent(studentObj)}
@@ -1247,9 +1283,9 @@ function SpendPointsModal({ student, spendable, onClose, showToast }) {
   return (
     <div className="fixed inset-0 bg-navy-950/40 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
       <div className="bg-white rounded-3xl p-6 max-w-sm w-full border border-gray-100 shadow-xl space-y-4">
-        <div className="flex justify-between items-center border-b pb-3">
-          <h3 className="font-display font-black text-navy-950 text-base">Redeem Tickets for {student}</h3>
-          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-700">
+        <div className="flex justify-between items-start border-b pb-3 gap-2">
+          <h3 className="font-display font-black text-navy-950 text-base leading-tight break-words [overflow-wrap:anywhere] flex-1">Redeem Tickets for {student}</h3>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-700 flex-shrink-0 mt-0.5">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -1411,16 +1447,19 @@ function ClassDisplayMode({ className, students, balances, classGoals = [], isSu
             <button
               key={student}
               onClick={() => setActiveDisplayStudent(student)}
-              className="bg-white border border-gray-150 rounded-xl shadow-xs hover:shadow-sm transition duration-150 relative flex items-center justify-between px-4 py-2.5 cursor-pointer group text-navy-950"
+              className="bg-white border border-gray-150 rounded-xl shadow-xs hover:shadow-sm transition duration-150 relative flex items-center justify-between px-3.5 py-2.5 cursor-pointer group text-navy-950 min-h-[56px]"
             >
-              <div className="flex items-center gap-2 min-w-0 pr-2">
+              <div className="flex items-center gap-2 min-w-0 pr-2 flex-1">
                 {isTop && (
                   <div className="bg-yellow-400 text-amber-955 p-1 rounded-lg flex-shrink-0">
                     <Crown className="w-3.5 h-3.5 fill-current text-amber-955" />
                   </div>
                 )}
                 
-                <span className="font-display font-black text-navy-950 text-left group-hover:text-brand-600 transition leading-tight text-sm truncate" title={student}>
+                <span
+                  className={`font-display font-black text-navy-950 text-left group-hover:text-brand-600 transition leading-tight break-words [overflow-wrap:anywhere] [word-break:break-word] ${getDisplayCardNameSizeClass(student)}`}
+                  title={student}
+                >
                   {student}
                 </span>
               </div>
@@ -1437,11 +1476,13 @@ function ClassDisplayMode({ className, students, balances, classGoals = [], isSu
       {activeDisplayStudent && (
         <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in text-navy-950">
           <div className="bg-white rounded-3xl p-8 max-w-md w-full border border-gray-100 shadow-2xl flex flex-col items-center space-y-6">
-            <div className="text-center">
+            <div className="text-center w-full px-2">
               <span className="text-xs font-bold text-gray-400 uppercase tracking-wider block mb-1">
                 AWARD A GREEN TICKET TO
               </span>
-              <h2 className="text-4xl font-display font-black text-navy-950">
+              <h2 className={`font-display font-black text-navy-950 leading-tight break-words [overflow-wrap:anywhere] [word-break:break-word] ${
+                (activeDisplayStudent || '').length > 22 ? 'text-2xl sm:text-3xl' : 'text-3xl sm:text-4xl'
+              }`}>
                 {activeDisplayStudent}
               </h2>
             </div>
@@ -2157,7 +2198,9 @@ function RaffleDashboard({
                     <span>Rolling the Weighted Ticket Drum...</span>
                   </div>
                   <div className="h-32 flex items-center justify-center border-2 border-yellow-500/40 bg-navy-950/80 p-4 rounded-2xl shadow-2xl backdrop-blur-xs">
-                    <div className="text-3xl sm:text-4xl font-black font-display tracking-tight text-yellow-300 animate-fade-in truncate w-full">
+                    <div className={`font-black font-display tracking-tight text-yellow-300 animate-fade-in break-words [overflow-wrap:anywhere] [word-break:break-word] w-full text-center ${
+                      (tickerName || '').length > 22 ? 'text-2xl sm:text-3xl' : 'text-3xl sm:text-4xl'
+                    }`}>
                       {tickerName}
                     </div>
                   </div>
@@ -2172,7 +2215,9 @@ function RaffleDashboard({
 
                   <div className="bg-yellow-500 text-navy-950 p-6 rounded-3xl shadow-2xl shadow-yellow-500/30 border-4 border-white inline-block w-full text-center">
                     <Crown className="w-14 h-14 mx-auto mb-2 text-navy-950 fill-current animate-bounce" />
-                    <h2 className="text-3xl sm:text-4xl font-black font-display truncate leading-tight tracking-tight">
+                    <h2 className={`font-black font-display leading-tight tracking-tight break-words [overflow-wrap:anywhere] [word-break:break-word] ${
+                      (winner.name || '').length > 22 ? 'text-2xl sm:text-3xl' : 'text-3xl sm:text-4xl'
+                    }`}>
                       {winner.name}
                     </h2>
                     {winner.homeroom && (
@@ -10309,7 +10354,7 @@ function GiveTicketModal({ data, onClose, onSelect, isSubmitting }) {
             <button onClick={onClose} disabled={isSubmitting} className="text-gray-400 hover:text-gray-600 disabled:opacity-50"><X className="w-6 h-6" /></button>
           </div>
           <h3 className="text-gray-500 font-semibold uppercase tracking-wider text-sm mb-1">Award Ticket To</h3>
-          <p className="text-2xl font-black text-gray-900 mb-8">{data.recipient}</p>
+          <p className={`font-black text-gray-900 mb-8 break-words [overflow-wrap:anywhere] ${(data.recipient || '').length > 22 ? 'text-xl sm:text-2xl' : 'text-2xl'}`}>{data.recipient}</p>
 
           <div className="space-y-3">
             <button disabled={isSubmitting} onClick={() => onSelect('Respectful')} className="w-full py-4 px-6 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-xl font-bold text-lg border-2 border-blue-200 hover:border-blue-400 transition-all text-left flex justify-between disabled:opacity-50 disabled:cursor-not-allowed">
@@ -10480,7 +10525,11 @@ function PrintableLoginCards({ students = [], onClose }) {
                 
                 <div>
                   <span className="text-xxs font-bold text-gray-400 uppercase tracking-widest block mb-1">Student Name</span>
-                  <h3 className="text-lg font-black text-navy-950 leading-tight mb-3">{student.name}</h3>
+                  <h3 className={`font-black text-navy-950 leading-tight mb-3 break-words [overflow-wrap:anywhere] [word-break:break-word] ${
+                    (student.name || '').length > 22 ? 'text-sm' : (student.name || '').length > 15 ? 'text-base' : 'text-lg'
+                  }`}>
+                    {student.name}
+                  </h3>
                 </div>
 
                 <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-100 mb-3">
