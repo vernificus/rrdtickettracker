@@ -52,7 +52,7 @@ class GoogleSheetsDb {
     this.useFallback = false;
     this.cache = new Map();
     this.inFlight = new Map();
-    this.cacheTTL = 5000; // 5s in-memory cache TTL to protect against bursts
+    this.cacheTTL = 60000; // 60s in-memory cache TTL (invalidated on writes)
     this.fallbackDb = {
       Users: [],
       Students: [],
@@ -132,14 +132,20 @@ class GoogleSheetsDb {
 
     try {
       this.sheets = google.sheets({ version: 'v4', auth });
-      // Use 3s timeout for ensureTables to quickly fall back if metadata server is unreachable
+      // Use 15s timeout for ensureTables on cold starts
       await Promise.race([
         this.ensureTables(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Google Sheets connection timed out')), 3000))
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Google Sheets connection timed out')), 15000))
       ]);
     } catch (e) {
-      console.warn("Google Sheets connection failed/timed out, switching to local JSON database fallback:", e.message);
-      this.useFallback = true;
+      console.warn("Google Sheets connection failed/timed out during initialization:", e.message);
+      const isQuotaOrTransient = e.status === 429 || (e.message && (e.message.includes('Quota exceeded') || e.message.includes('RESOURCE_EXHAUSTED')));
+      if (!isQuotaOrTransient && !auth) {
+        console.warn("Switching to local JSON database fallback.");
+        this.useFallback = true;
+      } else {
+        console.warn("Keeping live connection active for subsequent retries.");
+      }
     }
   }
 
@@ -181,14 +187,23 @@ class GoogleSheetsDb {
             valueInputOption: 'USER_ENTERED',
             resource: { values: [req.headers] }
           });
-        } else {
-          // Sheet exists, verify and update headers if columns are missing
-          const rangeRes = await this.sheets.spreadsheets.values.get({
-            spreadsheetId: this.spreadsheetId,
-            range: `${req.name}!A1:Z1`
-          });
-          const currentHeaders = rangeRes.data.values ? rangeRes.data.values[0] : [];
-          const missingHeader = req.headers.some(h => !currentHeaders.map(x => x.trim().toLowerCase()).includes(h.toLowerCase()));
+        }
+      }
+
+      // Verify headers in existing sheets using 1 single batchGet call
+      const existingReqs = requiredSheets.filter(r => existingSheetNames.includes(r.name));
+      if (existingReqs.length > 0) {
+        const headerRanges = existingReqs.map(r => `${r.name}!A1:Z1`);
+        const headerBatch = await this.sheets.spreadsheets.values.batchGet({
+          spreadsheetId: this.spreadsheetId,
+          ranges: headerRanges
+        });
+        const valueRanges = headerBatch.data.valueRanges || [];
+        for (let i = 0; i < existingReqs.length; i++) {
+          const req = existingReqs[i];
+          const vr = valueRanges[i];
+          const currentHeaders = (vr && vr.values && vr.values[0]) ? vr.values[0] : [];
+          const missingHeader = req.headers.some(h => !currentHeaders.map(x => (x || '').trim().toLowerCase()).includes(h.toLowerCase()));
           if (missingHeader) {
             console.log(`Updating schema headers for existing sheet ${req.name}...`);
             await this.sheets.spreadsheets.values.update({
@@ -202,10 +217,15 @@ class GoogleSheetsDb {
       }
       console.log("All database tables are verified and active.");
     } catch (e) {
-      console.error("Error communicating with Google Sheets:", e.message);
-      console.error("Make sure your Sheet is shared with the service account and SPREADSHEET_ID is correct.");
-      console.warn("Switching to local JSON database fallback.");
-      this.useFallback = true;
+      console.error("Error communicating with Google Sheets in ensureTables:", e.message);
+      const isQuotaOrTransient = e.status === 429 || (e.message && (e.message.includes('Quota exceeded') || e.message.includes('RESOURCE_EXHAUSTED')));
+      if (!isQuotaOrTransient) {
+        console.error("Make sure your Sheet is shared with the service account and SPREADSHEET_ID is correct.");
+        console.warn("Switching to local JSON database fallback.");
+        this.useFallback = true;
+      } else {
+        console.warn("Quota limit encountered during table verification. Retaining live connection.");
+      }
     }
   }
 
@@ -217,7 +237,7 @@ class GoogleSheetsDb {
     }
   }
 
-  async withRetry(operation, maxRetries = 3, initialDelayMs = 400) {
+  async withRetry(operation, maxRetries = 4, initialDelayMs = 1000) {
     let delay = initialDelayMs;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -247,60 +267,115 @@ class GoogleSheetsDb {
     }
   }
 
-  async getRows(sheetName) {
+  async getMultipleSheets(sheetNames) {
     if (this.useFallback) {
-      return this.fallbackDb[sheetName] || [];
+      const out = {};
+      sheetNames.forEach(name => {
+        out[name] = this.fallbackDb[name] || [];
+      });
+      return out;
     }
 
-    // Check cache
-    const cached = this.cache.get(sheetName);
-    if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
-      return JSON.parse(JSON.stringify(cached.data));
-    }
+    const results = {};
+    const sheetsToFetch = [];
 
-    // In-flight deduplication
-    if (this.inFlight.has(sheetName)) {
-      const data = await this.inFlight.get(sheetName);
-      return JSON.parse(JSON.stringify(data));
-    }
-
-    const fetchPromise = (async () => {
-      try {
-        const res = await this.withRetry(() => this.sheets.spreadsheets.values.get({
-          spreadsheetId: this.spreadsheetId,
-          range: `${sheetName}!A1:Z`
-        }));
-        const rows = res.data.values;
-        if (!rows || rows.length < 2) {
-          this.cache.set(sheetName, { data: [], timestamp: Date.now() });
-          return [];
-        }
-        const headers = rows[0].map(h => h.trim());
-        const parsed = rows.slice(1).map((row, rowIndex) => {
-          const obj = { _rowNum: rowIndex + 2 }; // 1-based index (row 2 is data index 0)
-          headers.forEach((h, index) => {
-            const key = h.charAt(0).toLowerCase() + h.slice(1);
-            obj[key] = row[index] !== undefined ? row[index] : '';
-          });
-          // Resilient fallback for Users sheet if CoTaughtHomerooms header is missing in row 1
-          if (sheetName === 'Users' && !obj.coTaughtHomerooms && row[5] !== undefined) {
-            obj.coTaughtHomerooms = row[5];
-          }
-          return obj;
-        });
-        this.cache.set(sheetName, { data: parsed, timestamp: Date.now() });
-        return parsed;
-      } catch (e) {
-        console.error(`Error reading sheet ${sheetName}:`, e.message);
-        throw e;
-      } finally {
-        this.inFlight.delete(sheetName);
+    // 1. Check in-memory cache
+    sheetNames.forEach(name => {
+      const cached = this.cache.get(name);
+      if (cached && Date.now() - cached.timestamp < this.cacheTTL) {
+        results[name] = JSON.parse(JSON.stringify(cached.data));
+      } else {
+        sheetsToFetch.push(name);
       }
-    })();
+    });
 
-    this.inFlight.set(sheetName, fetchPromise);
-    const data = await fetchPromise;
-    return JSON.parse(JSON.stringify(data));
+    if (sheetsToFetch.length === 0) {
+      return results;
+    }
+
+    // 2. Wait on any in-flight fetches for these sheets if available
+    const pendingPromises = [];
+    const genuinelyUnfetched = [];
+    sheetsToFetch.forEach(name => {
+      if (this.inFlight.has(name)) {
+        pendingPromises.push(
+          this.inFlight.get(name).then(data => {
+            results[name] = JSON.parse(JSON.stringify(data));
+          })
+        );
+      } else {
+        genuinelyUnfetched.push(name);
+      }
+    });
+
+    if (genuinelyUnfetched.length > 0) {
+      let resolvePromise, rejectPromise;
+      const batchPromise = new Promise((res, rej) => {
+        resolvePromise = res;
+        rejectPromise = rej;
+      });
+
+      // Mark genuinely unfetched sheets as in-flight
+      genuinelyUnfetched.forEach(name => {
+        this.inFlight.set(name, batchPromise.then(() => this.cache.get(name)?.data || []));
+      });
+
+      const executeFetch = (async () => {
+        try {
+          const ranges = genuinelyUnfetched.map(name => `${name}!A1:Z`);
+          const res = await this.withRetry(() => this.sheets.spreadsheets.values.batchGet({
+            spreadsheetId: this.spreadsheetId,
+            ranges
+          }));
+
+          const valueRanges = res.data.valueRanges || [];
+          genuinelyUnfetched.forEach((sheetName, index) => {
+            const vr = valueRanges[index];
+            const rows = (vr && vr.values) ? vr.values : [];
+            if (!rows || rows.length < 2) {
+              this.cache.set(sheetName, { data: [], timestamp: Date.now() });
+              results[sheetName] = [];
+              return;
+            }
+
+            const headers = rows[0].map(h => (h || '').trim());
+            const parsed = rows.slice(1).map((row, rowIndex) => {
+              const obj = { _rowNum: rowIndex + 2 };
+              headers.forEach((h, colIndex) => {
+                if (!h) return;
+                const key = h.charAt(0).toLowerCase() + h.slice(1);
+                obj[key] = row[colIndex] !== undefined ? row[colIndex] : '';
+              });
+              if (sheetName === 'Users' && !obj.coTaughtHomerooms && row[5] !== undefined) {
+                obj.coTaughtHomerooms = row[5];
+              }
+              return obj;
+            });
+
+            this.cache.set(sheetName, { data: parsed, timestamp: Date.now() });
+            results[sheetName] = JSON.parse(JSON.stringify(parsed));
+          });
+          resolvePromise();
+        } catch (e) {
+          rejectPromise(e);
+          throw e;
+        } finally {
+          genuinelyUnfetched.forEach(name => {
+            this.inFlight.delete(name);
+          });
+        }
+      })();
+
+      pendingPromises.push(executeFetch);
+    }
+
+    await Promise.all(pendingPromises);
+    return results;
+  }
+
+  async getRows(sheetName) {
+    const data = await this.getMultipleSheets([sheetName]);
+    return data[sheetName] || [];
   }
 
   async appendRow(sheetName, headers, rowObj) {
@@ -810,28 +885,26 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     // Student Dashboard view
     if (role === 'student') {
       const studentId = req.user.studentId;
-      const allStudents = await db.getRows('Students');
+      const sheetsData = await db.getMultipleSheets(['Students', 'Tickets', 'Spending', 'ClassGoals', 'GradeGoals', 'GoldenTickets']);
+      const allStudents = sheetsData.Students || [];
+      const allTickets = sheetsData.Tickets || [];
+      const allSpending = sheetsData.Spending || [];
+      const classGoals = sheetsData.ClassGoals || [];
+      const gradeGoals = sheetsData.GradeGoals || [];
+      const allGolden = sheetsData.GoldenTickets || [];
+
       const student = allStudents.find(s => s.id === studentId);
       if (!student) return res.status(404).json({ message: 'Student profile not found' });
 
-      const allTickets = await db.getRows('Tickets');
       const studentTickets = allTickets.filter(t => t.recipient === student.name && t.recipientType === 'student');
-
-      const allSpending = await db.getRows('Spending');
       const studentSpending = allSpending.filter(s => s.recipient === student.name);
-
-      const classGoals = await db.getRows('ClassGoals');
       const classGoal = classGoals.find(g => g.className === student.homeroom) || null;
-
-      const gradeGoals = await db.getRows('GradeGoals');
       const gradeGoal = gradeGoals.find(g => g.grade === student.grade) || null;
+      const goldenTickets = allGolden.filter(g => g.className === student.homeroom);
 
       const earned = studentTickets.length;
       const spent = studentSpending.reduce((sum, s) => sum + Number(s.amount || 0), 0);
       const balance = earned - spent;
-
-            const allGolden = await db.getRows('GoldenTickets');
-      const goldenTickets = allGolden.filter(g => g.className === student.homeroom);
 
       // Calculations for class goals and grade goals progress
       const homeroomStudents = allStudents.filter(s => s.homeroom === student.homeroom).map(s => s.name);
@@ -856,16 +929,24 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
 
     // Teacher / Admin Dashboard view
     const email = (req.user.email || '').trim().toLowerCase();
-    const [profiles, students, goldenTickets, classGoals, gradeGoals, allTickets, allSpending, raffleWinners] = await Promise.all([
-      db.getRows('Users'),
-      db.getRows('Students'),
-      db.getRows('GoldenTickets'),
-      db.getRows('ClassGoals'),
-      db.getRows('GradeGoals'),
-      db.getRows('Tickets'),
-      db.getRows('Spending'),
-      db.getRows('RaffleWinners')
+    const sheetsData = await db.getMultipleSheets([
+      'Users',
+      'Students',
+      'GoldenTickets',
+      'ClassGoals',
+      'GradeGoals',
+      'Tickets',
+      'Spending',
+      'RaffleWinners'
     ]);
+    const profiles = sheetsData.Users || [];
+    const students = sheetsData.Students || [];
+    const goldenTickets = sheetsData.GoldenTickets || [];
+    const classGoals = sheetsData.ClassGoals || [];
+    const gradeGoals = sheetsData.GradeGoals || [];
+    const allTickets = sheetsData.Tickets || [];
+    const allSpending = sheetsData.Spending || [];
+    const raffleWinners = sheetsData.RaffleWinners || [];
 
     const profile = profiles.find(p => (p.email || '').trim().toLowerCase() === email);
     if (!profile) return res.status(404).json({ message: 'Teacher profile not found' });
@@ -1265,11 +1346,10 @@ app.get('/api/reports/spending', authMiddleware, async (req, res) => {
   }
 
   try {
-    const [students, spending, profiles] = await Promise.all([
-      db.getRows('Students'),
-      db.getRows('Spending'),
-      db.getRows('Users')
-    ]);
+    const sheetsData = await db.getMultipleSheets(['Students', 'Spending', 'Users']);
+    const students = sheetsData.Students || [];
+    const spending = sheetsData.Spending || [];
+    const profiles = sheetsData.Users || [];
 
     // Map student info by name
     const studentMap = new Map();
@@ -1871,9 +1951,10 @@ app.post('/api/roster/merge', authMiddleware, async (req, res) => {
   }
 
   try {
-    const students = await db.getRows('Students');
-    const tickets = await db.getRows('Tickets');
-    const spending = await db.getRows('Spending');
+    const sheetsData = await db.getMultipleSheets(['Students', 'Tickets', 'Spending']);
+    const students = sheetsData.Students || [];
+    const tickets = sheetsData.Tickets || [];
+    const spending = sheetsData.Spending || [];
 
     const sourceStudent = students.find(s => s.name === sourceName);
     if (!sourceStudent) return res.status(404).json({ message: `Source student ${sourceName} not found` });
