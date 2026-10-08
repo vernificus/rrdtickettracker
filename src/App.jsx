@@ -176,6 +176,7 @@ const addDoc = async (collOrName, data) => {
   const endpointMap = {
     'tickets': '/api/tickets',
     'goldenTickets': '/api/golden-tickets',
+    'goldenSpending': '/api/golden-spending',
     'spending': '/api/spending'
   };
   const url = endpointMap[collName] || `/api/${collName}`;
@@ -186,7 +187,7 @@ const addDoc = async (collOrName, data) => {
 
   if (collName === 'tickets') playTicketSound('ticket');
   else if (collName === 'goldenTickets') playTicketSound('golden');
-  else if (collName === 'spending') playTicketSound('spend');
+  else if (collName === 'spending' || collName === 'goldenSpending') playTicketSound('spend');
 
   if (window.triggerRefresh) window.triggerRefresh();
   return { id: result.id };
@@ -231,6 +232,7 @@ const deleteDoc = async (docRef) => {
   const endpointMap = {
     'tickets': `/api/tickets/${id}`,
     'goldenTickets': `/api/golden-tickets/${id}`,
+    'goldenSpending': `/api/golden-spending/${id}`,
     'spending': `/api/spending/${id}`,
     'users': `/api/teachers/${id}`,
     'students': `/api/students/${id}`
@@ -396,6 +398,7 @@ export default function App() {
   const [students, setStudents] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [goldenTickets, setGoldenTickets] = useState([]);
+  const [goldenSpending, setGoldenSpending] = useState([]);
   const [spending, setSpending] = useState([]);
   const [classGoals, setClassGoals] = useState([]);
   const [gradeGoals, setGradeGoals] = useState([]);
@@ -532,6 +535,7 @@ export default function App() {
           setStudents(data.students || []);
           setTickets((data.tickets || []).map(formatTicket));
           setGoldenTickets((data.goldenTickets || []).map(formatTicket));
+          setGoldenSpending(data.goldenSpending || []);
           setSpending(data.spending || []);
           setClassGoals(data.classGoals || []);
           setGradeGoals(data.gradeGoals || []);
@@ -824,13 +828,13 @@ export default function App() {
         ) : (
           <>
             {role === 'admin' && (
-              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
+              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
             )}
             {role === 'homeroom' && (
-              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
+              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
             )}
             {role === 'specialist' && (
-              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
+              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
             )}
           </>
         )}
@@ -900,6 +904,8 @@ export default function App() {
           profiles={profiles}
           showToast={showToast}
           isModal={true}
+          goldenSpending={goldenSpending}
+          goldenTickets={goldenTickets}
           onClose={() => setShowSpendingReportModal(false)}
         />
       )}
@@ -998,7 +1004,7 @@ function RecentTicketsList({ ticketList, onRemove, label }) {
               <span className={`w-2 h-2 rounded-full flex-shrink-0 ${t.reason === 'Respectful' ? 'bg-blue-500' : t.reason === 'Responsible' ? 'bg-amber-500' : 'bg-purple-500'}`} />
               <span className="font-medium text-gray-800 text-sm truncate">{t.recipient}</span>
               <span className={`px-2 py-0.5 rounded-full text-xs font-bold flex-shrink-0 ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-700' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-700' : 'bg-purple-100 text-purple-700'}`}>{t.reason}</span>
-              <span className="text-xs text-gray-400 flex-shrink-0">{t.timestamp ? t.timestamp.toDate().toLocaleDateString() : 'Now'}</span>
+              <span className="text-xs text-gray-400 flex-shrink-0">{t.timestamp ? (t.timestamp.toDate ? t.timestamp.toDate().toLocaleDateString() : new Date(t.timestamp).toLocaleDateString()) : 'Now'}</span>
             </div>
             <button onClick={() => onRemove(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2">
               <Trash2 className="w-4 h-4" />
@@ -1336,8 +1342,192 @@ function SpendPointsModal({ student, spendable, onClose, showToast }) {
   );
 }
 
+// --- Spend Golden Tickets Modal (Admin Class Redemption) ---
+function SpendGoldenTicketsModal({ className, spendable, onClose, showToast }) {
+  const [amount, setAmount] = useState(1);
+  const [item, setItem] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const REWARD_SUGGESTIONS = [
+    { label: 'Pizza Party', icon: '🍕' },
+    { label: 'Extra Recess', icon: '🛝' },
+    { label: 'Movie & Popcorn', icon: '🍿' },
+    { label: 'Ice Cream Social', icon: '🍦' },
+    { label: 'Game / Free Time', icon: '🎮' },
+    { label: 'Pajama / Hat Day', icon: '🧢' },
+    { label: 'Dance Party', icon: '🪩' }
+  ];
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (amount < 1 || amount > spendable) {
+      showToast(`Invalid amount. ${className}'s class only has ${spendable} spendable golden ticket(s).`);
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      await addDoc(collection(db, 'goldenSpending'), {
+        className,
+        amount: Number(amount),
+        item: item.trim() || 'Class Reward',
+        timestamp: serverTimestamp()
+      });
+      showToast(`Successfully redeemed ${amount} Golden Ticket(s) for ${className}'s class!`);
+      onClose();
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast("Error redeeming golden tickets.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+      <div className="bg-white rounded-3xl p-6 max-w-md w-full border border-amber-200 shadow-2xl space-y-4">
+        {/* Modal Header */}
+        <div className="flex justify-between items-start border-b border-amber-100 pb-3 gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-xl text-navy-950 shadow-xs">
+              <Star className="w-5 h-5 fill-current" />
+            </div>
+            <div>
+              <h3 className="font-display font-black text-navy-950 text-base leading-tight break-words [overflow-wrap:anywhere]">
+                Redeem Golden Tickets
+              </h3>
+              <p className="text-xs text-amber-800 font-bold mt-0.5">{className}&apos;s Class</p>
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-700 flex-shrink-0 mt-0.5 cursor-pointer">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Balance Highlight Banner */}
+        <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-2xl p-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-amber-400/30 text-amber-900 flex items-center justify-center font-black text-base border border-amber-300">
+              {spendable}
+            </div>
+            <div>
+              <div className="text-[10px] font-extrabold uppercase tracking-wider text-amber-800">Available to Spend</div>
+              <div className="text-xs font-semibold text-gray-600">Golden Tickets earned by this class</div>
+            </div>
+          </div>
+          <span className="text-xxs font-black uppercase px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300">
+            Live Balance
+          </span>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Amount to Deduct */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label htmlFor="golden-spend-amount" className="block text-xs font-bold text-gray-700">
+                Golden Tickets to Deduct:
+              </label>
+              <span className="text-xs text-gray-400 font-medium">Max: {spendable}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                id="golden-spend-amount"
+                type="number"
+                min="1"
+                max={spendable}
+                required
+                value={amount}
+                onChange={e => setAmount(Math.max(1, Math.min(spendable, Number(e.target.value) || 1)))}
+                className="flex-1 p-2.5 border border-amber-300 rounded-xl text-base font-black text-navy-950 focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none"
+              />
+              {spendable > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setAmount(spendable)}
+                  className="px-3 py-2.5 bg-amber-100 hover:bg-amber-200 text-amber-900 rounded-xl text-xs font-black transition cursor-pointer"
+                >
+                  Max ({spendable})
+                </button>
+              )}
+            </div>
+            {/* Quick Amount Pills */}
+            {spendable >= 2 && (
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <span className="text-[10px] font-bold text-gray-400">Presets:</span>
+                {[1, 2, 3, 5].filter(n => n <= spendable).map(n => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setAmount(n)}
+                    className={`px-2 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${amount === n ? 'bg-amber-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+                  >
+                    {n} {n === 1 ? 'ticket' : 'tickets'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Reward Item / Reason */}
+          <div>
+            <label htmlFor="golden-spend-item" className="block text-xs font-bold text-gray-700 mb-1">
+              Class Reward / Reason:
+            </label>
+            <input
+              id="golden-spend-item"
+              type="text"
+              placeholder="e.g. Class Pizza Party, Extra Recess, Movie..."
+              required
+              value={item}
+              onChange={e => setItem(e.target.value)}
+              className="w-full p-2.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-navy-950"
+            />
+
+            {/* Quick Suggestions */}
+            <div className="mt-2 space-y-1">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Quick Reward Ideas:</div>
+              <div className="flex flex-wrap gap-1.5">
+                {REWARD_SUGGESTIONS.map(s => (
+                  <button
+                    key={s.label}
+                    type="button"
+                    onClick={() => setItem(s.label)}
+                    className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200/80 rounded-lg text-[11px] font-semibold transition cursor-pointer flex items-center gap-1"
+                  >
+                    <span>{s.icon}</span>
+                    <span>{s.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="flex gap-2 justify-end pt-3 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isSubmitting}
+              className="px-4 py-2.5 border border-gray-200 rounded-xl text-sm font-bold text-gray-600 bg-white hover:bg-gray-50 transition cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmitting || spendable < 1}
+              className="px-5 py-2.5 rounded-xl text-sm font-bold text-navy-950 bg-gradient-to-r from-amber-400 to-yellow-400 hover:from-amber-500 hover:to-yellow-500 shadow-md hover:shadow-lg disabled:opacity-50 transition flex items-center gap-2 cursor-pointer"
+            >
+              <ShoppingBag className="w-4 h-4 text-navy-950" />
+              <span>{isSubmitting ? 'Processing...' : 'Confirm Class Spend'}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 // --- Class Display Mode (Projector/Fullscreen View) ---
-function ClassDisplayMode({ className, students, balances, classGoals = [], isSubmitting, handleGiveTicketDirect, onClose }) {
+function ClassDisplayMode({ className, students, balances, classGoals = [], goldenTickets = [], goldenSpending = [], isSubmitting, handleGiveTicketDirect, onClose }) {
   const [hideBalances, setHideBalances] = useState(false);
   const [activeDisplayStudent, setActiveDisplayStudent] = useState(null);
   const [sortBy, setSortBy] = useState('lastName');
@@ -1356,6 +1546,16 @@ function ClassDisplayMode({ className, students, balances, classGoals = [], isSu
   const classTicketsEarned = useMemo(() => {
     return myStudents.reduce((sum, studentName) => sum + (balances[studentName]?.earned || 0), 0);
   }, [myStudents, balances]);
+
+  const classGoldenEarned = useMemo(() => {
+    return goldenTickets.filter(g => g.className === className).length;
+  }, [goldenTickets, className]);
+
+  const classGoldenSpent = useMemo(() => {
+    return (goldenSpending || []).filter(s => s.className === className).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  }, [goldenSpending, className]);
+
+  const classGoldenBalance = Math.max(0, classGoldenEarned - classGoldenSpent);
 
   const goalProgress = Math.min(100, Math.round((classTicketsEarned / goalTarget) * 100));
 
@@ -1429,6 +1629,15 @@ function ClassDisplayMode({ className, students, balances, classGoals = [], isSu
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {classGoldenEarned > 0 && (
+              <div className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 px-3 py-1.5 rounded-xl text-amber-900 text-xs font-bold shadow-2xs">
+                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-600" />
+                <span>{classGoldenBalance} Golden Ticket{classGoldenBalance === 1 ? '' : 's'}</span>
+                {classGoldenSpent > 0 && (
+                  <span className="text-[10px] text-amber-700/80 font-normal">({classGoldenEarned} earned)</span>
+                )}
+              </div>
+            )}
             <span className="text-[10px] text-brand-700 font-black uppercase tracking-wider">{goalProgress}%</span>
             <div className="font-display font-black text-brand-800 text-base">
               {classTicketsEarned} / {goalTarget}
@@ -3206,8 +3415,8 @@ function TopStudentsLeaderboardModal({ isOpen, onClose, students = [], balances 
 }
 
 // --- Admin Spending Report Component (School, Grade Level, and Teacher) ---
-function AdminSpendingReport({ spending = [], students = [], profiles = [], showToast, isModal = false, onClose = () => {} }) {
-  const [activeSection, setActiveSection] = useState('grades'); // 'grades' | 'homerooms' | 'teachers' | 'transactions'
+function AdminSpendingReport({ spending = [], students = [], profiles = [], goldenTickets = [], goldenSpending = [], showToast, isModal = false, onClose = () => {} }) {
+  const [activeSection, setActiveSection] = useState('grades'); // 'grades' | 'homerooms' | 'teachers' | 'transactions' | 'golden'
   const [dateFilter, setDateFilter] = useState('all'); // 'all' | 'today' | '7days' | '30days' | '90days'
   const [gradeFilter, setGradeFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
@@ -3218,6 +3427,81 @@ function AdminSpendingReport({ spending = [], students = [], profiles = [], show
   const allGrades = useMemo(() => {
     return [...new Set(students.map(s => s.grade || 'Unassigned').filter(Boolean))].sort();
   }, [students]);
+
+  const allHomerooms = useMemo(() => {
+    return [...new Set(students.map(s => s.homeroom || 'Unassigned').filter(Boolean))].sort();
+  }, [students]);
+
+  // Golden tickets breakdown by classroom
+  const goldenClassReport = useMemo(() => {
+    const classSet = new Set(allHomerooms);
+    goldenTickets.forEach(g => { if (g.className) classSet.add(g.className); });
+    (goldenSpending || []).forEach(s => { if (s.className) classSet.add(s.className); });
+
+    const classesArray = Array.from(classSet).sort();
+
+    return classesArray.map(cls => {
+      const clsStudents = students.filter(s => (s.homeroom || 'Unassigned') === cls);
+      const gradesInClass = [...new Set(clsStudents.map(s => s.grade).filter(Boolean))].join(', ') || 'N/A';
+      const earned = goldenTickets.filter(g => g.className === cls).length;
+      const spendingList = (goldenSpending || []).filter(s => s.className === cls);
+      const spent = spendingList.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+      const balance = Math.max(0, earned - spent);
+
+      const itemMap = {};
+      spendingList.forEach(s => {
+        const it = s.item || 'Reward';
+        itemMap[it] = (itemMap[it] || 0) + Number(s.amount || 0);
+      });
+      const topItemEntry = Object.entries(itemMap).sort((a, b) => b[1] - a[1])[0];
+
+      return {
+        className: cls,
+        grade: gradesInClass,
+        totalStudents: clsStudents.length,
+        earned,
+        spent,
+        balance,
+        transactions: spendingList.length,
+        topReward: topItemEntry ? `${topItemEntry[0]} (${topItemEntry[1]} tickets)` : 'None'
+      };
+    }).sort((a, b) => b.balance - a.balance || b.earned - a.earned || a.className.localeCompare(b.className));
+  }, [allHomerooms, students, goldenTickets, goldenSpending]);
+
+  const goldenSummary = useMemo(() => {
+    const totalEarned = goldenTickets.length;
+    const totalSpent = (goldenSpending || []).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+    const totalBalance = Math.max(0, totalEarned - totalSpent);
+    const classesWithTickets = goldenClassReport.filter(c => c.earned > 0).length;
+    const totalRedemptions = (goldenSpending || []).length;
+
+    const itemMap = {};
+    (goldenSpending || []).forEach(s => {
+      const it = s.item || 'Reward';
+      itemMap[it] = (itemMap[it] || 0) + Number(s.amount || 0);
+    });
+    const topReward = Object.entries(itemMap).sort((a, b) => b[1] - a[1])[0];
+
+    return {
+      totalEarned,
+      totalSpent,
+      totalBalance,
+      classesWithTickets,
+      totalRedemptions,
+      topReward: topReward ? `${topReward[0]} (${topReward[1]} tickets)` : 'None'
+    };
+  }, [goldenTickets, goldenSpending, goldenClassReport]);
+
+  const filteredGoldenTransactions = useMemo(() => {
+    return (goldenSpending || []).map(s => {
+      const d = s.timestamp ? new Date(s.timestamp) : null;
+      return {
+        ...s,
+        timestampMs: d && !isNaN(d.getTime()) ? d.getTime() : 0,
+        amount: Number(s.amount || 0)
+      };
+    }).sort((a, b) => b.timestampMs - a.timestampMs);
+  }, [goldenSpending]);
 
   const studentMap = useMemo(() => {
     const map = new Map();
@@ -3531,8 +3815,61 @@ function AdminSpendingReport({ spending = [], students = [], profiles = [], show
       const tStr = isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
       csv += `${escapeCsv(dStr)},${escapeCsv(tStr)},${escapeCsv(t.recipient)},${escapeCsv(t.studentId)},${escapeCsv(t.grade)},${escapeCsv(t.homeroom)},${escapeCsv(t.item)},${t.amount},${escapeCsv(t.teacherName)},${escapeCsv(t.teacherEmail)},${escapeCsv(t.id || '')}\n`;
     });
+    csv += `\n`;
+
+    // Section 6
+    csv += `=== 6. CLASS GOLDEN TICKET BALANCES & SPENDING ===\n`;
+    csv += `Class Name,Grade(s),Students,Spendable Balance,Lifetime Earned,Total Spent,Redemption Count,Top Reward\n`;
+    goldenClassReport.forEach(c => {
+      csv += `${escapeCsv(c.className)},${escapeCsv(c.grade)},${c.totalStudents},${c.balance},${c.earned},${c.spent},${c.transactions},${escapeCsv(c.topReward)}\n`;
+    });
+    csv += `\n`;
+
+    // Section 7
+    csv += `=== 7. ITEMIZED CLASS GOLDEN TICKET REDEMPTIONS ===\n`;
+    csv += `Date,Time,Class Name,Reward Item,Tickets Deducted,Logged By Staff,Staff Email,Redemption ID\n`;
+    filteredGoldenTransactions.forEach(t => {
+      const d = t.timestamp ? new Date(t.timestamp) : new Date();
+      const dStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+      const tStr = isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+      csv += `${escapeCsv(dStr)},${escapeCsv(tStr)},${escapeCsv(t.className)},${escapeCsv(t.item)},${t.amount},${escapeCsv(t.teacherName || '')},${escapeCsv(t.teacherEmail || '')},${escapeCsv(t.id || '')}\n`;
+    });
 
     downloadCsv(`RRD_PBIS_Comprehensive_Spending_Report_${dateStr}.csv`, csv);
+  };
+
+  // 1b. Class Golden Tickets CSV
+  const handleExportGoldenCSV = () => {
+    const dateStr = new Date().toISOString().split('T')[0];
+    let csv = `ROLLING RIDGE ELEMENTARY - CLASS GOLDEN TICKET SPENDING REPORT\n`;
+    csv += `Exported On: ${new Date().toLocaleString()}\n\n`;
+
+    csv += `=== 1. GOLDEN TICKET SCHOOL SUMMARY ===\n`;
+    csv += `Metric,Value\n`;
+    csv += `Total Golden Tickets Earned,${goldenSummary.totalEarned}\n`;
+    csv += `Total Golden Tickets Spent,${goldenSummary.totalSpent}\n`;
+    csv += `Available Spendable Balance,${goldenSummary.totalBalance}\n`;
+    csv += `Classes with Golden Tickets,${goldenSummary.classesWithTickets}\n`;
+    csv += `Total Redemption Transactions,${goldenSummary.totalRedemptions}\n`;
+    csv += `Top Class Reward,${escapeCsv(goldenSummary.topReward)}\n\n`;
+
+    csv += `=== 2. CLASSROOM GOLDEN TICKET BALANCES & SPENDING ===\n`;
+    csv += `Class Name,Grade(s),Students,Spendable Balance,Lifetime Earned,Total Spent,Redemption Count,Top Reward\n`;
+    goldenClassReport.forEach(c => {
+      csv += `${escapeCsv(c.className)},${escapeCsv(c.grade)},${c.totalStudents},${c.balance},${c.earned},${c.spent},${c.transactions},${escapeCsv(c.topReward)}\n`;
+    });
+    csv += `\n`;
+
+    csv += `=== 3. ITEMIZED CLASS GOLDEN TICKET REDEMPTIONS ===\n`;
+    csv += `Date,Time,Class Name,Reward Item,Tickets Deducted,Logged By Staff,Staff Email,Redemption ID\n`;
+    filteredGoldenTransactions.forEach(t => {
+      const d = t.timestamp ? new Date(t.timestamp) : new Date();
+      const dStr = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+      const tStr = isNaN(d.getTime()) ? '' : d.toLocaleTimeString();
+      csv += `${escapeCsv(dStr)},${escapeCsv(tStr)},${escapeCsv(t.className)},${escapeCsv(t.item)},${t.amount},${escapeCsv(t.teacherName || '')},${escapeCsv(t.teacherEmail || '')},${escapeCsv(t.id || '')}\n`;
+    });
+
+    downloadCsv(`RRD_PBIS_Class_Golden_Ticket_Spending_${dateStr}.csv`, csv);
   };
 
   // 2. Grade Level CSV
@@ -3649,6 +3986,13 @@ function AdminSpendingReport({ spending = [], students = [], profiles = [], show
                 >
                   <Clock className="w-3.5 h-3.5 text-amber-600" />
                   Detailed Itemized Log (CSV)
+                </button>
+                <button
+                  onClick={handleExportGoldenCSV}
+                  className="w-full text-left px-3.5 py-2 hover:bg-amber-50 text-amber-900 font-medium flex items-center gap-2 transition border-t border-gray-100"
+                >
+                  <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400" />
+                  Class Golden Tickets (CSV)
                 </button>
               </div>
             )}
@@ -3785,6 +4129,14 @@ function AdminSpendingReport({ spending = [], students = [], profiles = [], show
         >
           <Clock className="w-4 h-4" />
           <span>Detailed Itemized Log ({filteredTransactions.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveSection('golden')}
+          className={`px-4 py-2.5 text-xs font-bold transition border-b-2 flex items-center gap-1.5 cursor-pointer ${activeSection === 'golden' ? 'border-amber-500 text-amber-900' : 'border-transparent text-gray-500 hover:text-gray-900'}`}
+        >
+          <Star className="w-4 h-4 fill-amber-400 text-amber-600" />
+          <span>Golden Tickets / Classes ({goldenClassReport.length})</span>
         </button>
       </div>
 
@@ -4052,6 +4404,169 @@ function AdminSpendingReport({ spending = [], students = [], profiles = [], show
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Section 5: Golden Tickets Classroom Breakdown & Redemptions */}
+      {activeSection === 'golden' && (
+        <div className="space-y-6">
+          {/* Golden KPI Spotlight Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-amber-50 to-yellow-50 p-4 rounded-2xl shadow-xs border border-amber-200">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-extrabold text-amber-800 uppercase tracking-wider">Available Balance</span>
+                <span className="p-1.5 bg-amber-200/80 text-amber-900 rounded-lg"><Star className="w-4 h-4 fill-amber-500" /></span>
+              </div>
+              <div className="text-2xl font-black text-amber-950">{goldenSummary.totalBalance}</div>
+              <div className="text-[11px] text-amber-700/80 mt-1">
+                Live spendable across all classes
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl shadow-xs border border-gray-150">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Lifetime Earned</span>
+                <span className="p-1.5 bg-yellow-100 text-yellow-800 rounded-lg"><Award className="w-4 h-4" /></span>
+              </div>
+              <div className="text-2xl font-black text-navy-950">{goldenSummary.totalEarned}</div>
+              <div className="text-[11px] text-gray-400 mt-1">
+                Awarded by teachers & specialists
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl shadow-xs border border-gray-150">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total Redeemed</span>
+                <span className="p-1.5 bg-emerald-100 text-emerald-800 rounded-lg"><ShoppingBag className="w-4 h-4" /></span>
+              </div>
+              <div className="text-2xl font-black text-navy-950">{goldenSummary.totalSpent}</div>
+              <div className="text-[11px] text-gray-400 mt-1">
+                Across {goldenSummary.totalRedemptions} class events
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-2xl shadow-xs border border-gray-150">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Top Class Reward</span>
+                <span className="p-1.5 bg-purple-100 text-purple-800 rounded-lg"><Sparkles className="w-4 h-4" /></span>
+              </div>
+              <div className="text-base font-black text-navy-950 truncate" title={goldenSummary.topReward}>
+                {goldenSummary.topReward}
+              </div>
+              <div className="text-[11px] text-gray-400 mt-1">
+                Most popular celebration
+              </div>
+            </div>
+          </div>
+
+          {/* Class Breakdown Table */}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+            <div className="p-4 bg-slate-50 border-b border-gray-200 flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <h3 className="text-sm font-extrabold text-navy-950 flex items-center gap-2">
+                  <Star className="w-4 h-4 fill-amber-400 text-amber-600" />
+                  Class Golden Ticket Balances & Spending
+                </h3>
+                <p className="text-[11px] text-gray-500">
+                  Track each classroom&apos;s available spendable tickets, lifetime earned, and redeemed reward celebrations.
+                </p>
+              </div>
+              <button
+                onClick={handleExportGoldenCSV}
+                className="flex items-center gap-1 text-xs font-bold text-amber-800 hover:text-amber-950 bg-amber-50 border border-amber-300 px-3 py-1.5 rounded-lg shadow-2xs transition cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export Golden CSV</span>
+              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-gray-600">
+                <thead className="bg-slate-100/70 text-[10px] font-extrabold uppercase text-slate-500 border-b">
+                  <tr>
+                    <th className="px-4 py-3">Classroom (Teacher)</th>
+                    <th className="px-4 py-3">Grade</th>
+                    <th className="px-4 py-3 text-right">Spendable Balance</th>
+                    <th className="px-4 py-3 text-right">Lifetime Earned</th>
+                    <th className="px-4 py-3 text-right">Total Spent</th>
+                    <th className="px-4 py-3 text-center">Redemptions</th>
+                    <th className="px-4 py-3">Top Redeemed Reward</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {goldenClassReport.length === 0 ? (
+                    <tr><td colSpan="7" className="p-8 text-center text-gray-400 italic">No classroom golden ticket data found.</td></tr>
+                  ) : (
+                    goldenClassReport.map(c => (
+                      <tr key={c.className} className="hover:bg-slate-50 transition">
+                        <td className="px-4 py-3 font-extrabold text-navy-950 flex items-center gap-2">
+                          <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 flex-shrink-0" />
+                          <span>{c.className}</span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 font-medium">{c.grade}</td>
+                        <td className="px-4 py-3 text-right font-black">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs ${c.balance > 0 ? 'bg-amber-100 text-amber-900 border border-amber-300' : 'bg-gray-100 text-gray-500'}`}>
+                            {c.balance} tickets
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right font-bold text-gray-700">{c.earned}</td>
+                        <td className="px-4 py-3 text-right font-bold text-red-600">{c.spent}</td>
+                        <td className="px-4 py-3 text-center font-bold text-gray-700">{c.transactions}</td>
+                        <td className="px-4 py-3 text-gray-600 truncate max-w-xs" title={c.topReward}>{c.topReward}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Itemized Golden Spending History */}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+            <div className="p-4 bg-slate-50 border-b border-gray-200">
+              <h3 className="text-sm font-extrabold text-navy-950 flex items-center gap-2">
+                <Clock className="w-4 h-4 text-gray-500" />
+                Class Golden Ticket Redemption Log
+              </h3>
+              <p className="text-[11px] text-gray-500">Every redeemed class celebration and the staff member who logged it.</p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs text-gray-600">
+                <thead className="bg-slate-100/70 text-[10px] font-extrabold uppercase text-slate-500 border-b">
+                  <tr>
+                    <th className="px-4 py-3">Date & Time</th>
+                    <th className="px-4 py-3">Class</th>
+                    <th className="px-4 py-3">Celebration / Reward Item</th>
+                    <th className="px-4 py-3 text-right">Tickets Deducted</th>
+                    <th className="px-4 py-3">Facilitating Staff</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {filteredGoldenTransactions.length === 0 ? (
+                    <tr><td colSpan="5" className="p-8 text-center text-gray-400 italic">No golden ticket redemptions recorded yet.</td></tr>
+                  ) : (
+                    filteredGoldenTransactions.map(t => {
+                      const d = t.timestamp ? new Date(t.timestamp) : null;
+                      const dateText = d && !isNaN(d.getTime()) ? `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'N/A';
+                      return (
+                        <tr key={t.id} className="hover:bg-slate-50 transition">
+                          <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{dateText}</td>
+                          <td className="px-4 py-2.5 font-bold text-navy-950">{t.className}</td>
+                          <td className="px-4 py-2.5 font-medium text-gray-800 flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0" />
+                            <span>{t.item}</span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-black text-amber-700">-{t.amount}</td>
+                          <td className="px-4 py-2.5 text-gray-600">{t.teacherName || 'Admin'}</td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -6813,7 +7328,7 @@ function AwardGoldenTicketModal({ isOpen, onClose, defaultClass, classes = [], o
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch }) {
   const [modalData, setModalData] = useState(null);
   const [showGoldenModal, setShowGoldenModal] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
@@ -7243,7 +7758,9 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     }
   };
 
-  const myClassGolden = goldenTickets.filter(g => g.className === profile.name).length;
+  const myClassGoldenEarned = goldenTickets.filter(g => g.className === profile.name).length;
+  const myClassGoldenSpent = (goldenSpending || []).filter(s => s.className === profile.name).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+  const myClassGoldenBalance = Math.max(0, myClassGoldenEarned - myClassGoldenSpent);
 
   if (isDisplayMode) {
     return (
@@ -7252,6 +7769,8 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         students={myStudents}
         balances={balances}
         classGoals={classGoals}
+        goldenTickets={goldenTickets}
+        goldenSpending={goldenSpending}
         isSubmitting={isSubmitting}
         handleGiveTicketDirect={handleGiveTicketDirect}
         onClose={() => setIsDisplayMode(false)}
@@ -7450,7 +7969,12 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
           <Star className="w-8 h-8 text-yellow-100 animate-spin-slow" aria-hidden="true" />
           <div>
             <h3 className="text-lg font-bold">Golden Ticket</h3>
-            <p className="text-yellow-100 text-sm">Award your class or recognize another homeroom class! <span className="font-bold text-white">({myClassGolden} earned by your class)</span></p>
+            <p className="text-yellow-100 text-sm">
+              Award your class or recognize another homeroom class!{' '}
+              <span className="font-bold text-white">
+                ({myClassGoldenBalance} spendable • {myClassGoldenEarned} earned by your class)
+              </span>
+            </p>
           </div>
         </div>
         <button onClick={() => setShowGoldenModal(true)} className="bg-white text-amber-700 hover:bg-yellow-50 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto cursor-pointer">
@@ -7707,7 +8231,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
   const [spendData, setSpendData] = useState(null);
@@ -7840,6 +8364,8 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
         students={studentsInClass}
         balances={balances}
         classGoals={classGoals}
+        goldenTickets={goldenTickets}
+        goldenSpending={goldenSpending}
         isSubmitting={isSubmitting}
         handleGiveTicketDirect={handleGiveTicketDirect}
         onClose={() => setIsDisplayMode(false)}
@@ -7885,6 +8411,8 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {classes.map(cls => {
                 const gc = goldenTickets.filter(g => g.className === cls).length;
+                const gs = (goldenSpending || []).filter(s => s.className === cls).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+                const gBal = Math.max(0, gc - gs);
                 return (
                   <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group">
                     <div className="flex items-center gap-4">
@@ -7894,7 +8422,17 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
                         <div className="text-sm text-gray-500">View Roster</div>
                       </div>
                     </div>
-                    {gc > 0 && <div className="flex items-center gap-1 bg-yellow-100 text-yellow-700 px-2.5 py-1 rounded-full text-xs font-bold"><Star className="w-3.5 h-3.5" />{gc}</div>}
+                    {gc > 0 && (
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="flex items-center gap-1 bg-amber-100 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-full text-xs font-bold" title={`${gBal} spendable balance, ${gc} lifetime earned`}>
+                          <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-600" />
+                          <span>{gBal} Golden</span>
+                        </div>
+                        {gs > 0 && (
+                          <span className="text-[10px] text-gray-400 font-semibold">{gc} earned</span>
+                        )}
+                      </div>
+                    )}
                   </button>
                 );
               })}
@@ -8269,7 +8807,7 @@ function AdminManageCoTeachersModal({ isOpen, onClose, targetProfile, profiles =
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, myUids, balances, spending = [], gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, goldenSpending = [], myUids, balances, spending = [], gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -8283,6 +8821,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [manageCoTeacherTarget, setManageCoTeacherTarget] = useState(null);
   const [activityPage, setActivityPage] = useState(0);
   const [spendData, setSpendData] = useState(null);
+  const [spendGoldenData, setSpendGoldenData] = useState(null);
+  const [activeGoldenView, setActiveGoldenView] = useState('earned');
   const [showManualPaste, setShowManualPaste] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [sortBy, setSortBy] = useState('lastName');
@@ -8531,6 +9071,17 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     } catch (e) {
       console.error("Error removing Golden Ticket:", e);
       showToast("Error removing Golden Ticket.");
+    }
+  };
+
+  const handleRemoveGoldenSpend = async (spendId, className) => {
+    try {
+      await deleteDoc(doc(db, 'goldenSpending', spendId));
+      showToast(`Removed golden ticket redemption from ${className}'s class.`);
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (e) {
+      console.error("Error removing golden spend:", e);
+      showToast("Error removing golden ticket redemption.");
     }
   };
 
@@ -8803,13 +9354,25 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {classes.map(cls => {
                     const gc = goldenTickets.filter(g => g.className === cls).length;
+                    const gs = (goldenSpending || []).filter(s => s.className === cls).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+                    const gBal = Math.max(0, gc - gs);
                     return (
                       <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group">
                         <div className="flex items-center gap-4">
                           <div className="bg-green-50 p-3 rounded-lg text-green-600 group-hover:bg-green-100"><Users className="w-6 h-6" /></div>
                           <div className="text-left"><div className="font-bold text-lg text-gray-800">{cls}</div><div className="text-sm text-gray-500">{students.filter(s => s.homeroom === cls).length} students</div></div>
                         </div>
-                        {gc > 0 && <div className="flex items-center gap-1 bg-yellow-100 text-yellow-700 px-2.5 py-1 rounded-full text-xs font-bold"><Star className="w-3.5 h-3.5" />{gc}</div>}
+                        {gc > 0 && (
+                          <div className="flex flex-col items-end gap-1">
+                            <div className="flex items-center gap-1 bg-amber-100 text-amber-800 border border-amber-200 px-2.5 py-1 rounded-full text-xs font-bold" title={`${gBal} spendable balance, ${gc} lifetime earned`}>
+                              <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-600" />
+                              <span>{gBal} Golden</span>
+                            </div>
+                            {gs > 0 && (
+                              <span className="text-[10px] text-gray-400 font-semibold">{gc} earned • {gs} spent</span>
+                            )}
+                          </div>
+                        )}
                       </button>
                     );
                   })}
@@ -8867,40 +9430,146 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                   </button>
                 </div>
               </div>
-              <div className="bg-gradient-to-r from-yellow-400 to-amber-500 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
-                  <Star className="w-7 h-7 text-yellow-100" />
-                  <div>
-                    <h3 className="text-lg font-bold">Golden Ticket</h3>
-                    <p className="text-yellow-100 text-sm">Reward the class for awesome behavior! <span className="font-bold text-white">({goldenTickets.filter(g => g.className === selectedClass).length} earned)</span></p>
-                  </div>
-                </div>
-                <button onClick={() => handleGoldenTicket(selectedClass)} className="bg-white text-amber-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
-                  Award Golden Ticket
-                </button>
-              </div>
-              {goldenTickets.filter(g => g.className === selectedClass).length > 0 && (
-                <div className="bg-white rounded-xl shadow-sm border overflow-hidden mb-4">
-                  <div className="px-5 py-3 border-b bg-yellow-50 flex items-center justify-between">
-                    <h3 className="font-bold text-yellow-800 text-sm flex items-center gap-2"><Star className="w-4 h-4" /> Golden Tickets for {selectedClass}</h3>
-                    <span className="text-xs text-gray-400">Tap trash to remove</span>
-                  </div>
-                  <div className="divide-y">
-                    {[...goldenTickets].filter(g => g.className === selectedClass).sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0)).map(g => (
-                      <div key={g.id} className="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition">
-                        <div className="flex items-center gap-3">
-                          <span className="w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0" />
-                          <span className="font-medium text-gray-800 text-sm">Awarded by {g.teacherName}</span>
-                          <span className="text-xs text-gray-400 flex-shrink-0">{g.timestamp ? g.timestamp.toDate().toLocaleDateString() : 'Now'}</span>
+              {(() => {
+                const classGoldenEarned = goldenTickets.filter(g => g.className === selectedClass).length;
+                const classGoldenSpendingList = (goldenSpending || []).filter(s => s.className === selectedClass);
+                const classGoldenSpent = classGoldenSpendingList.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+                const classGoldenBalance = Math.max(0, classGoldenEarned - classGoldenSpent);
+
+                return (
+                  <>
+                    <div className="bg-gradient-to-r from-yellow-400 via-amber-500 to-amber-600 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col md:flex-row items-center justify-between gap-4">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-xs flex items-center justify-center flex-shrink-0 border border-white/25 shadow-xs">
+                          <Star className="w-7 h-7 text-yellow-100 fill-yellow-200" />
                         </div>
-                        <button onClick={() => handleRemoveGoldenTicket(g.id, g.className)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2">
-                          <Trash2 className="w-4 h-4" />
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h3 className="text-lg font-black tracking-tight">Golden Tickets</h3>
+                            <span className="bg-white/20 backdrop-blur-xs px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border border-white/30 text-white">
+                              {classGoldenBalance} Spendable
+                            </span>
+                          </div>
+                          <p className="text-yellow-100 text-xs mt-0.5 font-medium">
+                            Reward the class or redeem tickets for classroom celebrations!{' '}
+                            <span className="font-bold text-white">({classGoldenEarned} earned • {classGoldenSpent} spent)</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2.5 w-full md:w-auto justify-end flex-wrap">
+                        <button
+                          onClick={() => handleGoldenTicket(selectedClass)}
+                          className="bg-white/15 hover:bg-white/25 text-white border border-white/30 px-4 py-2.5 rounded-xl font-bold text-xs shadow-xs hover:shadow-sm transition flex items-center gap-1.5 cursor-pointer min-h-[40px]"
+                        >
+                          <Star className="w-4 h-4 fill-white" />
+                          <span>Award Golden Ticket</span>
+                        </button>
+                        <button
+                          onClick={() => setSpendGoldenData({ className: selectedClass, spendable: classGoldenBalance })}
+                          disabled={classGoldenBalance < 1}
+                          title={classGoldenBalance < 1 ? 'No golden tickets available to spend' : `Redeem golden tickets for ${selectedClass}`}
+                          className="bg-white text-amber-900 hover:bg-amber-50 px-5 py-2.5 rounded-xl font-black text-xs shadow-md hover:shadow-lg transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[40px]"
+                        >
+                          <ShoppingBag className="w-4 h-4 text-amber-700" />
+                          <span>Spend Golden Tickets</span>
                         </button>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                    </div>
+
+                    {(classGoldenEarned > 0 || classGoldenSpent > 0) && (
+                      <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-4">
+                        <div className="px-5 py-3 border-b bg-amber-50/70 flex items-center justify-between flex-wrap gap-2">
+                          <div className="flex items-center gap-2">
+                            <Star className="w-4 h-4 fill-amber-400 text-amber-600" />
+                            <h3 className="font-bold text-amber-950 text-sm">Golden Tickets for {selectedClass}</h3>
+                          </div>
+                          <div className="flex items-center gap-1 bg-white border border-amber-200 p-0.5 rounded-xl text-xs font-bold shadow-2xs">
+                            <button
+                              type="button"
+                              onClick={() => setActiveGoldenView('earned')}
+                              className={`px-3 py-1 rounded-lg transition cursor-pointer ${activeGoldenView === 'earned' ? 'bg-amber-500 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+                            >
+                              Awarded ({classGoldenEarned})
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setActiveGoldenView('spent')}
+                              className={`px-3 py-1 rounded-lg transition cursor-pointer ${activeGoldenView === 'spent' ? 'bg-amber-500 text-white shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+                            >
+                              Spent Redemptions ({classGoldenSpent})
+                            </button>
+                          </div>
+                        </div>
+
+                        {activeGoldenView === 'earned' ? (
+                          <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                            {classGoldenEarned === 0 ? (
+                              <div className="p-4 text-center text-xs text-gray-400 italic">No golden tickets awarded to this class yet.</div>
+                            ) : (
+                              [...goldenTickets].filter(g => g.className === selectedClass).sort((a, b) => {
+                                const aTime = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+                                const bTime = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+                                return bTime - aTime;
+                              }).map(g => {
+                                const d = g.timestamp ? (g.timestamp.toDate ? g.timestamp.toDate() : new Date(g.timestamp)) : null;
+                                const dateText = d && !isNaN(d.getTime()) ? d.toLocaleDateString() : 'Now';
+                                return (
+                                  <div key={g.id} className="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition">
+                                    <div className="flex items-center gap-3">
+                                      <span className="w-2 h-2 rounded-full bg-yellow-400 flex-shrink-0" />
+                                      <span className="font-medium text-gray-800 text-sm">Awarded by {g.teacherName}</span>
+                                      <span className="text-xs text-gray-400 flex-shrink-0">{dateText}</span>
+                                    </div>
+                                    <button onClick={() => handleRemoveGoldenTicket(g.id, g.className)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2" title="Remove golden ticket">
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        ) : (
+                          <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
+                            {classGoldenSpendingList.length === 0 ? (
+                              <div className="p-4 text-center text-xs text-gray-400 italic">No golden ticket redemptions recorded for this class yet.</div>
+                            ) : (
+                              classGoldenSpendingList.map(s => {
+                                const d = s.timestamp ? new Date(s.timestamp) : null;
+                                const dateText = d && !isNaN(d.getTime()) ? d.toLocaleDateString() : 'Recent';
+                                return (
+                                  <div key={s.id} className="flex items-center justify-between px-5 py-2.5 hover:bg-gray-50 transition">
+                                    <div className="flex items-center gap-3">
+                                      <span className="w-2 h-2 rounded-full bg-amber-500 flex-shrink-0" />
+                                      <div>
+                                        <div className="font-bold text-gray-900 text-sm flex items-center gap-2">
+                                          <span>{s.item}</span>
+                                          <span className="px-2 py-0.5 rounded-full text-xxs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                                            -{s.amount} Golden
+                                          </span>
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                          Facilitated by {s.teacherName || 'Admin'} • {dateText}
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={() => handleRemoveGoldenSpend(s.id, s.className)}
+                                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2"
+                                      title="Refund / remove redemption"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                );
+                              })
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               <div className="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-bold">Class-Wide Recognition</h3>
@@ -8936,10 +9605,22 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               <div className="p-3 bg-green-100 rounded-2xl text-green-700"><Award className="w-7 h-7" /></div>
               <div><div className="text-xs text-gray-500 font-medium">Total Tickets</div><div className="text-2xl font-black text-navy-950">{tickets.length}</div></div>
             </div>
-            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-150 flex items-center gap-4">
-              <div className="p-3 bg-yellow-100 rounded-2xl text-yellow-700"><Star className="w-7 h-7" /></div>
-              <div><div className="text-xs text-gray-500 font-medium">Golden Tickets</div><div className="text-2xl font-black text-navy-950">{goldenTickets.length}</div></div>
-            </div>
+            {(() => {
+              const totalGoldenSpent = (goldenSpending || []).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+              const totalGoldenBalance = Math.max(0, goldenTickets.length - totalGoldenSpent);
+              return (
+                <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-150 flex items-center gap-4">
+                  <div className="p-3 bg-amber-100 rounded-2xl text-amber-700"><Star className="w-7 h-7 fill-amber-400" /></div>
+                  <div>
+                    <div className="text-xs text-gray-500 font-medium">Golden Tickets (Spendable)</div>
+                    <div className="text-2xl font-black text-navy-950">
+                      {totalGoldenBalance}
+                      <span className="text-xs font-semibold text-gray-400 ml-1.5">/ {goldenTickets.length} earned</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
             <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-150 flex items-center gap-4">
               <div className="p-3 bg-blue-100 rounded-2xl text-blue-700"><Users className="w-7 h-7" /></div>
               <div><div className="text-xs text-gray-500 font-medium">Active Teachers</div><div className="text-2xl font-black text-navy-950">{new Set(tickets.map(t => (t.teacherEmail || t.teacherName || t.teacherId || '').toLowerCase()).filter(Boolean)).size}</div></div>
@@ -9455,7 +10136,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             <div className="px-6 py-4 border-b bg-gray-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h3 className="font-black text-gray-800 text-sm">All Ticket Activity</h3>
-                <span className="text-xs text-gray-500">{tickets.length + goldenTickets.length} total entries recorded</span>
+                <span className="text-xs text-gray-500">{tickets.length + goldenTickets.length + (goldenSpending || []).length} total entries recorded</span>
               </div>
 
               {/* Activity Controls */}
@@ -9480,7 +10161,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                   <option value="Respectful">Respectful</option>
                   <option value="Responsible">Responsible</option>
                   <option value="Determined">Determined</option>
-                  <option value="golden">Golden Tickets</option>
+                  <option value="golden">Golden Tickets Awarded</option>
+                  <option value="golden_spend">Class Golden Redemptions</option>
                 </select>
 
                 <div className="flex items-center gap-1 bg-white border border-gray-200 px-2 py-0.5 rounded-lg text-xs font-bold">
@@ -9502,8 +10184,19 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               {(() => {
                 let allActivity = [
                   ...tickets.map(t => ({ ...t, _type: 'ticket' })),
-                  ...goldenTickets.map(g => ({ ...g, _type: 'golden' }))
-                ].sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+                  ...goldenTickets.map(g => ({ ...g, _type: 'golden' })),
+                  ...(goldenSpending || []).map(s => ({
+                    ...s,
+                    _type: 'golden_spend',
+                    reason: `Redeemed: ${s.item || 'Class Reward'}`,
+                    className: s.className,
+                    teacherName: s.teacherName || 'Admin'
+                  }))
+                ].sort((a, b) => {
+                  const aTime = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp ? new Date(a.timestamp).getTime() : 0);
+                  const bTime = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp ? new Date(b.timestamp).getTime() : 0);
+                  return bTime - aTime;
+                });
 
                 if (activitySearch.trim()) {
                   const q = activitySearch.trim().toLowerCase();
@@ -9517,6 +10210,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                 if (activityTypeFilter !== 'all') {
                   if (activityTypeFilter === 'golden') {
                     allActivity = allActivity.filter(t => t._type === 'golden');
+                  } else if (activityTypeFilter === 'golden_spend') {
+                    allActivity = allActivity.filter(t => t._type === 'golden_spend');
                   } else {
                     allActivity = allActivity.filter(t => t.reason === activityTypeFilter);
                   }
@@ -9537,29 +10232,52 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                         <th className="px-6 py-3">Time</th>
                         <th className="px-6 py-3">Teacher</th>
                         <th className="px-6 py-3">Recipient</th>
-                        <th className="px-6 py-3">Reason</th>
+                        <th className="px-6 py-3">Reason / Details</th>
                         <th className="px-6 py-3 w-12 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {pageItems.map(t => (
-                        <tr key={t.id} className="hover:bg-slate-50/70 transition">
-                          <td className="px-6 py-3">{t.timestamp ? t.timestamp.toDate().toLocaleString() : 'Now'}</td>
-                          <td className="px-6 py-3 font-medium text-gray-900">{t.teacherName}</td>
-                          <td className="px-6 py-3">{t._type === 'golden' ? `${t.className} (Class)` : <>{t.recipient} {t.recipientType === 'class' && '(Class)'}</>}</td>
-                          <td className="px-6 py-3">
-                            {t._type === 'golden'
-                              ? <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-800 inline-flex items-center gap-1"><Star className="w-3 h-3" />Golden</span>
-                              : <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
-                            }
-                          </td>
-                          <td className="px-6 py-3 text-right">
-                            <button onClick={() => t._type === 'golden' ? handleRemoveGoldenTicket(t.id, t.className) : handleRemoveTicket(t.id, t.recipient)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition" title="Delete record">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {pageItems.map(t => {
+                        const d = t.timestamp ? (t.timestamp.toDate ? t.timestamp.toDate() : new Date(t.timestamp)) : null;
+                        const dateText = d && !isNaN(d.getTime()) ? d.toLocaleString() : 'Now';
+                        return (
+                          <tr key={`${t._type}-${t.id}`} className="hover:bg-slate-50/70 transition">
+                            <td className="px-6 py-3">{dateText}</td>
+                            <td className="px-6 py-3 font-medium text-gray-900">{t.teacherName}</td>
+                            <td className="px-6 py-3">
+                              {t._type === 'golden' || t._type === 'golden_spend'
+                                ? `${t.className} (Class)`
+                                : <>{t.recipient} {t.recipientType === 'class' && '(Class)'}</>
+                              }
+                            </td>
+                            <td className="px-6 py-3">
+                              {t._type === 'golden' ? (
+                                <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-yellow-100 text-yellow-800 inline-flex items-center gap-1"><Star className="w-3 h-3 fill-yellow-500" />Golden Award</span>
+                              ) : t._type === 'golden_spend' ? (
+                                <span className="px-2 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 inline-flex items-center gap-1">
+                                  <ShoppingBag className="w-3 h-3 text-amber-700" />
+                                  -{t.amount} Golden: {t.item}
+                                </span>
+                              ) : (
+                                <span className={`px-2 py-1 rounded-full text-[10px] font-bold ${t.reason === 'Respectful' ? 'bg-blue-100 text-blue-800' : t.reason === 'Responsible' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800'}`}>{t.reason}</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-3 text-right">
+                              <button
+                                onClick={() => {
+                                  if (t._type === 'golden') handleRemoveGoldenTicket(t.id, t.className);
+                                  else if (t._type === 'golden_spend') handleRemoveGoldenSpend(t.id, t.className);
+                                  else handleRemoveTicket(t.id, t.recipient);
+                                }}
+                                className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition"
+                                title="Delete record"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                   {totalPages > 1 && (
@@ -9585,6 +10303,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           profiles={profiles}
           showToast={showToast}
           isModal={false}
+          goldenTickets={goldenTickets}
+          goldenSpending={goldenSpending}
         />
       ) : activeTab === 'merge' ? (
         <div className="max-w-2xl space-y-6">
@@ -9968,6 +10688,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           profiles={profiles}
           showToast={showToast}
           isModal={true}
+          goldenTickets={goldenTickets}
+          goldenSpending={goldenSpending}
           onClose={() => setShowSpendingModal(false)}
         />
       )}
@@ -9992,6 +10714,14 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       )}
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
       {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
+      {spendGoldenData && (
+        <SpendGoldenTicketsModal
+          className={spendGoldenData.className}
+          spendable={spendGoldenData.spendable}
+          onClose={() => setSpendGoldenData(null)}
+          showToast={showToast}
+        />
+      )}
       <ResetTeacherPasswordModal targetProfile={resetPasswordTarget} onClose={() => setResetPasswordTarget(null)} showToast={showToast} />
       {manageCoTeacherTarget && (
         <AdminManageCoTeachersModal

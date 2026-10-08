@@ -58,6 +58,7 @@ class GoogleSheetsDb {
       Students: [],
       Tickets: [],
       GoldenTickets: [],
+      GoldenSpending: [],
       Spending: [],
       ClassGoals: [],
       GradeGoals: [],
@@ -155,6 +156,7 @@ class GoogleSheetsDb {
       { name: 'Students', headers: ['Id', 'Name', 'Homeroom', 'Grade', 'PinCode'] },
       { name: 'Tickets', headers: ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'RecipientType', 'Reason', 'Timestamp'] },
       { name: 'GoldenTickets', headers: ['Id', 'TeacherEmail', 'TeacherName', 'ClassName', 'Timestamp'] },
+      { name: 'GoldenSpending', headers: ['Id', 'TeacherEmail', 'TeacherName', 'ClassName', 'Amount', 'Item', 'Timestamp'] },
       { name: 'Spending', headers: ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'Amount', 'Item', 'Timestamp'] },
       { name: 'ClassGoals', headers: ['ClassName', 'GoalTickets', 'RewardText', 'Timestamp'] },
       { name: 'GradeGoals', headers: ['Grade', 'GoalGolden', 'RewardText', 'Timestamp'] },
@@ -885,13 +887,14 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     // Student Dashboard view
     if (role === 'student') {
       const studentId = req.user.studentId;
-      const sheetsData = await db.getMultipleSheets(['Students', 'Tickets', 'Spending', 'ClassGoals', 'GradeGoals', 'GoldenTickets']);
+      const sheetsData = await db.getMultipleSheets(['Students', 'Tickets', 'Spending', 'ClassGoals', 'GradeGoals', 'GoldenTickets', 'GoldenSpending']);
       const allStudents = sheetsData.Students || [];
       const allTickets = sheetsData.Tickets || [];
       const allSpending = sheetsData.Spending || [];
       const classGoals = sheetsData.ClassGoals || [];
       const gradeGoals = sheetsData.GradeGoals || [];
       const allGolden = sheetsData.GoldenTickets || [];
+      const allGoldenSpending = sheetsData.GoldenSpending || [];
 
       const student = allStudents.find(s => s.id === studentId);
       if (!student) return res.status(404).json({ message: 'Student profile not found' });
@@ -901,6 +904,9 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       const classGoal = classGoals.find(g => g.className === student.homeroom) || null;
       const gradeGoal = gradeGoals.find(g => g.grade === student.grade) || null;
       const goldenTickets = allGolden.filter(g => g.className === student.homeroom);
+      const goldenSpending = allGoldenSpending.filter(s => s.className === student.homeroom);
+      const goldenSpent = goldenSpending.reduce((sum, s) => sum + Number(s.amount || 0), 0);
+      const goldenBalance = Math.max(0, goldenTickets.length - goldenSpent);
 
       const earned = studentTickets.length;
       const spent = studentSpending.reduce((sum, s) => sum + Number(s.amount || 0), 0);
@@ -922,6 +928,8 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
         gradeGoal,
         wallet: { earned, spent, balance },
         goldenCount: goldenTickets.length,
+        goldenSpent,
+        goldenBalance,
         classTicketsEarned,
         gradeGoldenEarned
       });
@@ -933,6 +941,7 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       'Users',
       'Students',
       'GoldenTickets',
+      'GoldenSpending',
       'ClassGoals',
       'GradeGoals',
       'Tickets',
@@ -942,6 +951,7 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     const profiles = sheetsData.Users || [];
     const students = sheetsData.Students || [];
     const goldenTickets = sheetsData.GoldenTickets || [];
+    const goldenSpending = sheetsData.GoldenSpending || [];
     const classGoals = sheetsData.ClassGoals || [];
     const gradeGoals = sheetsData.GradeGoals || [];
     const allTickets = sheetsData.Tickets || [];
@@ -979,6 +989,28 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
         balances[s.recipient] = { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
       }
       balances[s.recipient].spent += Number(s.amount || 0);
+    });
+
+    // Calculate global golden ticket balances for all classes
+    const goldenBalances = {};
+    goldenTickets.forEach(g => {
+      if (g.className) {
+        if (!goldenBalances[g.className]) {
+          goldenBalances[g.className] = { earned: 0, spent: 0, balance: 0 };
+        }
+        goldenBalances[g.className].earned++;
+      }
+    });
+    goldenSpending.forEach(s => {
+      if (s.className) {
+        if (!goldenBalances[s.className]) {
+          goldenBalances[s.className] = { earned: 0, spent: 0, balance: 0 };
+        }
+        goldenBalances[s.className].spent += Number(s.amount || 0);
+      }
+    });
+    Object.keys(goldenBalances).forEach(cls => {
+      goldenBalances[cls].balance = Math.max(0, goldenBalances[cls].earned - goldenBalances[cls].spent);
     });
 
     const activeRole = (req.user && req.user.role) ? req.user.role : profile.role;
@@ -1025,6 +1057,8 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       students,
       tickets,
       goldenTickets,
+      goldenSpending,
+      goldenBalances,
       spending,
       classGoals,
       gradeGoals,
@@ -1336,6 +1370,69 @@ app.delete('/api/spending/:id', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Error deleting spending record' });
+  }
+});
+
+// --- Golden Ticket Spending CRUD (Admin Only) ---
+app.post('/api/golden-spending', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required to spend class golden tickets' });
+  }
+  const { className, amount, item } = req.body;
+  const amt = Math.floor(Number(amount));
+  if (!className || !amt || amt < 1) {
+    return res.status(400).json({ message: 'Class name and a valid positive amount are required.' });
+  }
+
+  try {
+    const sheetsData = await db.getMultipleSheets(['GoldenTickets', 'GoldenSpending']);
+    const goldenTickets = sheetsData.GoldenTickets || [];
+    const goldenSpending = sheetsData.GoldenSpending || [];
+
+    const earned = goldenTickets.filter(g => g.className === className).length;
+    const spent = goldenSpending.filter(s => s.className === className).reduce((sum, s) => sum + Number(s.amount || 0), 0);
+    const available = earned - spent;
+
+    if (amt > available) {
+      return res.status(400).json({ message: `${className}'s class only has ${available} golden ticket(s) remaining.` });
+    }
+
+    const id = crypto.randomUUID();
+    const timestamp = new Date().toISOString();
+    const newSpend = {
+      id,
+      teacherEmail: req.user.email,
+      teacherName: req.user.name,
+      className,
+      amount: amt,
+      item: (item || '').trim() || 'Class Reward',
+      timestamp
+    };
+
+    await db.appendRow('GoldenSpending', ['Id', 'TeacherEmail', 'TeacherName', 'ClassName', 'Amount', 'Item', 'Timestamp'], newSpend);
+    res.json(newSpend);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error logging golden ticket spend' });
+  }
+});
+
+app.delete('/api/golden-spending/:id', authMiddleware, async (req, res) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required to delete golden ticket spending records' });
+  }
+  const spendId = req.params.id;
+
+  try {
+    const goldenSpending = await db.getRows('GoldenSpending');
+    const spend = goldenSpending.find(s => s.id === spendId);
+    if (!spend) return res.status(404).json({ message: 'Golden spending record not found' });
+
+    await db.deleteRow('GoldenSpending', spend._rowNum);
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Error deleting golden spending record' });
   }
 });
 
