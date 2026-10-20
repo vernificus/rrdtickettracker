@@ -5,7 +5,7 @@ import {
   Crown, BarChart3, TrendingUp, GitMerge, ArrowRight, Lock, Plus, HelpCircle, Settings, Gamepad2, Tv,
   Eye, Smartphone, Contrast, ShieldCheck, Share, ZoomIn, Volume2, ArrowUpDown, Layers, Shuffle, CheckSquare, Square,
   Upload, Key, Menu, Printer, History, Clock, Calendar, AlertCircle, RefreshCw, Sparkles, Filter, Undo2, Info,
-  ShoppingBag, FileText, ChevronDown
+  ShoppingBag, FileText, ChevronDown, Home
 } from 'lucide-react';
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8080' : 'https://ticket-tracker-639453420405.us-east1.run.app');
@@ -404,6 +404,7 @@ export default function App() {
   const [gradeGoals, setGradeGoals] = useState([]);
   const [balances, setBalances] = useState({});
   const [raffleWinners, setRaffleWinners] = useState([]);
+  const [studentGroups, setStudentGroups] = useState([]);
 
   // Student Data State
   const [studentData, setStudentData] = useState(null);
@@ -549,6 +550,7 @@ export default function App() {
           setGradeGoals(data.gradeGoals || []);
           setBalances(data.balances || {});
           setRaffleWinners(data.raffleWinners || []);
+          setStudentGroups(data.studentGroups || []);
         }
       } catch (e) {
         console.error("Session check/data load error:", e);
@@ -837,13 +839,13 @@ export default function App() {
         ) : (
           <>
             {role === 'admin' && (
-              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} />
+              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} studentGroups={studentGroups} setStudentGroups={setStudentGroups} />
             )}
             {role === 'homeroom' && (
-              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} />
+              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} studentGroups={studentGroups} setStudentGroups={setStudentGroups} />
             )}
             {role === 'specialist' && (
-              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} />
+              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} studentGroups={studentGroups} setStudentGroups={setStudentGroups} />
             )}
           </>
         )}
@@ -1140,7 +1142,7 @@ const getDisplayCardNameSizeClass = (name) => {
 };
 
 // --- Student Ticket Card (Inline ticket giving) ---
-function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor, balances, onSpend, students = [], onEditStudent, isAbsent, onToggleAbsent, tickets = [], teacherEmail, isMultiSelectMode, isSelected, onToggleSelect }) {
+function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor, balances, onSpend, students = [], onEditStudent, isAbsent, onToggleAbsent, tickets = [], teacherEmail, isMultiSelectMode, isSelected, onToggleSelect, showHomeroomBadge = false }) {
   const bal = balances[student] || { earned: 0, spent: 0, Respectful: 0, Responsible: 0, Determined: 0 };
   const spendable = Math.max(0, bal.earned - bal.spent);
   const isBusy = isSubmitting && submittingFor === student;
@@ -1193,6 +1195,12 @@ function StudentTicketCard({ student, onGiveTicket, isSubmitting, submittingFor,
             {studentObj && (
               <span className="text-[10px] text-gray-400 block truncate mt-0.5">
                 ID: {studentObj.id}
+              </span>
+            )}
+            {showHomeroomBadge && studentObj && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-850 bg-emerald-100/80 border border-emerald-300/80 px-2 py-0.5 rounded-md mt-1 truncate max-w-full">
+                <Home className="w-2.5 h-2.5 text-emerald-700 flex-shrink-0" />
+                <span className="truncate">{studentObj.homeroom || 'Homeroom'} {studentObj.grade ? `· ${studentObj.grade}` : ''}</span>
               </span>
             )}
           </div>
@@ -8248,6 +8256,543 @@ function StudentDashboard({ studentData, onSignOut, onOpenAccessibility, onOpenI
   );
 }
 
+// --- Clubs & Activity Groups Modal (School-wide Multi-Roster Classes) ---
+function ClubsModal({
+  isOpen,
+  onClose,
+  allStudents = [],
+  studentGroups = [],
+  onSaveGroup,
+  onDeleteGroup,
+  onSelectGroupAsActive,
+  onAwardGroupTickets,
+  currentUserEmail = '',
+  currentUserName = '',
+  profiles = [],
+  isAdmin = false,
+  isSubmitting = false
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingGroupId, setEditingGroupId] = useState(null);
+  const [clubName, setClubName] = useState('');
+  const [clubDescription, setClubDescription] = useState('');
+  const [selectedSponsors, setSelectedSponsors] = useState(new Set());
+  const [selectedStudentIds, setSelectedStudentIds] = useState(new Set());
+
+  // Search & Filters for student selection
+  const [studentSearch, setStudentSearch] = useState('');
+  const [gradeFilter, setGradeFilter] = useState('all');
+  const [homeroomFilter, setHomeroomFilter] = useState('all');
+
+  useEffect(() => {
+    if (!isOpen) {
+      setIsEditing(false);
+      setEditingGroupId(null);
+      setClubName('');
+      setClubDescription('');
+      setSelectedSponsors(new Set());
+      setSelectedStudentIds(new Set());
+      setStudentSearch('');
+      setGradeFilter('all');
+      setHomeroomFilter('all');
+    }
+  }, [isOpen]);
+
+  const allGrades = useMemo(() => [...new Set(allStudents.map(s => s.grade).filter(Boolean))].sort(), [allStudents]);
+  const allHomerooms = useMemo(() => [...new Set(allStudents.map(s => s.homeroom).filter(Boolean))].sort(), [allStudents]);
+
+  const filteredStudents = useMemo(() => {
+    return allStudents.filter(s => {
+      if (studentSearch) {
+        const q = studentSearch.toLowerCase().trim();
+        const matchesName = (s.name || '').toLowerCase().includes(q);
+        const matchesId = String(s.id || '').toLowerCase().includes(q);
+        if (!matchesName && !matchesId) return false;
+      }
+      if (gradeFilter !== 'all' && s.grade !== gradeFilter) return false;
+      if (homeroomFilter !== 'all' && s.homeroom !== homeroomFilter) return false;
+      return true;
+    });
+  }, [allStudents, studentSearch, gradeFilter, homeroomFilter]);
+
+  if (!isOpen) return null;
+
+  const handleStartCreate = () => {
+    setEditingGroupId(null);
+    setClubName('');
+    setClubDescription('');
+    const initialSponsors = new Set();
+    if (currentUserEmail) initialSponsors.add(currentUserEmail);
+    setSelectedSponsors(initialSponsors);
+    setSelectedStudentIds(new Set());
+    setStudentSearch('');
+    setGradeFilter('all');
+    setHomeroomFilter('all');
+    setIsEditing(true);
+  };
+
+  const handleStartEdit = (grp) => {
+    setEditingGroupId(grp.id);
+    setClubName(grp.name || '');
+    setClubDescription(grp.description || '');
+    setSelectedSponsors(new Set(Array.isArray(grp.sponsors) ? grp.sponsors : []));
+
+    const ids = new Set((grp.studentIds || []).map(String));
+    if (Array.isArray(grp.studentNames)) {
+      grp.studentNames.forEach(n => {
+        const match = allStudents.find(s => (s.name || '').toLowerCase() === n.toLowerCase());
+        if (match?.id) ids.add(String(match.id));
+      });
+    }
+    setSelectedStudentIds(ids);
+    setStudentSearch('');
+    setGradeFilter('all');
+    setHomeroomFilter('all');
+    setIsEditing(true);
+  };
+
+  const toggleStudent = (sId) => {
+    setSelectedStudentIds(prev => {
+      const next = new Set(prev);
+      if (next.has(sId)) next.delete(sId);
+      else next.add(sId);
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    setSelectedStudentIds(prev => {
+      const next = new Set(prev);
+      filteredStudents.forEach(s => next.add(s.id));
+      return next;
+    });
+  };
+
+  const deselectAllFiltered = () => {
+    setSelectedStudentIds(prev => {
+      const next = new Set(prev);
+      filteredStudents.forEach(s => next.delete(s.id));
+      return next;
+    });
+  };
+
+  const toggleSponsor = (email) => {
+    setSelectedSponsors(prev => {
+      const next = new Set(prev);
+      if (next.has(email)) next.delete(email);
+      else next.add(email);
+      return next;
+    });
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!clubName.trim()) return;
+    const studentIdList = Array.from(selectedStudentIds);
+    const selectedObjs = allStudents.filter(s => selectedStudentIds.has(s.id));
+    const studentNameList = selectedObjs.map(s => s.name);
+
+    const sponsorList = Array.from(selectedSponsors);
+    if (sponsorList.length === 0 && currentUserEmail) {
+      sponsorList.push(currentUserEmail);
+    }
+
+    onSaveGroup({
+      id: editingGroupId || undefined,
+      name: clubName.trim(),
+      description: clubDescription.trim(),
+      sponsors: sponsorList,
+      studentIds: studentIdList,
+      studentNames: studentNameList
+    });
+    setIsEditing(false);
+  };
+
+  // Filter groups visible to the current user (sponsors or admins)
+  const myEmailLower = (currentUserEmail || '').trim().toLowerCase();
+  const myNameLower = (currentUserName || '').trim().toLowerCase();
+  const visibleGroups = isAdmin
+    ? studentGroups
+    : studentGroups.filter(g => {
+        const sp = Array.isArray(g.sponsors) ? g.sponsors.map(s => String(s).trim().toLowerCase()) : [];
+        return sp.length === 0 || sp.some(s => s === myEmailLower || s === myNameLower || (myNameLower && s.includes(myNameLower)));
+      });
+
+  return (
+    <div className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in" role="dialog" aria-modal="true">
+      <div className="bg-white rounded-3xl p-6 max-w-3xl w-full border border-emerald-200 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto flex flex-col justify-between">
+        <div className="space-y-5">
+          {/* Header */}
+          <div className="flex justify-between items-center border-b pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="bg-gradient-to-br from-emerald-500 to-teal-600 p-2.5 rounded-xl text-white shadow-sm">
+                <Sparkles className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-display font-extrabold text-gray-900 text-lg">
+                  {isEditing ? (editingGroupId ? 'Edit Club & Roster' : 'Create New Club or Group') : 'Clubs & Activity Groups'}
+                </h2>
+                <p className="text-xs text-gray-500">
+                  {isEditing ? 'Assign students across any grade or homeroom without altering their classroom teacher.' : 'Specialized rosters for clubs, interventions, or teams that keep students in their homerooms.'}
+                </p>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-2 text-gray-400 hover:text-gray-700 rounded-full transition min-h-[44px] cursor-pointer">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {!isEditing ? (
+            /* Clubs List View */
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Active Clubs & Groups ({visibleGroups.length})
+                </div>
+                <button
+                  type="button"
+                  onClick={handleStartCreate}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Create New Club
+                </button>
+              </div>
+
+              {visibleGroups.length === 0 ? (
+                <div className="bg-emerald-50/50 border border-emerald-200/70 rounded-2xl p-8 text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center mx-auto">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  <h3 className="font-bold text-gray-900 text-base">No Clubs or Activity Groups Yet</h3>
+                  <p className="text-xs text-gray-600 max-w-md mx-auto">
+                    Create groups like <strong>Robotics Club</strong>, <strong>Safety Patrol</strong>, <strong>Chorus</strong>, or <strong>Reading Intervention</strong>. Students keep their regular homeroom teacher while having a dedicated class roster and goal in your dashboard!
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleStartCreate}
+                    className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" /> Create Your First Club
+                  </button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {visibleGroups.map(grp => {
+                    const studentCount = (grp.studentIds?.length || grp.studentNames?.length || 0);
+                    const memberNames = grp.studentNames || [];
+                    const sponsorNames = (grp.sponsors || []).map(s => {
+                      const p = profiles.find(prof => prof.email?.toLowerCase() === s.toLowerCase());
+                      return p?.name || s.split('@')[0];
+                    }).join(', ') || 'Self';
+
+                    return (
+                      <div key={grp.id} className="bg-white border border-emerald-200/80 rounded-2xl p-4 shadow-2xs hover:shadow-md transition flex flex-col justify-between space-y-3">
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-gray-900 text-base">{grp.name}</span>
+                                <span className="bg-emerald-100 text-emerald-800 text-xxs font-extrabold px-2 py-0.5 rounded-full border border-emerald-200">
+                                  {studentCount} {studentCount === 1 ? 'student' : 'students'}
+                                </span>
+                              </div>
+                              {grp.description && (
+                                <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{grp.description}</p>
+                              )}
+                              <p className="text-xxs text-gray-400 mt-1">
+                                <span className="font-semibold text-gray-600">Sponsors:</span> {sponsorNames}
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => onDeleteGroup(grp.id)}
+                              className="text-gray-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition cursor-pointer"
+                              title="Delete Club"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          {/* Member Preview Chips */}
+                          {memberNames.length > 0 && (
+                            <div className="flex flex-wrap gap-1 pt-1">
+                              {memberNames.slice(0, 5).map(name => {
+                                const stObj = allStudents.find(s => s.name === name);
+                                return (
+                                  <span key={name} className="text-[10px] font-medium bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded-md" title={`${name} (${stObj?.homeroom || 'Homeroom'})`}>
+                                    {name} {stObj?.homeroom ? `(${stObj.homeroom})` : ''}
+                                  </span>
+                                );
+                              })}
+                              {memberNames.length > 5 && (
+                                <span className="text-[10px] font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded-md">
+                                  +{memberNames.length - 5} more
+                                </span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Actions */}
+                        <div className="pt-2 border-t border-gray-150 space-y-2">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onSelectGroupAsActive(grp.id);
+                                onClose();
+                              }}
+                              className="flex-1 py-1.5 px-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer"
+                              title="Set this club as your active dashboard class"
+                            >
+                              <Users className="w-3.5 h-3.5" /> Open Active Class
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(grp)}
+                              className="py-1.5 px-3 bg-white hover:bg-gray-50 border border-gray-300 text-gray-700 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                              title="Edit club name, description, and members"
+                            >
+                              <Settings className="w-3.5 h-3.5" /> Edit
+                            </button>
+                          </div>
+
+                          {/* Quick 1-click group ticket awards */}
+                          {onAwardGroupTickets && (
+                            <div>
+                              <div className="text-[10px] font-bold uppercase tracking-wider text-gray-400 mb-1 flex items-center gap-1">
+                                <Ticket className="w-3 h-3 text-emerald-600" /> Quick Award to All Members:
+                              </div>
+                              <div className="grid grid-cols-3 gap-1">
+                                <button
+                                  type="button"
+                                  disabled={isSubmitting}
+                                  onClick={() => onAwardGroupTickets(grp.studentNames || [], grp.name, 'Respectful')}
+                                  className="py-1 px-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xxs font-extrabold transition cursor-pointer text-center"
+                                >
+                                  +1 Respectful
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSubmitting}
+                                  onClick={() => onAwardGroupTickets(grp.studentNames || [], grp.name, 'Responsible')}
+                                  className="py-1 px-1 bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 rounded-lg text-xxs font-extrabold transition cursor-pointer text-center"
+                                >
+                                  +1 Responsible
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={isSubmitting}
+                                  onClick={() => onAwardGroupTickets(grp.studentNames || [], grp.name, 'Determined')}
+                                  className="py-1 px-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg text-xxs font-extrabold transition cursor-pointer text-center"
+                                >
+                                  +1 Determined
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Create / Edit Form */
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="club-name-input" className="block text-xs font-bold text-gray-700 mb-1">
+                    Club or Group Name *
+                  </label>
+                  <input
+                    id="club-name-input"
+                    type="text"
+                    required
+                    placeholder="e.g. Safety Patrol / Robotics Club / Chorus"
+                    value={clubName}
+                    onChange={e => setClubName(e.target.value)}
+                    className="w-full p-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="club-desc-input" className="block text-xs font-bold text-gray-700 mb-1">
+                    Description or Meeting Schedule (Optional)
+                  </label>
+                  <input
+                    id="club-desc-input"
+                    type="text"
+                    placeholder="e.g. Meets Tuesdays after school in Room 12"
+                    value={clubDescription}
+                    onChange={e => setClubDescription(e.target.value)}
+                    className="w-full p-2.5 border border-gray-300 rounded-xl text-sm outline-none focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Co-Sponsors */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Co-Sponsors & Leaders (Who can manage this club)
+                </label>
+                <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto p-2 border border-gray-200 rounded-xl bg-gray-50">
+                  {profiles.filter(p => p.email).map(p => {
+                    const isChecked = selectedSponsors.has(p.email);
+                    return (
+                      <button
+                        key={p.email}
+                        type="button"
+                        onClick={() => toggleSponsor(p.email)}
+                        className={`text-xs px-2.5 py-1 rounded-lg border font-semibold transition cursor-pointer flex items-center gap-1 ${isChecked ? 'bg-emerald-600 text-white border-emerald-700' : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'}`}
+                      >
+                        {isChecked && <CheckCircle2 className="w-3 h-3 text-white" />}
+                        <span>{p.name || p.email}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Student Roster Selection */}
+              <div className="space-y-2 pt-2 border-t border-gray-200">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-extrabold text-gray-900 uppercase tracking-wider">
+                      Select Club Students
+                    </span>
+                    <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                      {selectedStudentIds.size} Selected
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllFiltered}
+                      className="text-xs text-emerald-700 font-bold hover:underline cursor-pointer"
+                    >
+                      Select All Filtered ({filteredStudents.length})
+                    </button>
+                    <span className="text-gray-300">|</span>
+                    <button
+                      type="button"
+                      onClick={deselectAllFiltered}
+                      className="text-xs text-gray-500 font-bold hover:underline cursor-pointer"
+                    >
+                      Deselect Filtered
+                    </button>
+                  </div>
+                </div>
+
+                {/* Filters Row */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-2.5 top-3" />
+                    <input
+                      type="text"
+                      placeholder="Search name or ID..."
+                      value={studentSearch}
+                      onChange={e => setStudentSearch(e.target.value)}
+                      className="w-full pl-8 pr-2.5 py-1.5 border border-gray-300 rounded-xl text-xs outline-none focus:ring-emerald-500 focus:border-emerald-500 bg-white"
+                    />
+                  </div>
+                  <select
+                    value={gradeFilter}
+                    onChange={e => setGradeFilter(e.target.value)}
+                    className="p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Grades ({allGrades.length})</option>
+                    {allGrades.map(g => (
+                      <option key={g} value={g}>{g}</option>
+                    ))}
+                  </select>
+                  <select
+                    value={homeroomFilter}
+                    onChange={e => setHomeroomFilter(e.target.value)}
+                    className="p-1.5 border border-gray-300 rounded-xl text-xs outline-none bg-white font-medium cursor-pointer"
+                  >
+                    <option value="all">All Homerooms ({allHomerooms.length})</option>
+                    {allHomerooms.map(h => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Scrollable Students List */}
+                <div className="max-h-60 overflow-y-auto border border-gray-200 rounded-2xl bg-white p-2 divide-y divide-gray-100">
+                  {filteredStudents.length === 0 ? (
+                    <div className="p-4 text-center text-xs text-gray-400">
+                      No students match the selected search and filter criteria.
+                    </div>
+                  ) : (
+                    filteredStudents.map(st => {
+                      const isChecked = selectedStudentIds.has(st.id);
+                      return (
+                        <label
+                          key={st.id}
+                          className={`flex items-center justify-between p-2 hover:bg-gray-50 rounded-xl cursor-pointer transition text-xs ${isChecked ? 'bg-emerald-50/50' : ''}`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleStudent(st.id)}
+                              className="w-4 h-4 text-emerald-600 rounded border-gray-300 focus:ring-emerald-500 cursor-pointer"
+                            />
+                            <div className="truncate">
+                              <span className="font-bold text-gray-900 block truncate">{st.name}</span>
+                              <span className="text-[10px] text-gray-400">ID: {st.id}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+                            <span className="text-[10px] font-semibold text-emerald-800 bg-emerald-100/70 border border-emerald-200 px-2 py-0.5 rounded-full">
+                              🏠 {st.homeroom || 'No Homeroom'} {st.grade ? `· ${st.grade}` : ''}
+                            </span>
+                          </div>
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* Form Actions */}
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(false)}
+                  className="px-4 py-2 border rounded-xl text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!clubName.trim() || isSubmitting}
+                  className="px-5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold disabled:opacity-50 transition shadow-sm cursor-pointer"
+                >
+                  {isSubmitting ? 'Saving...' : (editingGroupId ? 'Save Changes' : 'Save Club & Roster')}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+
+        {/* Modal Footer */}
+        <div className="border-t pt-3 flex justify-between items-center text-xxs text-gray-400">
+          <span>Students retain their primary homerooms at all times.</span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-3 py-1.5 border rounded-lg text-xs font-bold text-gray-600 bg-white hover:bg-gray-50 cursor-pointer"
+          >
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- Group Management Modal ---
 function GroupManagementModal({
   isOpen,
@@ -9375,7 +9920,7 @@ function AwardGoldenTicketModal({ isOpen, onClose, defaultClass, classes = [], o
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport, studentGroups = [], setStudentGroups }) {
   const [modalData, setModalData] = useState(null);
   const [showGoldenModal, setShowGoldenModal] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
@@ -9398,9 +9943,105 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   // Class Roster Sorting state ('lastName', 'firstName', 'tickets')
   const [sortBy, setSortBy] = useState('lastName');
 
-  // Co-Teacher & Departmentalized Class Switcher state
+  // Co-Teacher, Departmentalized & Clubs Class Switcher state
   const [selectedClassFilter, setSelectedClassFilter] = useState('primary');
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showClubsModal, setShowClubsModal] = useState(false);
+
+  // Filter clubs where current teacher is a sponsor (or admin)
+  const myClubsAndGroups = useMemo(() => {
+    if (!Array.isArray(studentGroups)) return [];
+    const myEmail = (profile?.email || '').trim().toLowerCase();
+    const myName = (profile?.name || '').trim().toLowerCase();
+    const isAdmin = profile?.role === 'admin';
+    return studentGroups.filter(g => {
+      if (isAdmin) return true;
+      const sponsors = Array.isArray(g.sponsors) ? g.sponsors.map(s => String(s).trim().toLowerCase()) : [];
+      return sponsors.length === 0 || sponsors.some(s => s === myEmail || s === myName || (myName && s.includes(myName)));
+    });
+  }, [studentGroups, profile]);
+
+  const isGroupActive = selectedClassFilter.startsWith('group:');
+  const activeGroupId = isGroupActive ? selectedClassFilter.replace('group:', '') : null;
+  const activeGroupObj = isGroupActive ? (studentGroups || []).find(g => String(g.id) === String(activeGroupId)) : null;
+
+  const handleSaveGroup = async (groupData) => {
+    setIsSubmitting(true);
+    try {
+      const res = await api.fetch('/api/student-groups', {
+        method: 'POST',
+        body: JSON.stringify(groupData)
+      });
+      if (setStudentGroups) {
+        setStudentGroups(prev => {
+          const idx = prev.findIndex(g => String(g.id) === String(res.id));
+          if (idx !== -1) {
+            const next = [...prev];
+            next[idx] = res;
+            return next;
+          }
+          return [...prev, res];
+        });
+      }
+      showToast(`Saved club "${res.name}" successfully!`);
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to save club.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteGroup = async (groupId) => {
+    if (!window.confirm("Are you sure you want to delete this club? Students will not be affected.")) return;
+    setIsSubmitting(true);
+    try {
+      await api.fetch(`/api/student-groups/${groupId}`, {
+        method: 'DELETE'
+      });
+      if (setStudentGroups) {
+        setStudentGroups(prev => prev.filter(g => String(g.id) !== String(groupId)));
+      }
+      if (selectedClassFilter === `group:${groupId}`) {
+        setSelectedClassFilter('primary');
+      }
+      showToast("Club deleted successfully.");
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to delete club.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSelectGroupAsActive = (groupId) => {
+    setSelectedClassFilter(`group:${groupId}`);
+    showToast("Switched active class view to club!");
+  };
+
+  const handleAwardClubTickets = async (memberNames, clubName, reason = 'Respectful') => {
+    if (!memberNames || memberNames.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      const ticketsToCreate = memberNames.map(recipient => ({
+        teacherId: user?.uid || profile.name,
+        teacherName: profile.name,
+        recipient,
+        recipientType: 'student',
+        reason,
+        customDate: resolveSelectedDate()
+      }));
+      await addDocsBatch('tickets', ticketsToCreate);
+      showToast(`Awarded ${reason} tickets to all ${memberNames.length} students in "${clubName}"!`);
+    } catch (e) {
+      console.error(e);
+      showToast("Error awarding club tickets.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const coTaughtList = useMemo(() => {
     const set = new Set();
@@ -9594,6 +10235,19 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   };
 
   const myStudents = useMemo(() => {
+    if (selectedClassFilter.startsWith('group:')) {
+      const groupId = selectedClassFilter.replace('group:', '');
+      const activeGroup = (studentGroups || []).find(g => String(g.id) === String(groupId));
+      if (activeGroup) {
+        const groupMemberIds = new Set((activeGroup.studentIds || []).map(String));
+        const groupMemberNames = new Set((activeGroup.studentNames || []).map(n => (n || '').trim().toLowerCase()));
+        const matched = students
+          .filter(s => groupMemberIds.has(String(s.id)) || groupMemberNames.has((s.name || '').trim().toLowerCase()))
+          .map(s => s.name);
+        return sortStudentNames(matched, sortBy, balances);
+      }
+    }
+
     let targetHomerooms = [profile.name];
     if (selectedClassFilter === 'all') {
       targetHomerooms = [profile.name, ...coTaughtList];
@@ -9618,7 +10272,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     const custom = (selectedClassFilter === 'primary' || selectedClassFilter === 'all') ? (profile.customStudents || []) : [];
     const allNames = [...new Set([...central, ...custom])];
     return sortStudentNames(allNames, sortBy, balances);
-  }, [students, profile, profiles, coTaughtList, selectedClassFilter, sortBy, balances]);
+  }, [students, profile, profiles, coTaughtList, selectedClassFilter, sortBy, balances, studentGroups]);
 
   const myStudentObjects = useMemo(() => {
     return students.filter(s => myStudents.includes(s.name));
@@ -9645,8 +10299,11 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 
   // Calculate Class Goal
   const currentGoal = useMemo(() => {
+    if (isGroupActive) {
+      return classGoals.find(g => g.className === (activeGroupObj?.name || ''));
+    }
     return classGoals.find(g => g.className === profile.name);
-  }, [classGoals, profile.name]);
+  }, [classGoals, profile.name, isGroupActive, activeGroupObj]);
 
   useEffect(() => {
     if (currentGoal) {
@@ -9710,7 +10367,9 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     return [...new Set([...fromStudents, ...fromProfiles, profile.name])].sort();
   }, [students, profiles, profile]);
 
-  const activeHomeroom = selectedClassFilter === 'primary' ? profile.name : (selectedClassFilter === 'all' ? profile.name : selectedClassFilter);
+  const activeHomeroom = isGroupActive
+    ? (activeGroupObj?.name || 'Club Group')
+    : (selectedClassFilter === 'primary' ? profile.name : (selectedClassFilter === 'all' ? profile.name : selectedClassFilter));
 
   const handleGiveTicket = async (reason) => {
     if (!effectiveUid || !profile) {
@@ -9723,7 +10382,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
     try {
       if (type === 'class') {
         const className = recipient.split(' (Whole Class)')[0];
-        const isCurrentClass = matchHomeroom(profile.name, className) || (selectedClassFilter !== 'primary' && matchHomeroom(selectedClassFilter, className));
+        const isCurrentClass = matchHomeroom(profile.name, className) || (selectedClassFilter !== 'primary' && matchHomeroom(selectedClassFilter, className)) || (isGroupActive && className === activeHomeroom);
         const targetStudentNames = isCurrentClass ? myStudents : students.filter(s => matchHomeroom(s.homeroom, className)).map(s => s.name);
         const presentStudents = targetStudentNames.filter(name => !absentStudents.has(name));
         if (presentStudents.length === 0) {
@@ -9798,16 +10457,17 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 
   const handleSaveClassGoal = async (e) => {
     e.preventDefault();
+    const targetName = isGroupActive ? (activeGroupObj?.name || activeHomeroom) : profile.name;
     try {
       await api.fetch('/api/class-goals', {
         method: 'POST',
         body: JSON.stringify({
-          className: profile.name,
+          className: targetName,
           goalTickets: Number(goalTarget),
           rewardText
         })
       });
-      showToast("Class goal updated successfully!");
+      showToast(`${targetName} goal updated successfully!`);
       setShowGoalSettings(false);
       if (window.triggerRefresh) window.triggerRefresh();
     } catch (err) {
@@ -10083,17 +10743,38 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
               onChange={e => setSelectedClassFilter(e.target.value)}
               className="text-xs font-extrabold text-emerald-950 bg-transparent outline-none cursor-pointer"
             >
-              <option value="primary">My Homeroom ({profile.name})</option>
-              {coTaughtList.map(hName => (
-                <option key={hName} value={hName}>
-                  Co-Taught / Switch: {hName}
-                </option>
-              ))}
-              {coTaughtList.length > 0 && (
-                <option value="all">Combined Roster (All Classes)</option>
+              <optgroup label="Homeroom & Switch Classes">
+                <option value="primary">My Homeroom ({profile.name})</option>
+                {coTaughtList.map(hName => (
+                  <option key={hName} value={hName}>
+                    Co-Taught / Switch: {hName}
+                  </option>
+                ))}
+                {coTaughtList.length > 0 && (
+                  <option value="all">Combined Roster (All Classes)</option>
+                )}
+              </optgroup>
+              {myClubsAndGroups.length > 0 && (
+                <optgroup label="Clubs & Groups">
+                  {myClubsAndGroups.map(grp => (
+                    <option key={grp.id} value={`group:${grp.id}`}>
+                      🌟 {grp.name} ({grp.studentIds?.length || grp.studentNames?.length || 0} students)
+                    </option>
+                  ))}
+                </optgroup>
               )}
             </select>
           </div>
+
+          <button
+            type="button"
+            onClick={() => setShowClubsModal(true)}
+            className="flex items-center gap-1.5 bg-gradient-to-r from-emerald-50 to-teal-50 hover:from-emerald-100 hover:to-teal-100 text-emerald-900 font-bold py-2 px-3 rounded-xl border border-emerald-300 transition text-xs cursor-pointer min-h-[44px] shadow-2xs"
+            title="Create and manage clubs or groups without changing students' homerooms"
+          >
+            <Sparkles className="w-4 h-4 text-emerald-600" />
+            <span>Clubs & Groups ({myClubsAndGroups.length})</span>
+          </button>
 
           <button
             type="button"
@@ -10209,6 +10890,46 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         </form>
       )}
 
+      {/* Active Club / Group Notice Banner */}
+      {isGroupActive && (
+        <div className="bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/10 border border-emerald-300/80 rounded-2xl p-4 flex items-center justify-between flex-wrap gap-3 animate-fade-in shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="bg-emerald-600 text-white p-2.5 rounded-xl shadow-xs">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-extrabold text-navy-950 text-base">{activeGroupObj?.name || 'Club Roster'}</span>
+                <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
+                  {myStudents.length} {myStudents.length === 1 ? 'student' : 'students'}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">
+                Multi-homeroom roster · All students remain in their classroom homerooms.
+                {activeGroupObj?.description ? ` — ${activeGroupObj.description}` : ''}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowClubsModal(true)}
+              className="px-3 py-1.5 bg-white hover:bg-gray-50 border border-emerald-300 text-emerald-800 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-2xs cursor-pointer min-h-[36px]"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              Edit Club Roster
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedClassFilter('primary')}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition flex items-center gap-1 cursor-pointer min-h-[36px]"
+            >
+              Back to Homeroom
+            </button>
+          </div>
+        </div>
+      )}
+
       {myStudents.length === 0 ? (
         <div className="bg-white p-8 rounded-xl border text-center text-gray-500">
           <Users className="w-12 h-12 mx-auto mb-3 text-gray-300" aria-hidden="true" />
@@ -10226,6 +10947,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
               isMultiSelectMode={isMultiSelectMode}
               isSelected={selectedStudentNames.has(student)}
               onToggleSelect={() => toggleStudentSelection(student)}
+              showHomeroomBadge={isGroupActive}
             />
           ))}
         </div>
@@ -10306,17 +11028,39 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
         onAward={handleGoldenTicket}
         isSubmitting={isSubmitting}
       />
+
+      <ClubsModal
+        isOpen={showClubsModal}
+        onClose={() => setShowClubsModal(false)}
+        allStudents={students}
+        studentGroups={studentGroups}
+        onSaveGroup={handleSaveGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onSelectGroupAsActive={handleSelectGroupAsActive}
+        onAwardGroupTickets={handleAwardClubTickets}
+        currentUserEmail={profile.email}
+        currentUserName={profile.name}
+        profiles={profiles}
+        isAdmin={profile.role === 'admin'}
+        isSubmitting={isSubmitting}
+      />
     </div>
   );
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport, studentGroups = [], setStudentGroups }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
   const [spendData, setSpendData] = useState(null);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [sortBy, setSortBy] = useState('lastName');
+  const [showClubsModal, setShowClubsModal] = useState(false);
+  const [classCategory, setClassCategory] = useState('homerooms'); // 'homerooms' | 'clubs'
+
+  const isGroupActive = Boolean(selectedClass && selectedClass.startsWith('group:'));
+  const activeGroupId = isGroupActive ? selectedClass.replace('group:', '') : null;
+  const activeGroupObj = isGroupActive ? (studentGroups || []).find(g => String(g.id) === String(activeGroupId)) : null;
 
   const classes = useMemo(() => {
     const homerooms = students.map(s => s.homeroom).filter(Boolean);
@@ -10325,18 +11069,109 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 
   const studentsInClass = useMemo(() => {
     if (!selectedClass) return [];
+    if (isGroupActive) {
+      if (!activeGroupObj) return [];
+      const idSet = new Set((activeGroupObj.studentIds || []).map(String));
+      const nameSet = new Set((activeGroupObj.studentNames || []).map(n => (n || '').trim().toLowerCase()));
+      const matched = students.filter(s => idSet.has(String(s.id)) || nameSet.has((s.name || '').trim().toLowerCase())).map(s => s.name);
+      return sortStudentNames(matched, sortBy, balances);
+    }
     const raw = students.filter(s => s.homeroom === selectedClass).map(s => s.name);
     return sortStudentNames(raw, sortBy, balances);
-  }, [selectedClass, students, sortBy, balances]);
+  }, [selectedClass, isGroupActive, activeGroupObj, students, sortBy, balances]);
 
   const classStudentObjects = useMemo(() => {
     if (!selectedClass) return [];
+    if (isGroupActive) {
+      if (!activeGroupObj) return [];
+      const idSet = new Set((activeGroupObj.studentIds || []).map(String));
+      const nameSet = new Set((activeGroupObj.studentNames || []).map(n => (n || '').trim().toLowerCase()));
+      const matched = students.filter(s => idSet.has(String(s.id)) || nameSet.has((s.name || '').trim().toLowerCase()));
+      return sortStudentObjects(matched, sortBy, balances);
+    }
     const raw = students.filter(s => s.homeroom === selectedClass);
     return sortStudentObjects(raw, sortBy, balances);
-  }, [selectedClass, students, sortBy, balances]);
+  }, [selectedClass, isGroupActive, activeGroupObj, students, sortBy, balances]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingFor, setSubmittingFor] = useState(null);
+
+  const handleSaveGroup = async (groupData) => {
+    setIsSubmitting(true);
+    try {
+      const res = await api.fetch('/api/student-groups', {
+        method: 'POST',
+        body: JSON.stringify(groupData)
+      });
+      if (setStudentGroups) {
+        setStudentGroups(prev => {
+          const idx = prev.findIndex(g => String(g.id) === String(res.id));
+          if (idx !== -1) {
+            const next = [...prev];
+            next[idx] = res;
+            return next;
+          }
+          return [...prev, res];
+        });
+      }
+      showToast(`Saved club "${res.name}" successfully!`);
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to save club.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteGroup = async (groupId) => {
+    if (!window.confirm("Are you sure you want to delete this club? Students will not be affected.")) return;
+    setIsSubmitting(true);
+    try {
+      await api.fetch(`/api/student-groups/${groupId}`, {
+        method: 'DELETE'
+      });
+      if (setStudentGroups) {
+        setStudentGroups(prev => prev.filter(g => String(g.id) !== String(groupId)));
+      }
+      if (selectedClass === `group:${groupId}`) {
+        setSelectedClass(null);
+      }
+      showToast("Club deleted successfully.");
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to delete club.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSelectGroupAsActive = (groupId) => {
+    setSelectedClass(`group:${groupId}`);
+    setShowClubsModal(false);
+  };
+
+  const handleAwardClubTickets = async (memberNames, groupName, reason = 'Respectful') => {
+    if (memberNames.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      const ticketsToCreate = memberNames.map(recipient => ({
+        teacherId: user?.uid || profile.name,
+        teacherName: profile.name,
+        recipient,
+        recipientType: 'student',
+        reason
+      }));
+      await addDocsBatch('tickets', ticketsToCreate);
+      showToast(`Awarded ${reason} ticket to ${memberNames.length} students in "${groupName}"!`);
+    } catch (e) {
+      console.error(e);
+      showToast("Error awarding club tickets.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleGiveTicketDirect = async (recipient, reason) => {
     if (!effectiveUid || !profile) {
@@ -10371,7 +11206,14 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
     try {
       if (type === 'class') {
         const className = recipient.split(' (Whole Class)')[0];
-        const classStudents = students.filter(s => matchHomeroom(s.homeroom, className));
+        let classStudents;
+        if (isGroupActive && activeGroupObj && className === activeGroupObj.name) {
+          const idSet = new Set((activeGroupObj.studentIds || []).map(String));
+          const nameSet = new Set((activeGroupObj.studentNames || []).map(n => (n || '').trim().toLowerCase()));
+          classStudents = students.filter(s => idSet.has(String(s.id)) || nameSet.has((s.name || '').trim().toLowerCase()));
+        } else {
+          classStudents = students.filter(s => matchHomeroom(s.homeroom, className));
+        }
         const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
         if (presentStudents.length === 0) {
           showToast("No present students to award tickets to.");
@@ -10423,12 +11265,13 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    const targetName = isGroupActive ? (activeGroupObj?.name || cls) : cls;
     try {
       await addDoc(collection(db, 'goldenTickets'), {
         teacherId: user.uid, teacherName: profile.name,
-        className: cls, timestamp: serverTimestamp()
+        className: targetName, timestamp: serverTimestamp()
       });
-      showToast(`Golden Ticket awarded to ${cls}'s class!`);
+      showToast(`Golden Ticket awarded to ${targetName}!`);
     } catch (e) {
       console.error("Error awarding Golden Ticket:", e);
       showToast("Error awarding Golden Ticket.");
@@ -10440,7 +11283,7 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
   if (isDisplayMode) {
     return (
       <ClassDisplayMode
-        className={selectedClass}
+        className={isGroupActive ? (activeGroupObj?.name || 'Club Roster') : selectedClass}
         students={studentsInClass}
         balances={balances}
         classGoals={classGoals}
@@ -10480,22 +11323,115 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
         <>
           <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">School Classes</h1>
-              <p className="text-gray-500">Select a class to award a whole-class ticket or individual students.</p>
+              <h1 className="text-3xl font-bold text-gray-900">School Classes & Clubs</h1>
+              <p className="text-gray-500">Select a class or club to award whole-group tickets or recognize individual students.</p>
             </div>
-            {onOpenTeacherTimeline && (
+            <div className="flex items-center gap-3 flex-wrap">
               <button
                 type="button"
-                onClick={() => onOpenTeacherTimeline()}
-                className="flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-4 py-2.5 rounded-xl shadow-xs border border-emerald-800 transition text-sm cursor-pointer min-h-[44px]"
+                onClick={() => setShowClubsModal(true)}
+                className="flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 text-white font-bold px-4 py-2.5 rounded-xl shadow-xs border border-emerald-800 transition text-sm cursor-pointer min-h-[44px]"
+                title="Create or manage clubs, intervention groups, and activities"
               >
-                <Calendar className="w-4 h-4 text-amber-300" />
-                <span>My Tickets & Export ({myTickets.length})</span>
+                <Sparkles className="w-4 h-4 text-amber-300" />
+                <span>Clubs & Groups ({studentGroups.length})</span>
+              </button>
+              {onOpenTeacherTimeline && (
+                <button
+                  type="button"
+                  onClick={() => onOpenTeacherTimeline()}
+                  className="flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-4 py-2.5 rounded-xl shadow-xs border border-emerald-800 transition text-sm cursor-pointer min-h-[44px]"
+                >
+                  <Calendar className="w-4 h-4 text-amber-300" />
+                  <span>My Tickets & Export ({myTickets.length})</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <StudentSearch students={students} onSelect={setModalData} />
+
+          {/* Category Toggle Tabs */}
+          <div className="flex items-center justify-between flex-wrap gap-3 my-4">
+            <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200 text-xs font-bold shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setClassCategory('homerooms')}
+                className={`px-3.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${classCategory === 'homerooms' ? 'bg-white text-navy-950 shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                <Home className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Homerooms ({classes.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setClassCategory('clubs')}
+                className={`px-3.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${classCategory === 'clubs' ? 'bg-white text-emerald-950 shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                <span>Clubs & Groups ({studentGroups.length})</span>
+              </button>
+            </div>
+            {classCategory === 'clubs' && (
+              <button
+                type="button"
+                onClick={() => setShowClubsModal(true)}
+                className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1 cursor-pointer transition min-h-[36px]"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                <span>+ New Club / Group</span>
               </button>
             )}
           </div>
-          <StudentSearch students={students} onSelect={setModalData} />
-          {classes.length === 0 ? (
+
+          {classCategory === 'clubs' ? (
+            studentGroups.length === 0 ? (
+              <div className="bg-white p-8 text-center rounded-2xl border border-gray-200 text-gray-500">
+                <Sparkles className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
+                <h3 className="text-base font-bold text-gray-800">No Clubs or Groups Created Yet</h3>
+                <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                  Create clubs, choir, safety patrol, or intervention groups that pull students from any homeroom without altering their official classes.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setShowClubsModal(true)}
+                  className="mt-4 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Create Your First Club</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {studentGroups.map(grp => {
+                  const memberCount = grp.studentIds?.length || grp.studentNames?.length || 0;
+                  const sponsorsText = Array.isArray(grp.sponsors) && grp.sponsors.length > 0 ? grp.sponsors.join(', ') : 'All Teachers';
+                  return (
+                    <button
+                      key={grp.id}
+                      onClick={() => setSelectedClass(`group:${grp.id}`)}
+                      className="bg-white p-5 rounded-xl shadow-xs border border-emerald-200 hover:border-emerald-500 hover:shadow-sm transition flex items-center justify-between group text-left cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white p-3 rounded-xl shadow-2xs group-hover:scale-105 transition flex-shrink-0">
+                          <Sparkles className="w-5 h-5 text-amber-200" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-extrabold text-base text-gray-900 truncate">{grp.name}</div>
+                          <div className="text-xs text-gray-500 truncate mt-0.5">
+                            {memberCount} {memberCount === 1 ? 'student' : 'students'} · <span className="text-emerald-700 font-semibold">{sponsorsText}</span>
+                          </div>
+                          {grp.description && (
+                            <div className="text-xxs text-gray-400 truncate mt-0.5">{grp.description}</div>
+                          )}
+                        </div>
+                      </div>
+                      <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-emerald-600 transition flex-shrink-0" />
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          ) : classes.length === 0 ? (
             <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found in the central roster. Admin needs to upload CSV.</div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -10551,10 +11487,23 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
         <>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div className="flex items-center gap-4">
-              <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600"><ChevronLeft className="w-6 h-6" /></button>
+              <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600 cursor-pointer"><ChevronLeft className="w-6 h-6" /></button>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">{selectedClass}&apos;s Class</h1>
-                <p className="text-gray-500">Award the whole class, or pick a student.</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-2xl font-bold text-gray-900">
+                    {isGroupActive ? (activeGroupObj?.name || 'Club Roster') : `${selectedClass}'s Class`}
+                  </h1>
+                  {isGroupActive && (
+                    <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
+                      Club Roster
+                    </span>
+                  )}
+                </div>
+                <p className="text-gray-500 text-xs mt-0.5">
+                  {isGroupActive 
+                    ? `Multi-homeroom roster · All students remain in their classroom homerooms.${activeGroupObj?.description ? ` — ${activeGroupObj.description}` : ''}`
+                    : 'Award the whole class, or pick a student.'}
+                </p>
               </div>
             </div>
             <div className="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
@@ -10603,25 +11552,25 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
               <Star className="w-7 h-7 text-yellow-100" />
               <div>
                 <h3 className="text-lg font-bold">Golden Ticket</h3>
-                <p className="text-yellow-100 text-sm">Reward the class for awesome behavior! <span className="font-bold text-white">({goldenTickets.filter(g => g.className === selectedClass).length} earned)</span></p>
+                <p className="text-yellow-100 text-sm">Reward the group for awesome behavior! <span className="font-bold text-white">({goldenTickets.filter(g => g.className === (isGroupActive ? (activeGroupObj?.name || 'Club') : selectedClass)).length} earned)</span></p>
               </div>
             </div>
-            <button onClick={() => handleGoldenTicket(selectedClass)} className="bg-white text-amber-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
+            <button onClick={() => handleGoldenTicket(selectedClass)} className="bg-white text-amber-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto cursor-pointer">
               Award Golden Ticket
             </button>
           </div>
           <div className="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-2xl shadow-sm mb-8 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
             <div>
-              <h3 className="text-lg font-bold">Class-Wide Recognition</h3>
-              <p className="text-green-100 text-sm">Award a regular ticket to the entire class.</p>
+              <h3 className="text-lg font-bold">{isGroupActive ? 'Club-Wide Recognition' : 'Class-Wide Recognition'}</h3>
+              <p className="text-green-100 text-sm">Award a regular ticket to the entire {isGroupActive ? 'club roster' : 'class'}.</p>
             </div>
-            <button onClick={() => setModalData({ recipient: `${selectedClass} (Whole Class)`, type: 'class' })} className="bg-white text-green-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
-              Award Whole Class
+            <button onClick={() => setModalData({ recipient: `${isGroupActive ? (activeGroupObj?.name || 'Club') : selectedClass} (Whole Class)`, type: 'class' })} className="bg-white text-green-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto cursor-pointer">
+              Award Whole {isGroupActive ? 'Club' : 'Class'}
             </button>
           </div>
           <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">Individual Students</h3>
           {studentsInClass.length === 0 ? (
-            <p className="text-gray-500 italic">No students found in this homeroom.</p>
+            <p className="text-gray-500 italic">No students found in this roster.</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
               {studentsInClass.map(student => (
@@ -10629,7 +11578,8 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
                   onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
                   balances={balances} onSpend={(s, spendable) => setSpendData({ student: s, spendable })}
                   students={students} onEditStudent={onEditStudent} isAbsent={absentStudents.has(student)}
-                  onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email} />
+                  onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email}
+                  showHomeroomBadge={isGroupActive} />
               ))}
             </div>
           )}
@@ -10656,6 +11606,22 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
       {spendData && <SpendPointsModal student={spendData.student} spendable={spendData.spendable} onClose={() => setSpendData(null)} showToast={showToast} />}
+
+      <ClubsModal
+        isOpen={showClubsModal}
+        onClose={() => setShowClubsModal(false)}
+        allStudents={students}
+        studentGroups={studentGroups}
+        onSaveGroup={handleSaveGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onSelectGroupAsActive={handleSelectGroupAsActive}
+        onAwardGroupTickets={handleAwardClubTickets}
+        currentUserEmail={profile.email}
+        currentUserName={profile.name}
+        profiles={profiles}
+        isAdmin={profile.role === 'admin'}
+        isSubmitting={isSubmitting}
+      />
     </div>
   );
 }
@@ -10933,7 +11899,7 @@ function AdminManageCoTeachersModal({ isOpen, onClose, targetProfile, profiles =
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, goldenSpending = [], myUids, balances, spending = [], gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, goldenSpending = [], myUids, balances, spending = [], gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport, studentGroups = [], setStudentGroups }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -10952,6 +11918,90 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   const [showManualPaste, setShowManualPaste] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
   const [sortBy, setSortBy] = useState('lastName');
+  const [showClubsModal, setShowClubsModal] = useState(false);
+  const [ticketsCategory, setTicketsCategory] = useState('homerooms'); // 'homerooms' | 'clubs'
+
+  const isGroupActive = Boolean(selectedClass && selectedClass.startsWith('group:'));
+  const activeGroupId = isGroupActive ? selectedClass.replace('group:', '') : null;
+  const activeGroupObj = isGroupActive ? (studentGroups || []).find(g => String(g.id) === String(activeGroupId)) : null;
+
+  const handleSaveGroup = async (groupData) => {
+    setIsSubmitting(true);
+    try {
+      const res = await api.fetch('/api/student-groups', {
+        method: 'POST',
+        body: JSON.stringify(groupData)
+      });
+      if (setStudentGroups) {
+        setStudentGroups(prev => {
+          const idx = prev.findIndex(g => String(g.id) === String(res.id));
+          if (idx !== -1) {
+            const next = [...prev];
+            next[idx] = res;
+            return next;
+          }
+          return [...prev, res];
+        });
+      }
+      showToast(`Saved club "${res.name}" successfully!`);
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to save club.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteGroup = async (groupId) => {
+    if (!window.confirm("Are you sure you want to delete this club? Students will not be affected.")) return;
+    setIsSubmitting(true);
+    try {
+      await api.fetch(`/api/student-groups/${groupId}`, {
+        method: 'DELETE'
+      });
+      if (setStudentGroups) {
+        setStudentGroups(prev => prev.filter(g => String(g.id) !== String(groupId)));
+      }
+      if (selectedClass === `group:${groupId}`) {
+        setSelectedClass(null);
+      }
+      showToast("Club deleted successfully.");
+      if (window.triggerRefresh) window.triggerRefresh();
+    } catch (err) {
+      console.error(err);
+      showToast(err.message || "Failed to delete club.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSelectGroupAsActive = (groupId) => {
+    setActiveTab('tickets');
+    setSelectedClass(`group:${groupId}`);
+    setShowClubsModal(false);
+  };
+
+  const handleAwardClubTickets = async (memberNames, groupName, reason = 'Respectful') => {
+    if (memberNames.length === 0) return;
+    setIsSubmitting(true);
+    try {
+      const ticketsToCreate = memberNames.map(recipient => ({
+        teacherId: user?.uid || profile.name,
+        teacherName: profile.name,
+        recipient,
+        recipientType: 'student',
+        reason
+      }));
+      await addDocsBatch('tickets', ticketsToCreate);
+      showToast(`Awarded ${reason} ticket to ${memberNames.length} students in "${groupName}"!`);
+    } catch (e) {
+      console.error(e);
+      showToast("Error awarding club tickets.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   // Modals state
   const [showSpendableModal, setShowSpendableModal] = useState(false);
@@ -11042,15 +12092,29 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
 
   const studentsInClass = useMemo(() => {
     if (!selectedClass) return [];
+    if (isGroupActive) {
+      if (!activeGroupObj) return [];
+      const idSet = new Set((activeGroupObj.studentIds || []).map(String));
+      const nameSet = new Set((activeGroupObj.studentNames || []).map(n => (n || '').trim().toLowerCase()));
+      const matched = students.filter(s => idSet.has(String(s.id)) || nameSet.has((s.name || '').trim().toLowerCase())).map(s => s.name);
+      return sortStudentNames(matched, sortBy, balances);
+    }
     const raw = students.filter(s => s.homeroom === selectedClass).map(s => s.name);
     return sortStudentNames(raw, sortBy, balances);
-  }, [selectedClass, students, sortBy, balances]);
+  }, [selectedClass, isGroupActive, activeGroupObj, students, sortBy, balances]);
 
   const classStudentObjects = useMemo(() => {
     if (!selectedClass) return [];
+    if (isGroupActive) {
+      if (!activeGroupObj) return [];
+      const idSet = new Set((activeGroupObj.studentIds || []).map(String));
+      const nameSet = new Set((activeGroupObj.studentNames || []).map(n => (n || '').trim().toLowerCase()));
+      const matched = students.filter(s => idSet.has(String(s.id)) || nameSet.has((s.name || '').trim().toLowerCase()));
+      return sortStudentObjects(matched, sortBy, balances);
+    }
     const raw = students.filter(s => s.homeroom === selectedClass);
     return sortStudentObjects(raw, sortBy, balances);
-  }, [selectedClass, students, sortBy, balances]);
+  }, [selectedClass, isGroupActive, activeGroupObj, students, sortBy, balances]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submittingFor, setSubmittingFor] = useState(null);
@@ -11094,7 +12158,14 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
     try {
       if (type === 'class') {
         const className = recipient.split(' (Whole Class)')[0];
-        const classStudents = students.filter(s => matchHomeroom(s.homeroom, className));
+        let classStudents;
+        if (isGroupActive && activeGroupObj && className === activeGroupObj.name) {
+          const idSet = new Set((activeGroupObj.studentIds || []).map(String));
+          const nameSet = new Set((activeGroupObj.studentNames || []).map(n => (n || '').trim().toLowerCase()));
+          classStudents = students.filter(s => idSet.has(String(s.id)) || nameSet.has((s.name || '').trim().toLowerCase()));
+        } else {
+          classStudents = students.filter(s => matchHomeroom(s.homeroom, className));
+        }
         const presentStudents = classStudents.filter(s => !absentStudents.has(s.name));
         if (presentStudents.length === 0) {
           showToast("No present students to award tickets to.");
@@ -11178,12 +12249,13 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
       showToast("Your profile isn't fully loaded yet. Please wait a moment and try again.");
       return;
     }
+    const targetName = isGroupActive ? (activeGroupObj?.name || cls) : cls;
     try {
       await addDoc(collection(db, 'goldenTickets'), {
         teacherId: user.uid, teacherName: profile.name,
-        className: cls, timestamp: serverTimestamp()
+        className: targetName, timestamp: serverTimestamp()
       });
-      showToast(`Golden Ticket awarded to ${cls}'s class!`);
+      showToast(`Golden Ticket awarded to ${targetName}!`);
     } catch (e) {
       console.error("Error awarding Golden Ticket:", e);
       showToast("Error awarding Golden Ticket.");
@@ -11418,7 +12490,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
   if (isDisplayMode && selectedClass) {
     return (
       <ClassDisplayMode
-        className={selectedClass}
+        className={isGroupActive ? (activeGroupObj?.name || 'Club Roster') : selectedClass}
         students={studentsInClass}
         balances={balances}
         classGoals={classGoals}
@@ -11463,6 +12535,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           <button onClick={() => setActiveTab('teachers')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'teachers' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Teachers{unusedProfiles.length > 0 && <span className="ml-1.5 bg-red-100 text-red-700 rounded-full px-1.5 py-0.5 text-xs font-bold">{unusedProfiles.length}</span>}</button>
           <button onClick={() => setActiveTab('roster')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'roster' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Roster Sync (CSV)</button>
           <button onClick={() => setActiveTab('gradeGoals')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'gradeGoals' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Grade Goals</button>
+          <button type="button" onClick={() => setShowClubsModal(true)} className="px-3.5 py-2 rounded-md font-bold text-sm bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center gap-1.5 cursor-pointer shadow-xs"><Sparkles className="w-3.5 h-3.5 text-amber-300" /> Clubs & Groups ({studentGroups.length})</button>
         </div>
       </div>
 
@@ -11471,11 +12544,92 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           {!selectedClass ? (
             <>
               <div className="mb-2">
-                <h2 className="text-xl font-bold text-gray-900">Select a Class</h2>
-                <p className="text-gray-500 text-sm">Choose a class to award tickets to the whole class or individual students.</p>
+                <h2 className="text-xl font-bold text-gray-900">Select a Class or Club</h2>
+                <p className="text-gray-500 text-sm">Choose a homeroom class or club roster to award tickets or recognize individual students.</p>
               </div>
               <StudentSearch students={students} onSelect={setModalData} />
-              {classes.length === 0 ? (
+
+              {/* Category Toggle Tabs */}
+              <div className="flex items-center justify-between flex-wrap gap-3 my-4">
+                <div className="flex items-center bg-gray-100 p-1 rounded-xl border border-gray-200 text-xs font-bold shadow-2xs">
+                  <button
+                    type="button"
+                    onClick={() => setTicketsCategory('homerooms')}
+                    className={`px-3.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${ticketsCategory === 'homerooms' ? 'bg-white text-navy-950 shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+                  >
+                    <Home className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Homerooms ({classes.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTicketsCategory('clubs')}
+                    className={`px-3.5 py-1.5 rounded-lg transition cursor-pointer flex items-center gap-1.5 ${ticketsCategory === 'clubs' ? 'bg-white text-emerald-950 shadow-xs' : 'text-gray-600 hover:text-gray-900'}`}
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Clubs & Groups ({studentGroups.length})</span>
+                  </button>
+                </div>
+                {ticketsCategory === 'clubs' && (
+                  <button
+                    type="button"
+                    onClick={() => setShowClubsModal(true)}
+                    className="text-xs font-bold text-emerald-700 hover:text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1 cursor-pointer transition min-h-[36px]"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>+ New Club / Group</span>
+                  </button>
+                )}
+              </div>
+
+              {ticketsCategory === 'clubs' ? (
+                studentGroups.length === 0 ? (
+                  <div className="bg-white p-8 text-center rounded-2xl border border-gray-200 text-gray-500">
+                    <Sparkles className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
+                    <h3 className="text-base font-bold text-gray-800">No Clubs or Groups Created Yet</h3>
+                    <p className="text-xs text-gray-500 mt-1 max-w-md mx-auto">
+                      Create clubs, choir, safety patrol, or intervention groups that pull students from any homeroom without changing their official classes.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowClubsModal(true)}
+                      className="mt-4 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>Create Your First Club</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {studentGroups.map(grp => {
+                      const memberCount = grp.studentIds?.length || grp.studentNames?.length || 0;
+                      const sponsorsText = Array.isArray(grp.sponsors) && grp.sponsors.length > 0 ? grp.sponsors.join(', ') : 'All Teachers';
+                      return (
+                        <button
+                          key={grp.id}
+                          onClick={() => setSelectedClass(`group:${grp.id}`)}
+                          className="bg-white p-5 rounded-xl shadow-xs border border-emerald-200 hover:border-emerald-500 hover:shadow-sm transition flex items-center justify-between group text-left cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3.5 min-w-0">
+                            <div className="bg-gradient-to-br from-emerald-500 to-teal-600 text-white p-3 rounded-xl shadow-2xs group-hover:scale-105 transition flex-shrink-0">
+                              <Sparkles className="w-5 h-5 text-amber-200" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="font-extrabold text-base text-gray-900 truncate">{grp.name}</div>
+                              <div className="text-xs text-gray-500 truncate mt-0.5">
+                                {memberCount} {memberCount === 1 ? 'student' : 'students'} · <span className="text-emerald-700 font-semibold">{sponsorsText}</span>
+                              </div>
+                              {grp.description && (
+                                <div className="text-xxs text-gray-400 truncate mt-0.5">{grp.description}</div>
+                              )}
+                            </div>
+                          </div>
+                          <ChevronRight className="w-5 h-5 text-gray-300 group-hover:text-emerald-600 transition flex-shrink-0" />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )
+              ) : classes.length === 0 ? (
                 <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found. Import a roster first.</div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -11484,7 +12638,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                     const gs = (goldenSpending || []).filter(s => s.className === cls).reduce((sum, s) => sum + Number(s.amount || 0), 0);
                     const gBal = Math.max(0, gc - gs);
                     return (
-                      <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group">
+                      <button key={cls} onClick={() => setSelectedClass(cls)} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:border-green-500 transition flex items-center justify-between group cursor-pointer">
                         <div className="flex items-center gap-4">
                           <div className="bg-green-50 p-3 rounded-lg text-green-600 group-hover:bg-green-100"><Users className="w-6 h-6" /></div>
                           <div className="text-left"><div className="font-bold text-lg text-gray-800">{cls}</div><div className="text-sm text-gray-500">{students.filter(s => s.homeroom === cls).length} students</div></div>
@@ -11510,10 +12664,23 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             <>
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-2">
                 <div className="flex items-center gap-4">
-                  <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600"><ChevronLeft className="w-6 h-6" /></button>
+                  <button onClick={() => setSelectedClass(null)} className="p-2 bg-white border rounded-lg hover:bg-gray-50 text-gray-600 cursor-pointer"><ChevronLeft className="w-6 h-6" /></button>
                   <div>
-                    <h2 className="text-xl font-bold text-gray-900">{selectedClass}&apos;s Class</h2>
-                    <p className="text-gray-500 text-sm">Award the whole class or pick a student.</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h2 className="text-xl font-bold text-gray-900">
+                        {isGroupActive ? (activeGroupObj?.name || 'Club Roster') : `${selectedClass}'s Class`}
+                      </h2>
+                      {isGroupActive && (
+                        <span className="bg-emerald-100 text-emerald-800 text-xs font-bold px-2.5 py-0.5 rounded-full border border-emerald-200">
+                          Club Roster
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-gray-500 text-sm">
+                      {isGroupActive
+                        ? `Multi-homeroom roster · All students remain in their classroom homerooms.${activeGroupObj?.description ? ` — ${activeGroupObj.description}` : ''}`
+                        : 'Award the whole class or pick a student.'}
+                    </p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 w-full sm:w-auto justify-end flex-wrap">
@@ -11558,8 +12725,9 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                 </div>
               </div>
               {(() => {
-                const classGoldenEarned = goldenTickets.filter(g => g.className === selectedClass).length;
-                const classGoldenSpendingList = (goldenSpending || []).filter(s => s.className === selectedClass);
+                const targetClassName = isGroupActive ? (activeGroupObj?.name || 'Club') : selectedClass;
+                const classGoldenEarned = goldenTickets.filter(g => g.className === targetClassName).length;
+                const classGoldenSpendingList = (goldenSpending || []).filter(s => s.className === targetClassName);
                 const classGoldenSpent = classGoldenSpendingList.reduce((sum, s) => sum + Number(s.amount || 0), 0);
                 const classGoldenBalance = Math.max(0, classGoldenEarned - classGoldenSpent);
 
@@ -11578,7 +12746,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                             </span>
                           </div>
                           <p className="text-yellow-100 text-xs mt-0.5 font-medium">
-                            Reward the class or redeem tickets for classroom celebrations!{' '}
+                            Reward the group or redeem tickets for celebrations!{' '}
                             <span className="font-bold text-white">({classGoldenEarned} earned • {classGoldenSpent} spent)</span>
                           </p>
                         </div>
@@ -11592,9 +12760,9 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                           <span>Award Golden Ticket</span>
                         </button>
                         <button
-                          onClick={() => setSpendGoldenData({ className: selectedClass, spendable: classGoldenBalance })}
+                          onClick={() => setSpendGoldenData({ className: targetClassName, spendable: classGoldenBalance })}
                           disabled={classGoldenBalance < 1}
-                          title={classGoldenBalance < 1 ? 'No golden tickets available to spend' : `Redeem golden tickets for ${selectedClass}`}
+                          title={classGoldenBalance < 1 ? 'No golden tickets available to spend' : `Redeem golden tickets for ${targetClassName}`}
                           className="bg-white text-amber-900 hover:bg-amber-50 px-5 py-2.5 rounded-xl font-black text-xs shadow-md hover:shadow-lg transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer min-h-[40px]"
                         >
                           <ShoppingBag className="w-4 h-4 text-amber-700" />
@@ -11608,7 +12776,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                         <div className="px-5 py-3 border-b bg-amber-50/70 flex items-center justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2">
                             <Star className="w-4 h-4 fill-amber-400 text-amber-600" />
-                            <h3 className="font-bold text-amber-950 text-sm">Golden Tickets for {selectedClass}</h3>
+                            <h3 className="font-bold text-amber-950 text-sm">Golden Tickets for {targetClassName}</h3>
                           </div>
                           <div className="flex items-center gap-1 bg-white border border-amber-200 p-0.5 rounded-xl text-xs font-bold shadow-2xs">
                             <button
@@ -11631,9 +12799,9 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                         {activeGoldenView === 'earned' ? (
                           <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
                             {classGoldenEarned === 0 ? (
-                              <div className="p-4 text-center text-xs text-gray-400 italic">No golden tickets awarded to this class yet.</div>
+                              <div className="p-4 text-center text-xs text-gray-400 italic">No golden tickets awarded to this group yet.</div>
                             ) : (
-                              [...goldenTickets].filter(g => g.className === selectedClass).sort((a, b) => {
+                              [...goldenTickets].filter(g => g.className === targetClassName).sort((a, b) => {
                                 const aTime = a.timestamp?.toMillis ? a.timestamp.toMillis() : (a.timestamp ? new Date(a.timestamp).getTime() : 0);
                                 const bTime = b.timestamp?.toMillis ? b.timestamp.toMillis() : (b.timestamp ? new Date(b.timestamp).getTime() : 0);
                                 return bTime - aTime;
@@ -11647,7 +12815,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                                       <span className="font-medium text-gray-800 text-sm">Awarded by {g.teacherName}</span>
                                       <span className="text-xs text-gray-400 flex-shrink-0">{dateText}</span>
                                     </div>
-                                    <button onClick={() => handleRemoveGoldenTicket(g.id, g.className)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2" title="Remove golden ticket">
+                                    <button onClick={() => handleRemoveGoldenTicket(g.id, g.className)} className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2 cursor-pointer" title="Remove golden ticket">
                                       <Trash2 className="w-4 h-4" />
                                     </button>
                                   </div>
@@ -11658,7 +12826,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                         ) : (
                           <div className="divide-y divide-gray-100 max-h-64 overflow-y-auto">
                             {classGoldenSpendingList.length === 0 ? (
-                              <div className="p-4 text-center text-xs text-gray-400 italic">No golden ticket redemptions recorded for this class yet.</div>
+                              <div className="p-4 text-center text-xs text-gray-400 italic">No golden ticket redemptions recorded for this group yet.</div>
                             ) : (
                               classGoldenSpendingList.map(s => {
                                 const d = s.timestamp ? new Date(s.timestamp) : null;
@@ -11681,7 +12849,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                                     </div>
                                     <button
                                       onClick={() => handleRemoveGoldenSpend(s.id, s.className)}
-                                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2"
+                                      className="p-1.5 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition flex-shrink-0 ml-2 cursor-pointer"
                                       title="Refund / remove redemption"
                                     >
                                       <Trash2 className="w-4 h-4" />
@@ -11699,16 +12867,16 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
               })()}
               <div className="bg-gradient-to-r from-green-500 to-green-600 p-5 rounded-2xl shadow-sm mb-4 text-white flex flex-col sm:flex-row items-center justify-between gap-4">
                 <div>
-                  <h3 className="text-lg font-bold">Class-Wide Recognition</h3>
-                  <p className="text-green-100 text-sm">Award a regular ticket to the entire class.</p>
+                  <h3 className="text-lg font-bold">{isGroupActive ? 'Club-Wide Recognition' : 'Class-Wide Recognition'}</h3>
+                  <p className="text-green-100 text-sm">Award a regular ticket to the entire {isGroupActive ? 'club roster' : 'class'}.</p>
                 </div>
-                <button onClick={() => setModalData({ recipient: `${selectedClass} (Whole Class)`, type: 'class' })} className="bg-white text-green-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto">
-                  Award Whole Class
+                <button onClick={() => setModalData({ recipient: `${isGroupActive ? (activeGroupObj?.name || 'Club') : selectedClass} (Whole Class)`, type: 'class' })} className="bg-white text-green-700 px-6 py-3 rounded-xl font-bold shadow-sm hover:shadow-md transition w-full sm:w-auto cursor-pointer">
+                  Award Whole {isGroupActive ? 'Club' : 'Class'}
                 </button>
               </div>
               <h3 className="text-lg font-bold text-gray-800 mb-4 border-b pb-2">Individual Students</h3>
               {studentsInClass.length === 0 ? (
-                <p className="text-gray-500 italic">No students found in this homeroom.</p>
+                <p className="text-gray-500 italic">No students found in this roster.</p>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                   {studentsInClass.map(student => (
@@ -11716,7 +12884,8 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                       onGiveTicket={handleGiveTicketDirect} isSubmitting={isSubmitting} submittingFor={submittingFor}
                       balances={balances} onSpend={(s, spendable) => setSpendData({ student: s, spendable })}
                       students={students} onEditStudent={onEditStudent} isAbsent={absentStudents.has(student)}
-                      onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email} />
+                      onToggleAbsent={() => onToggleAbsent(student)} tickets={tickets} teacherEmail={profile.email}
+                      showHomeroomBadge={isGroupActive} />
                   ))}
                 </div>
               )}
@@ -12910,6 +14079,22 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
           showToast={showToast}
         />
       )}
+
+      <ClubsModal
+        isOpen={showClubsModal}
+        onClose={() => setShowClubsModal(false)}
+        allStudents={students}
+        studentGroups={studentGroups}
+        onSaveGroup={handleSaveGroup}
+        onDeleteGroup={handleDeleteGroup}
+        onSelectGroupAsActive={handleSelectGroupAsActive}
+        onAwardGroupTickets={handleAwardClubTickets}
+        currentUserEmail={profile?.email || ''}
+        currentUserName={profile?.name || 'Admin'}
+        profiles={profiles}
+        isAdmin={true}
+        isSubmitting={isSubmitting}
+      />
     </div>
   );
 }
@@ -13140,8 +14325,8 @@ function HelpModal({ onClose }) {
           {/* CO-TEACHING & CLASSES */}
           {activeSection === 'coteaching' && (
             <div className="space-y-4">
-              <h3 className="text-lg font-black text-gray-900">Co-Teaching & Departmentalized Classrooms</h3>
-              <p>Green Ticket Tracker allows multiple teachers to manage the same homeroom or access multiple classrooms.</p>
+              <h3 className="text-lg font-black text-gray-900">Co-Teaching, Departmentalized Classrooms & Clubs</h3>
+              <p>Green Ticket Tracker allows multiple teachers to manage the same homeroom, access shared classrooms, or run multi-grade clubs without altering official student homerooms.</p>
 
               <div className="space-y-3">
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1.5">
@@ -13157,6 +14342,15 @@ function HelpModal({ onClose }) {
                 <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 space-y-1.5">
                   <div className="font-bold text-gray-900">3. Specialist View</div>
                   <p className="text-xs text-gray-600">Specialist teachers (Art, Music, PE, Library) can use the <strong>Specialist Role</strong> to view and give tickets to all classes across the school with one-click class switching.</p>
+                </div>
+
+                <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-1.5">
+                  <div className="font-bold text-emerald-950 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-emerald-700" /> 4. Clubs & Groups (Without Overwriting Homerooms)
+                  </div>
+                  <p className="text-xs text-emerald-800">
+                    Click <strong>"Clubs & Groups"</strong> on any dashboard to create dedicated rosters for Robotics, Chorus, Safety Patrol, or Intervention Groups. Students remain 100% in their primary classroom homerooms while club sponsors can select the club in their class switcher, award tickets, set goals, and view real-time student homeroom badges.
+                  </p>
                 </div>
               </div>
             </div>

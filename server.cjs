@@ -62,7 +62,8 @@ class GoogleSheetsDb {
       Spending: [],
       ClassGoals: [],
       GradeGoals: [],
-      RaffleWinners: []
+      RaffleWinners: [],
+      StudentGroups: []
     };
   }
 
@@ -160,7 +161,8 @@ class GoogleSheetsDb {
       { name: 'Spending', headers: ['Id', 'TeacherEmail', 'TeacherName', 'Recipient', 'Amount', 'Item', 'Timestamp'] },
       { name: 'ClassGoals', headers: ['ClassName', 'GoalTickets', 'RewardText', 'Timestamp'] },
       { name: 'GradeGoals', headers: ['Grade', 'GoalGolden', 'RewardText', 'Timestamp'] },
-      { name: 'RaffleWinners', headers: ['Id', 'WinnerName', 'WinnerType', 'Homeroom', 'Grade', 'TicketCount', 'DrawnByEmail', 'DrawnByName', 'Scope', 'Timestamp'] }
+      { name: 'RaffleWinners', headers: ['Id', 'WinnerName', 'WinnerType', 'Homeroom', 'Grade', 'TicketCount', 'DrawnByEmail', 'DrawnByName', 'Scope', 'Timestamp'] },
+      { name: 'StudentGroups', headers: ['Id', 'Name', 'Sponsors', 'StudentIds', 'StudentNames', 'Description', 'CreatedAt'] }
     ];
 
     try {
@@ -857,6 +859,97 @@ app.post('/api/admin/reset-teacher-password', authMiddleware, async (req, res) =
   }
 });
 
+// --- Student Groups / Clubs Endpoints ---
+app.get('/api/student-groups', authMiddleware, async (req, res) => {
+  try {
+    const rawGroups = await db.getRows('StudentGroups');
+    const studentGroups = (rawGroups || []).map(g => {
+      let sponsors = [];
+      try { sponsors = g.sponsors ? (Array.isArray(g.sponsors) ? g.sponsors : JSON.parse(g.sponsors)) : []; } catch (e) {
+        sponsors = typeof g.sponsors === 'string' ? g.sponsors.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      let studentIds = [];
+      try { studentIds = g.studentIds ? (Array.isArray(g.studentIds) ? g.studentIds : JSON.parse(g.studentIds)) : []; } catch (e) {
+        studentIds = typeof g.studentIds === 'string' ? g.studentIds.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      let studentNames = [];
+      try { studentNames = g.studentNames ? (Array.isArray(g.studentNames) ? g.studentNames : JSON.parse(g.studentNames)) : []; } catch (e) {
+        studentNames = typeof g.studentNames === 'string' ? g.studentNames.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      return {
+        ...g,
+        sponsors,
+        studentIds,
+        studentNames
+      };
+    });
+    res.json(studentGroups);
+  } catch (err) {
+    console.error("Error fetching student groups:", err);
+    res.status(500).json({ message: "Failed to fetch student groups" });
+  }
+});
+
+app.post('/api/student-groups', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+  const { id, name, sponsors = [], studentIds = [], studentNames = [], description = '' } = req.body;
+  if (!name || !name.trim()) {
+    return res.status(400).json({ message: 'Group name is required' });
+  }
+
+  try {
+    const rawGroups = await db.getRows('StudentGroups');
+    const existing = id ? rawGroups.find(g => String(g.id) === String(id)) : null;
+
+    const sponsorList = Array.isArray(sponsors) && sponsors.length > 0 
+      ? sponsors 
+      : [req.user.email || req.user.name];
+
+    const groupObj = {
+      id: existing ? existing.id : (id || `group_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
+      name: name.trim(),
+      sponsors: JSON.stringify(sponsorList),
+      studentIds: JSON.stringify(studentIds),
+      studentNames: JSON.stringify(studentNames),
+      description: (description || '').trim(),
+      createdAt: existing ? (existing.createdAt || new Date().toISOString()) : new Date().toISOString()
+    };
+
+    const headers = ['Id', 'Name', 'Sponsors', 'StudentIds', 'StudentNames', 'Description', 'CreatedAt'];
+    if (existing) {
+      await db.updateRow('StudentGroups', headers, existing._rowNum, groupObj);
+    } else {
+      await db.appendRow('StudentGroups', headers, groupObj);
+    }
+
+    res.json({
+      ...groupObj,
+      sponsors: sponsorList,
+      studentIds,
+      studentNames
+    });
+  } catch (err) {
+    console.error("Error saving student group:", err);
+    res.status(500).json({ message: "Failed to save student group" });
+  }
+});
+
+app.delete('/api/student-groups/:id', authMiddleware, async (req, res) => {
+  if (req.user.role === 'student') return res.status(403).json({ message: 'Unauthorized' });
+  const { id } = req.params;
+  try {
+    const rawGroups = await db.getRows('StudentGroups');
+    const existing = rawGroups.find(g => String(g.id) === String(id));
+    if (!existing) return res.status(404).json({ message: 'Group not found' });
+
+    await db.deleteRow('StudentGroups', existing._rowNum);
+    res.json({ success: true });
+  } catch (err) {
+    console.error("Error deleting student group:", err);
+    res.status(500).json({ message: "Failed to delete student group" });
+  }
+});
+
 // Student Login
 app.post('/api/auth/student', async (req, res) => {
   const { studentId, pinCode } = req.body;
@@ -946,7 +1039,8 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       'GradeGoals',
       'Tickets',
       'Spending',
-      'RaffleWinners'
+      'RaffleWinners',
+      'StudentGroups'
     ]);
     const profiles = sheetsData.Users || [];
     const students = sheetsData.Students || [];
@@ -957,6 +1051,7 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     const allTickets = sheetsData.Tickets || [];
     const allSpending = sheetsData.Spending || [];
     const raffleWinners = sheetsData.RaffleWinners || [];
+    const rawStudentGroups = sheetsData.StudentGroups || [];
 
     const profile = profiles.find(p => (p.email || '').trim().toLowerCase() === email);
     if (!profile) return res.status(404).json({ message: 'Teacher profile not found' });
@@ -1062,6 +1157,27 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       return copy;
     });
 
+    const studentGroups = rawStudentGroups.map(g => {
+      let sponsors = [];
+      try { sponsors = g.sponsors ? (Array.isArray(g.sponsors) ? g.sponsors : JSON.parse(g.sponsors)) : []; } catch (e) {
+        sponsors = typeof g.sponsors === 'string' ? g.sponsors.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      let studentIds = [];
+      try { studentIds = g.studentIds ? (Array.isArray(g.studentIds) ? g.studentIds : JSON.parse(g.studentIds)) : []; } catch (e) {
+        studentIds = typeof g.studentIds === 'string' ? g.studentIds.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      let studentNames = [];
+      try { studentNames = g.studentNames ? (Array.isArray(g.studentNames) ? g.studentNames : JSON.parse(g.studentNames)) : []; } catch (e) {
+        studentNames = typeof g.studentNames === 'string' ? g.studentNames.split(',').map(s => s.trim()).filter(Boolean) : [];
+      }
+      return {
+        ...g,
+        sponsors,
+        studentIds,
+        studentNames
+      };
+    });
+
     res.json({
       role: activeRole,
       profile,
@@ -1075,7 +1191,8 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
       classGoals,
       gradeGoals,
       balances,
-      raffleWinners
+      raffleWinners,
+      studentGroups
     });
   } catch (err) {
     console.error(err);
