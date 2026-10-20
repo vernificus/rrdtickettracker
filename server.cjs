@@ -1020,7 +1020,9 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
     // Admins see all tickets/spending
     if (activeRole !== 'admin') {
       const allowedEmails = new Set([email]);
+      const allowedNames = new Set();
       const myName = (profile.name || '').trim().toLowerCase();
+      if (myName) allowedNames.add(myName);
       const myCoTaught = Array.isArray(profile.coTaughtHomerooms) ? profile.coTaughtHomerooms.map(h => (h || '').trim().toLowerCase()) : [];
 
       profiles.forEach(p => {
@@ -1032,15 +1034,25 @@ app.get('/api/initial-data', authMiddleware, async (req, res) => {
 
         // 1. Other teacher lists current user's name or email in their coTaughtHomerooms
         if (pCoLower.some(h => h === myName || h === email)) {
-          allowedEmails.add(pEmail);
+          if (pEmail) allowedEmails.add(pEmail);
+          if (pName) allowedNames.add(pName);
         }
         // 2. Current user lists other teacher's name or email in their coTaughtHomerooms
         if (myCoTaught.some(h => h === pName || h === pEmail)) {
-          allowedEmails.add(pEmail);
+          if (pEmail) allowedEmails.add(pEmail);
+          if (pName) allowedNames.add(pName);
         }
       });
-      tickets = tickets.filter(t => allowedEmails.has((t.teacherEmail || '').trim().toLowerCase()));
-      spending = spending.filter(s => allowedEmails.has((s.teacherEmail || '').trim().toLowerCase()));
+      tickets = tickets.filter(t => {
+        const tEmail = (t.teacherEmail || '').trim().toLowerCase();
+        const tName = (t.teacherName || '').trim().toLowerCase();
+        return (tEmail && allowedEmails.has(tEmail)) || (tName && allowedNames.has(tName));
+      });
+      spending = spending.filter(s => {
+        const sEmail = (s.teacherEmail || '').trim().toLowerCase();
+        const sName = (s.teacherName || '').trim().toLowerCase();
+        return (sEmail && allowedEmails.has(sEmail)) || (sName && allowedNames.has(sName));
+      });
     }
 
     const sanitizedProfiles = profiles.map(p => {

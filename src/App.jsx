@@ -428,6 +428,14 @@ export default function App() {
   const [activeView, setActiveView] = useState('dashboard'); // 'dashboard' or 'raffle'
   const [studentsToPrint, setStudentsToPrint] = useState(null);
   const [showSpendingReportModal, setShowSpendingReportModal] = useState(false);
+  const [showTeacherTimelineModal, setShowTeacherTimelineModal] = useState(false);
+  const [teacherTimelineTarget, setTeacherTimelineTarget] = useState(null);
+  const [timelineReportToPrint, setTimelineReportToPrint] = useState(null);
+
+  const handleOpenTeacherTimeline = (targetTeacher = null) => {
+    setTeacherTimelineTarget(typeof targetTeacher === 'string' ? targetTeacher : null);
+    setShowTeacherTimelineModal(true);
+  };
 
   // Accessibility state
   const [highContrast, setHighContrast] = useState(() => localStorage.getItem('accessibility_highcontrast') === 'true');
@@ -811,6 +819,7 @@ export default function App() {
         onOpenInstall={() => setShowInstallModal(true)}
         isStandalone={isStandalone}
         onOpenSpendingReport={() => setShowSpendingReportModal(true)}
+        onOpenTeacherTimeline={() => handleOpenTeacherTimeline(null)}
       />
 
       <main id="main-content" tabIndex="-1" role="main" aria-label="Main Application Content" className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
@@ -828,13 +837,13 @@ export default function App() {
         ) : (
           <>
             {role === 'admin' && (
-              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
+              <AdminDashboard tickets={tickets} students={students} profiles={profiles} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} profile={profile} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} spending={spending} gradeGoals={gradeGoals} classGoals={classGoals} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} />
             )}
             {role === 'homeroom' && (
-              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
+              <HomeroomDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} classGoals={classGoals} setClassGoals={setClassGoals} spending={spending} balances={balances} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} />
             )}
             {role === 'specialist' && (
-              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} />
+              <SpecialistDashboard profile={profile} students={students} tickets={tickets} showToast={showToast} user={{ uid: profile.email }} effectiveUid={profile.email} goldenTickets={goldenTickets} goldenSpending={goldenSpending} myUids={myUids} balances={balances} classGoals={classGoals} spending={spending} absentStudents={absentStudents} onToggleAbsent={handleToggleAbsent} onEditStudent={setEditStudentData} onPrintLoginCards={setStudentsToPrint} profiles={profiles} onRoleSwitch={() => { setNewRole(role); setShowRoleSwitch(true); }} onOpenTeacherTimeline={handleOpenTeacherTimeline} onPrintTimelineReport={setTimelineReportToPrint} />
             )}
           </>
         )}
@@ -910,6 +919,25 @@ export default function App() {
         />
       )}
 
+      {/* Teacher Ticket Timeline & Export Modal */}
+      {showTeacherTimelineModal && (
+        <TeacherTicketTimelineReport
+          profile={profile}
+          profiles={profiles}
+          students={students}
+          tickets={tickets}
+          goldenTickets={goldenTickets}
+          myUids={myUids}
+          absentStudents={absentStudents}
+          defaultHomeroom="all"
+          defaultTeacherFilter={teacherTimelineTarget}
+          showToast={showToast}
+          isModal={true}
+          onClose={() => setShowTeacherTimelineModal(false)}
+          onPrintReport={setTimelineReportToPrint}
+        />
+      )}
+
       {/* Accessibility & PWA Modals */}
       <AccessibilityModal
         isOpen={showAccessibilityModal}
@@ -933,6 +961,7 @@ export default function App() {
       />
 
       {studentsToPrint && <PrintableLoginCards students={studentsToPrint} onClose={() => setStudentsToPrint(null)} />}
+      {timelineReportToPrint && <PrintableTimelineReport data={timelineReportToPrint} onClose={() => setTimelineReportToPrint(null)} />}
 
       {/* Toast Notification */}
       <div className={`fixed bottom-4 right-4 bg-gray-900 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-3 transition-all duration-300 z-50 ${toast.visible ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`} role="status" aria-live="polite">
@@ -4600,6 +4629,2007 @@ function AdminSpendingReport({ spending = [], students = [], profiles = [], gold
   return content;
 }
 
+// --- Helper to safely extract timestamp in milliseconds from any ticket object ---
+function getTicketTimestampMs(t) {
+  if (!t || !t.timestamp) return 0;
+  if (typeof t.timestamp.toMillis === 'function') {
+    const ms = t.timestamp.toMillis();
+    return isNaN(ms) ? 0 : ms;
+  }
+  if (typeof t.timestamp.toDate === 'function') {
+    const d = t.timestamp.toDate();
+    return d && !isNaN(d.getTime()) ? d.getTime() : 0;
+  }
+  const d = new Date(t.timestamp);
+  return isNaN(d.getTime()) ? 0 : d.getTime();
+}
+
+function toLocalDateKey(ms) {
+  if (!ms) return '';
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return '';
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+// --- Teacher Ticket Timeline & Export Report (Inline & Modal) ---
+function TeacherTicketTimelineReport({
+  profile,
+  profiles = [],
+  students = [],
+  tickets = [],
+  goldenTickets = [],
+  myUids = new Set(),
+  absentStudents = new Set(),
+  defaultHomeroom = 'all',
+  defaultTeacherFilter = null,
+  showToast,
+  isModal = false,
+  onClose = () => {},
+  onPrintReport = null
+}) {
+  const isAdmin = profile?.role === 'admin';
+  const myEmailLower = (profile?.email || '').trim().toLowerCase();
+  const myNameLower = (profile?.name || '').trim().toLowerCase();
+
+  const myUidsLower = useMemo(() => {
+    const set = new Set();
+    if (myEmailLower) set.add(myEmailLower);
+    if (myUids && typeof myUids.forEach === 'function') {
+      myUids.forEach(u => {
+        if (u) set.add(String(u).trim().toLowerCase());
+      });
+    }
+    return set;
+  }, [myEmailLower, myUids]);
+
+  const hasCoTeachers = myUidsLower.size > 1;
+
+  // Scope: 'me' (just logged-in teacher), 'team' (me + co-teachers), 'all' (admin all teachers), or specific teacher email/name
+  const [teacherScope, setTeacherScope] = useState(() => {
+    if (defaultTeacherFilter) return defaultTeacherFilter;
+    return 'me';
+  });
+
+  useEffect(() => {
+    if (defaultTeacherFilter) {
+      setTeacherScope(defaultTeacherFilter);
+    }
+  }, [defaultTeacherFilter]);
+
+  // Timeline Preset: 'today' | '7days' | '14days' | '30days' | '90days' | 'custom' | 'all'
+  const [timelinePreset, setTimelinePreset] = useState('30days');
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 7);
+    return toLocalDateKey(d.getTime());
+  });
+  const [customEndDate, setCustomEndDate] = useState(() => toLocalDateKey(Date.now()));
+  const [selectedDayKey, setSelectedDayKey] = useState(null);
+
+  // Additional Filters (default to 'all' so teachers see ALL tickets they awarded across any class)
+  const [homeroomFilter, setHomeroomFilter] = useState(defaultHomeroom || 'all');
+  const [reasonFilter, setReasonFilter] = useState('all'); // 'all' | 'Respectful' | 'Responsible' | 'Determined' | 'golden'
+  const [searchTerm, setSearchTerm] = useState('');
+  const [activeTab, setActiveTab] = useState('students'); // 'students' | 'timeline' | 'log'
+  const [studentSort, setStudentSort] = useState('most'); // 'most' | 'least' | 'name'
+  const [includeZeroStudents, setIncludeZeroStudents] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [logPage, setLogPage] = useState(0);
+  const LOG_PAGE_SIZE = 20;
+
+  // Quick-action state
+  const [submittingStudent, setSubmittingStudent] = useState(null);
+  const [isBatchAwarding, setIsBatchAwarding] = useState(false);
+  const [batchAwardReason, setBatchAwardReason] = useState('Respectful');
+  const [showAllUnrecognized, setShowAllUnrecognized] = useState(false);
+
+  // Map student name -> student object
+  const studentMap = useMemo(() => {
+    const map = new Map();
+    students.forEach(s => {
+      if (s && s.name) {
+        map.set(s.name.trim().toLowerCase(), s);
+      }
+    });
+    return map;
+  }, [students]);
+
+  // All available teachers for Admin filter dropdown
+  const teacherOptions = useMemo(() => {
+    const map = new Map();
+    profiles.forEach(p => {
+      if (p && (p.email || p.name)) {
+        const key = (p.email || p.name).trim().toLowerCase();
+        map.set(key, {
+          key,
+          name: p.name || p.email,
+          email: (p.email || '').trim().toLowerCase(),
+          role: p.role || 'teacher'
+        });
+      }
+    });
+    tickets.forEach(t => {
+      const key = (t.teacherEmail || t.teacherName || '').trim().toLowerCase();
+      if (key && !map.has(key)) {
+        map.set(key, {
+          key,
+          name: t.teacherName || t.teacherEmail,
+          email: (t.teacherEmail || '').trim().toLowerCase(),
+          role: 'teacher'
+        });
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [profiles, tickets]);
+
+  // Helper to check if a ticket or golden ticket matches the selected teacherScope
+  const matchesTeacherScope = (item) => {
+    const itemEmail = (item.teacherEmail || '').trim().toLowerCase();
+    const itemName = (item.teacherName || '').trim().toLowerCase();
+    const itemId = (item.teacherId || '').trim().toLowerCase();
+
+    if (teacherScope === 'all') return true;
+    if (teacherScope === 'me') {
+      if (myEmailLower && (itemEmail === myEmailLower || itemId === myEmailLower)) return true;
+      if (myNameLower && (itemName === myNameLower || itemId === myNameLower)) return true;
+      return false;
+    }
+    if (teacherScope === 'team') {
+      if (itemEmail && myUidsLower.has(itemEmail)) return true;
+      if (itemId && myUidsLower.has(itemId)) return true;
+      if (myNameLower && itemName === myNameLower) return true;
+      return false;
+    }
+    // Specific teacher selected by admin (can be email or name key)
+    const targetKey = teacherScope.trim().toLowerCase();
+    const matchedOption = teacherOptions.find(o => o.key === targetKey || o.email === targetKey || (o.name || '').toLowerCase() === targetKey);
+    if (matchedOption) {
+      const optEmail = (matchedOption.email || '').toLowerCase();
+      const optName = (matchedOption.name || '').toLowerCase();
+      if (optEmail && (itemEmail === optEmail || itemId === optEmail)) return true;
+      if (optName && (itemName === optName || itemId === optName)) return true;
+    }
+    return itemEmail === targetKey || itemName === targetKey || itemId === targetKey;
+  };
+
+  // Compute timeline startMs and endMs bounds
+  const timelineBounds = useMemo(() => {
+    const now = new Date();
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).getTime();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+    const dayMs = 24 * 60 * 60 * 1000;
+
+    if (timelinePreset === 'today') {
+      return {
+        startMs: todayStart,
+        endMs: todayEnd,
+        label: `Today (${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })})`,
+        daysCount: 1
+      };
+    }
+    if (timelinePreset === '7days') {
+      const start = todayStart - 6 * dayMs;
+      return {
+        startMs: start,
+        endMs: todayEnd,
+        label: `Last 7 Days (${new Date(start).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })})`,
+        daysCount: 7
+      };
+    }
+    if (timelinePreset === '14days') {
+      const start = todayStart - 13 * dayMs;
+      return {
+        startMs: start,
+        endMs: todayEnd,
+        label: `Last 14 Days (${new Date(start).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })})`,
+        daysCount: 14
+      };
+    }
+    if (timelinePreset === '30days') {
+      const start = todayStart - 29 * dayMs;
+      return {
+        startMs: start,
+        endMs: todayEnd,
+        label: `Last 30 Days (${new Date(start).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })})`,
+        daysCount: 30
+      };
+    }
+    if (timelinePreset === '90days') {
+      const start = todayStart - 89 * dayMs;
+      return {
+        startMs: start,
+        endMs: todayEnd,
+        label: `Last 90 Days / Quarter (${new Date(start).toLocaleDateString([], { month: 'short', day: 'numeric' })} – ${now.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })})`,
+        daysCount: 90
+      };
+    }
+    if (timelinePreset === 'custom') {
+      const startParts = (customStartDate || '').split('-').map(Number);
+      const endParts = (customEndDate || '').split('-').map(Number);
+      const startD = startParts.length === 3 ? new Date(startParts[0], startParts[1] - 1, startParts[2], 0, 0, 0, 0) : new Date(todayStart - 6 * dayMs);
+      const endD = endParts.length === 3 ? new Date(endParts[0], endParts[1] - 1, endParts[2], 23, 59, 59, 999) : new Date(todayEnd);
+      const sMs = isNaN(startD.getTime()) ? todayStart - 6 * dayMs : startD.getTime();
+      const eMs = isNaN(endD.getTime()) ? todayEnd : Math.max(sMs, endD.getTime());
+      const days = Math.max(1, Math.round((eMs - sMs) / dayMs));
+      return {
+        startMs: sMs,
+        endMs: eMs,
+        label: `Custom Range (${new Date(sMs).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })} – ${new Date(eMs).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })})`,
+        daysCount: days
+      };
+    }
+    return {
+      startMs: 0,
+      endMs: Infinity,
+      label: 'All Time',
+      daysCount: null
+    };
+  }, [timelinePreset, customStartDate, customEndDate]);
+
+  // Clear selectedDayKey when preset or dates change
+  useEffect(() => {
+    setSelectedDayKey(null);
+    setLogPage(0);
+  }, [timelinePreset, customStartDate, customEndDate, teacherScope, homeroomFilter, reasonFilter, searchTerm]);
+
+  // All tickets belonging to the teacherScope (before timeline/homeroom/reason filter)
+  const scopedTickets = useMemo(() => {
+    return tickets.filter(matchesTeacherScope).map(t => {
+      const tsMs = getTicketTimestampMs(t);
+      const studentObj = studentMap.get((t.recipient || '').trim().toLowerCase());
+      return {
+        ...t,
+        entryType: 'regular',
+        timestampMs: tsMs,
+        dayKey: toLocalDateKey(tsMs),
+        studentId: studentObj?.id || '',
+        grade: studentObj?.grade || 'Unassigned',
+        homeroom: studentObj?.homeroom || (t.recipientType === 'class' ? t.recipient.split(' (Whole Class)')[0] : 'Unassigned'),
+        teacherName: t.teacherName || profile?.name || 'Teacher',
+        teacherEmail: t.teacherEmail || profile?.email || ''
+      };
+    });
+  }, [tickets, teacherScope, studentMap, profile, myUidsLower, teacherOptions]);
+
+  const scopedGoldenTickets = useMemo(() => {
+    return goldenTickets.filter(matchesTeacherScope).map(g => {
+      const tsMs = getTicketTimestampMs(g);
+      return {
+        ...g,
+        entryType: 'golden',
+        recipient: g.className,
+        recipientType: 'class',
+        reason: 'Golden Ticket',
+        timestampMs: tsMs,
+        dayKey: toLocalDateKey(tsMs),
+        studentId: '',
+        grade: '',
+        homeroom: g.className || 'Unassigned',
+        teacherName: g.teacherName || profile?.name || 'Teacher',
+        teacherEmail: g.teacherEmail || profile?.email || ''
+      };
+    });
+  }, [goldenTickets, teacherScope, profile, myUidsLower, teacherOptions]);
+
+  // Available homerooms across scoped tickets + teacher's own homeroom
+  const availableHomerooms = useMemo(() => {
+    const set = new Set();
+    if (profile?.role === 'homeroom' && profile?.name) set.add(profile.name);
+    if (defaultHomeroom && defaultHomeroom !== 'all') set.add(defaultHomeroom);
+    students.forEach(s => { if (s.homeroom) set.add(s.homeroom); });
+    scopedTickets.forEach(t => { if (t.homeroom && t.homeroom !== 'Unassigned') set.add(t.homeroom); });
+    scopedGoldenTickets.forEach(g => { if (g.homeroom && g.homeroom !== 'Unassigned') set.add(g.homeroom); });
+    return Array.from(set).sort();
+  }, [students, scopedTickets, scopedGoldenTickets, profile, defaultHomeroom]);
+
+  // Filter by timeline & homeroom & search (before reasonFilter so we can show accurate reason breakdown for the timeline)
+  const timelineFilteredTickets = useMemo(() => {
+    return scopedTickets.filter(t => {
+      if (t.timestampMs < timelineBounds.startMs || t.timestampMs > timelineBounds.endMs) return false;
+      if (selectedDayKey && t.dayKey !== selectedDayKey) return false;
+      if (homeroomFilter !== 'all' && !matchHomeroom(t.homeroom, homeroomFilter)) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        const matchRec = (t.recipient || '').toLowerCase().includes(q);
+        const matchHr = (t.homeroom || '').toLowerCase().includes(q);
+        const matchId = String(t.studentId || '').toLowerCase().includes(q);
+        const matchTeach = (t.teacherName || '').toLowerCase().includes(q);
+        if (!matchRec && !matchHr && !matchId && !matchTeach) return false;
+      }
+      return true;
+    });
+  }, [scopedTickets, timelineBounds, selectedDayKey, homeroomFilter, searchTerm]);
+
+  const timelineFilteredGolden = useMemo(() => {
+    return scopedGoldenTickets.filter(g => {
+      if (g.timestampMs < timelineBounds.startMs || g.timestampMs > timelineBounds.endMs) return false;
+      if (selectedDayKey && g.dayKey !== selectedDayKey) return false;
+      if (homeroomFilter !== 'all' && !matchHomeroom(g.homeroom, homeroomFilter)) return false;
+      if (searchTerm.trim()) {
+        const q = searchTerm.trim().toLowerCase();
+        const matchRec = (g.recipient || '').toLowerCase().includes(q);
+        const matchTeach = (g.teacherName || '').toLowerCase().includes(q);
+        if (!matchRec && !matchTeach) return false;
+      }
+      return true;
+    });
+  }, [scopedGoldenTickets, timelineBounds, selectedDayKey, homeroomFilter, searchTerm]);
+
+  // Apply reasonFilter for the final displayed ticket list
+  const finalRegularTickets = useMemo(() => {
+    if (reasonFilter === 'golden') return [];
+    if (reasonFilter === 'all') return timelineFilteredTickets;
+    return timelineFilteredTickets.filter(t => t.reason === reasonFilter);
+  }, [timelineFilteredTickets, reasonFilter]);
+
+  const finalGoldenTickets = useMemo(() => {
+    if (reasonFilter === 'all' || reasonFilter === 'golden') return timelineFilteredGolden;
+    return [];
+  }, [timelineFilteredGolden, reasonFilter]);
+
+  const combinedLogEntries = useMemo(() => {
+    return [...finalRegularTickets, ...finalGoldenTickets].sort((a, b) => (b.timestampMs || 0) - (a.timestampMs || 0));
+  }, [finalRegularTickets, finalGoldenTickets]);
+
+  // Determine the target roster for coverage & "Who Needs Recognition?" actionable insights
+  const targetRosterStudents = useMemo(() => {
+    if (homeroomFilter !== 'all') {
+      return students.filter(s => matchHomeroom(s.homeroom, homeroomFilter));
+    }
+    if (profile?.role === 'homeroom' && profile?.name) {
+      return students.filter(s => matchHomeroom(s.homeroom, profile.name));
+    }
+    return students;
+  }, [students, homeroomFilter, profile]);
+
+  const targetRosterLabel = useMemo(() => {
+    if (homeroomFilter !== 'all') return `${homeroomFilter}'s Class`;
+    if (profile?.role === 'homeroom' && profile?.name) return `${profile.name}'s Homeroom`;
+    return 'School Roster';
+  }, [homeroomFilter, profile]);
+
+  // KPI & Reason Summary for the timeline
+  const summaryStats = useMemo(() => {
+    const counts = { Respectful: 0, Responsible: 0, Determined: 0 };
+    const uniqueStudents = new Set();
+    const uniqueClasses = new Set();
+    const activeDays = new Set();
+
+    timelineFilteredTickets.forEach(t => {
+      if (counts[t.reason] !== undefined) counts[t.reason]++;
+      const isClassRecipient = String(t.recipientType || '').toLowerCase() === 'class';
+      if (!isClassRecipient && t.recipient) {
+        uniqueStudents.add(t.recipient.trim().toLowerCase());
+      }
+      if (t.homeroom && t.homeroom !== 'Unassigned') {
+        uniqueClasses.add(t.homeroom);
+      }
+      if (t.dayKey) activeDays.add(t.dayKey);
+    });
+
+    const totalRegular = timelineFilteredTickets.length;
+    const totalGolden = timelineFilteredGolden.length;
+
+    // Roster coverage
+    const rosterNamesLower = new Set(targetRosterStudents.map(s => (s.name || '').trim().toLowerCase()).filter(Boolean));
+    let recognizedInRoster = 0;
+    rosterNamesLower.forEach(nameLower => {
+      if (uniqueStudents.has(nameLower)) recognizedInRoster++;
+    });
+    const coveragePct = rosterNamesLower.size > 0 ? Math.round((recognizedInRoster / rosterNamesLower.size) * 100) : 0;
+
+    // Unrecognized students in target roster
+    const unrecognizedStudents = targetRosterStudents.filter(s => {
+      const nl = (s.name || '').trim().toLowerCase();
+      return nl && !uniqueStudents.has(nl);
+    });
+
+    // Least & Most awarded PBIS traits
+    const traitEntries = [
+      { key: 'Respectful', count: counts.Respectful, pct: totalRegular > 0 ? Math.round((counts.Respectful / totalRegular) * 100) : 0, icon: '🤝', color: 'blue' },
+      { key: 'Responsible', count: counts.Responsible, pct: totalRegular > 0 ? Math.round((counts.Responsible / totalRegular) * 100) : 0, icon: '📋', color: 'amber' },
+      { key: 'Determined', count: counts.Determined, pct: totalRegular > 0 ? Math.round((counts.Determined / totalRegular) * 100) : 0, icon: '🔥', color: 'purple' }
+    ];
+    const sortedTraits = [...traitEntries].sort((a, b) => b.count - a.count);
+    const topTrait = sortedTraits[0];
+    const leastTrait = sortedTraits[sortedTraits.length - 1];
+
+    const avgPerActiveDay = activeDays.size > 0 ? (totalRegular / activeDays.size) : 0;
+
+    return {
+      totalRegular,
+      totalGolden,
+      counts,
+      traitEntries,
+      topTrait,
+      leastTrait,
+      uniqueStudentsCount: uniqueStudents.size,
+      uniqueClassesCount: uniqueClasses.size,
+      activeDaysCount: activeDays.size,
+      avgPerActiveDay,
+      rosterTotal: rosterNamesLower.size,
+      recognizedInRoster,
+      coveragePct,
+      unrecognizedStudents
+    };
+  }, [timelineFilteredTickets, timelineFilteredGolden, targetRosterStudents]);
+
+  // Student-by-Student Breakdown in the selected timeline (includes ALL students recognized regardless of class)
+  const studentBreakdown = useMemo(() => {
+    const map = new Map();
+
+    // Optionally seed with target roster if includeZeroStudents is toggled on
+    if (includeZeroStudents) {
+      targetRosterStudents.forEach(s => {
+        if (!s || !s.name) return;
+        if (searchTerm.trim()) {
+          const q = searchTerm.trim().toLowerCase();
+          if (
+            !s.name.toLowerCase().includes(q) &&
+            !(s.homeroom || '').toLowerCase().includes(q) &&
+            !String(s.id || '').toLowerCase().includes(q)
+          ) {
+            return;
+          }
+        }
+        const key = s.name.trim().toLowerCase();
+        map.set(key, {
+          name: s.name,
+          studentId: s.id || '',
+          grade: s.grade || 'Unassigned',
+          homeroom: s.homeroom || 'Unassigned',
+          total: 0,
+          Respectful: 0,
+          Responsible: 0,
+          Determined: 0,
+          lastAwardedMs: 0
+        });
+      });
+    }
+
+    finalRegularTickets.forEach(t => {
+      const isClassRecipient = String(t.recipientType || '').toLowerCase() === 'class';
+      if (isClassRecipient || !t.recipient) return;
+      const key = t.recipient.trim().toLowerCase();
+      if (!map.has(key)) {
+        const sObj = studentMap.get(key);
+        map.set(key, {
+          name: t.recipient,
+          studentId: sObj?.id || t.studentId || '',
+          grade: sObj?.grade || t.grade || 'Unassigned',
+          homeroom: sObj?.homeroom || t.homeroom || 'Unassigned',
+          total: 0,
+          Respectful: 0,
+          Responsible: 0,
+          Determined: 0,
+          lastAwardedMs: 0
+        });
+      }
+      const rec = map.get(key);
+      rec.total++;
+      if (rec[t.reason] !== undefined) rec[t.reason]++;
+      if (t.timestampMs > rec.lastAwardedMs) rec.lastAwardedMs = t.timestampMs;
+    });
+
+    const list = Array.from(map.values());
+    list.sort((a, b) => {
+      if (studentSort === 'least') {
+        if (a.total !== b.total) return a.total - b.total;
+        return a.name.localeCompare(b.name);
+      }
+      if (studentSort === 'name') {
+        return getLastName(a.name).localeCompare(getLastName(b.name)) || a.name.localeCompare(b.name);
+      }
+      if (b.total !== a.total) return b.total - a.total;
+      return a.name.localeCompare(b.name);
+    });
+    return list;
+  }, [finalRegularTickets, targetRosterStudents, includeZeroStudents, searchTerm, studentMap, studentSort]);
+
+  // Daily Timeline Series (for visual bar chart and daily table)
+  const dailyTimelineSeries = useMemo(() => {
+    const dayMap = new Map();
+
+    // If preset is <= 30 days (and not 'all'), pre-populate each calendar day in the window so gaps are visible
+    const dayMs = 24 * 60 * 60 * 1000;
+    if (timelineBounds.daysCount && timelineBounds.daysCount <= 31 && timelineBounds.startMs > 0 && timelineBounds.endMs < Infinity) {
+      const startDay = new Date(timelineBounds.startMs);
+      startDay.setHours(0, 0, 0, 0);
+      const endDay = new Date(timelineBounds.endMs);
+      endDay.setHours(0, 0, 0, 0);
+      for (let cur = new Date(startDay); cur.getTime() <= endDay.getTime(); cur.setDate(cur.getDate() + 1)) {
+        const key = toLocalDateKey(cur.getTime());
+        dayMap.set(key, {
+          dayKey: key,
+          dateObj: new Date(cur.getTime()),
+          Respectful: 0,
+          Responsible: 0,
+          Determined: 0,
+          golden: 0,
+          total: 0,
+          students: new Set()
+        });
+      }
+    }
+
+    // Use scoped tickets within timelineBounds (ignoring selectedDayKey so chart shows all days in range)
+    scopedTickets.forEach(t => {
+      if (t.timestampMs < timelineBounds.startMs || t.timestampMs > timelineBounds.endMs) return;
+      if (homeroomFilter !== 'all' && !matchHomeroom(t.homeroom, homeroomFilter)) return;
+      if (reasonFilter !== 'all' && reasonFilter !== 'golden' && t.reason !== reasonFilter) return;
+      if (reasonFilter === 'golden') return;
+      if (!t.dayKey) return;
+      if (!dayMap.has(t.dayKey)) {
+        const parts = t.dayKey.split('-').map(Number);
+        dayMap.set(t.dayKey, {
+          dayKey: t.dayKey,
+          dateObj: new Date(parts[0], parts[1] - 1, parts[2]),
+          Respectful: 0,
+          Responsible: 0,
+          Determined: 0,
+          golden: 0,
+          total: 0,
+          students: new Set()
+        });
+      }
+      const entry = dayMap.get(t.dayKey);
+      if (entry[t.reason] !== undefined) entry[t.reason]++;
+      entry.total++;
+      if (t.recipient) entry.students.add(t.recipient.toLowerCase());
+    });
+
+    scopedGoldenTickets.forEach(g => {
+      if (g.timestampMs < timelineBounds.startMs || g.timestampMs > timelineBounds.endMs) return;
+      if (homeroomFilter !== 'all' && !matchHomeroom(g.homeroom, homeroomFilter)) return;
+      if (reasonFilter !== 'all' && reasonFilter !== 'golden') return;
+      if (!g.dayKey) return;
+      if (!dayMap.has(g.dayKey)) {
+        const parts = g.dayKey.split('-').map(Number);
+        dayMap.set(g.dayKey, {
+          dayKey: g.dayKey,
+          dateObj: new Date(parts[0], parts[1] - 1, parts[2]),
+          Respectful: 0,
+          Responsible: 0,
+          Determined: 0,
+          golden: 0,
+          total: 0,
+          students: new Set()
+        });
+      }
+      const entry = dayMap.get(g.dayKey);
+      entry.golden++;
+    });
+
+    return Array.from(dayMap.values())
+      .map(d => ({
+        ...d,
+        uniqueStudents: d.students.size
+      }))
+      .sort((a, b) => a.dayKey.localeCompare(b.dayKey));
+  }, [scopedTickets, scopedGoldenTickets, timelineBounds, homeroomFilter, reasonFilter]);
+
+  // Quick Award Handler directly from the Timeline Report
+  const handleQuickAward = async (studentName, reason) => {
+    if (!profile || !studentName) return;
+    setSubmittingStudent(`${studentName}_${reason}`);
+    try {
+      await addDoc(collection(db, 'tickets'), {
+        teacherId: profile.email || profile.name,
+        teacherName: profile.name,
+        recipient: studentName,
+        recipientType: 'student',
+        reason,
+        timestamp: serverTimestamp()
+      });
+      if (showToast) showToast(`Awarded ${reason} ticket to ${studentName}!`);
+    } catch (e) {
+      console.error(e);
+      if (showToast) showToast('Error awarding ticket.');
+    } finally {
+      setSubmittingStudent(null);
+    }
+  };
+
+  // Batch Award All Unrecognized Present Students
+  const handleBatchAwardUnrecognized = async () => {
+    const presentUnrecognized = summaryStats.unrecognizedStudents.filter(s => !absentStudents.has(s.name));
+    if (presentUnrecognized.length === 0) {
+      if (showToast) showToast('No present unrecognized students to award.');
+      return;
+    }
+    setIsBatchAwarding(true);
+    try {
+      const payload = presentUnrecognized.map(s => ({
+        teacherId: profile.email || profile.name,
+        teacherName: profile.name,
+        recipient: s.name,
+        recipientType: 'student',
+        reason: batchAwardReason,
+        timestamp: serverTimestamp()
+      }));
+      await addDocsBatch('tickets', payload);
+      if (showToast) {
+        showToast(`Awarded ${batchAwardReason} tickets to ${presentUnrecognized.length} unrecognized student${presentUnrecognized.length !== 1 ? 's' : ''}!`);
+      }
+    } catch (e) {
+      console.error(e);
+      if (showToast) showToast('Error awarding batch tickets.');
+    } finally {
+      setIsBatchAwarding(false);
+    }
+  };
+
+  const handleDeleteEntry = async (entry) => {
+    try {
+      if (entry.entryType === 'golden') {
+        await deleteDoc(doc(db, 'goldenTickets', entry.id));
+        if (showToast) showToast(`Removed Golden Ticket from ${entry.recipient}.`);
+      } else {
+        await deleteDoc(doc(db, 'tickets', entry.id));
+        if (showToast) showToast(`Removed ticket from ${entry.recipient}.`);
+      }
+    } catch (e) {
+      console.error(e);
+      if (showToast) showToast('Error removing ticket.');
+    }
+  };
+
+  // --- CSV Export Helpers ---
+  const escapeCsv = (val) => `"${String(val ?? '').replace(/"/g, '""')}"`;
+
+  const downloadCsvFile = (filename, content) => {
+    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    if (showToast) showToast(`Exported ${filename}!`);
+    setShowExportMenu(false);
+  };
+
+  const getScopeTitle = () => {
+    if (teacherScope === 'me') return `${profile?.name || 'Teacher'} (${profile?.email || ''})`;
+    if (teacherScope === 'team') return `${profile?.name || 'Teacher'} & Co-Teachers`;
+    if (teacherScope === 'all') return 'All Teachers (School-Wide)';
+    const opt = teacherOptions.find(o => o.key === teacherScope);
+    return opt ? `${opt.name} (${opt.email})` : teacherScope;
+  };
+
+  // 1. Export Itemized Tickets CSV (Within Set Timeline)
+  const handleExportItemizedCSV = () => {
+    const dateStr = toLocalDateKey(Date.now());
+    let csv = `Date,Time,Teacher Name,Teacher Email,Recipient,Recipient Type,Student ID,Grade,Homeroom,PBIS Reason / Ticket Type\n`;
+    combinedLogEntries.forEach(t => {
+      const d = t.timestampMs ? new Date(t.timestampMs) : new Date();
+      const dText = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+      const tText = isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      csv += `${escapeCsv(dText)},${escapeCsv(tText)},${escapeCsv(t.teacherName)},${escapeCsv(t.teacherEmail)},${escapeCsv(t.recipient)},${escapeCsv(t.recipientType)},${escapeCsv(t.studentId)},${escapeCsv(t.grade)},${escapeCsv(t.homeroom)},${escapeCsv(t.reason)}\n`;
+    });
+    downloadCsvFile(`RRD_Tickets_Timeline_Log_${timelinePreset}_${dateStr}.csv`, csv);
+  };
+
+  // 2. Export Student Summary CSV (Within Set Timeline)
+  const handleExportStudentSummaryCSV = () => {
+    const dateStr = toLocalDateKey(Date.now());
+    let csv = `Student Name,Student ID,Grade,Homeroom,Total Tickets in Timeline,Respectful,Responsible,Determined,Last Recognized Date,Recognition Status\n`;
+    studentBreakdown.forEach(s => {
+      const lastDate = s.lastAwardedMs ? new Date(s.lastAwardedMs).toLocaleDateString() : 'None in Period';
+      const status = s.total > 0 ? 'Recognized' : 'Needs Recognition (0 in Period)';
+      csv += `${escapeCsv(s.name)},${escapeCsv(s.studentId)},${escapeCsv(s.grade)},${escapeCsv(s.homeroom)},${s.total},${s.Respectful},${s.Responsible},${s.Determined},${escapeCsv(lastDate)},${escapeCsv(status)}\n`;
+    });
+    downloadCsvFile(`RRD_Student_Recognition_Summary_${timelinePreset}_${dateStr}.csv`, csv);
+  };
+
+  // 3. Export Full Comprehensive Timeline Report CSV
+  const handleExportFullReportCSV = () => {
+    const dateStr = toLocalDateKey(Date.now());
+    let csv = `ROLLING RIDGE ELEMENTARY - TEACHER TICKET TIMELINE & RECOGNITION REPORT\n`;
+    csv += `Exported On,${escapeCsv(new Date().toLocaleString())}\n`;
+    csv += `Teacher Scope,${escapeCsv(getScopeTitle())}\n`;
+    csv += `Timeline Window,${escapeCsv(timelineBounds.label)}\n`;
+    csv += `Class / Homeroom Filter,${escapeCsv(homeroomFilter === 'all' ? 'All Classes' : homeroomFilter)}\n`;
+    csv += `PBIS Value Filter,${escapeCsv(reasonFilter === 'all' ? 'All Values' : reasonFilter)}\n\n`;
+
+    csv += `=== 1. TIMELINE SUMMARY METRICS ===\n`;
+    csv += `Metric,Value\n`;
+    csv += `Total Behavior Tickets Given,${summaryStats.totalRegular}\n`;
+    csv += `Golden Tickets Awarded,${summaryStats.totalGolden}\n`;
+    csv += `Unique Students Recognized,${summaryStats.uniqueStudentsCount}\n`;
+    csv += `Active Recognition Days,${summaryStats.activeDaysCount}\n`;
+    csv += `Average Tickets Per Active Day,${summaryStats.avgPerActiveDay.toFixed(1)}\n`;
+    csv += `Target Roster Coverage (${targetRosterLabel}),${escapeCsv(`${summaryStats.recognizedInRoster} / ${summaryStats.rosterTotal} (${summaryStats.coveragePct}%)`)}\n`;
+    csv += `Respectful Tickets,${summaryStats.counts.Respectful} (${summaryStats.traitEntries[0].pct}%)\n`;
+    csv += `Responsible Tickets,${summaryStats.counts.Responsible} (${summaryStats.traitEntries[1].pct}%)\n`;
+    csv += `Determined Tickets,${summaryStats.counts.Determined} (${summaryStats.traitEntries[2].pct}%)\n\n`;
+
+    csv += `=== 2. STUDENT RECOGNITION BREAKDOWN (${targetRosterLabel}) ===\n`;
+    csv += `Student Name,Student ID,Grade,Homeroom,Total Tickets in Timeline,Respectful,Responsible,Determined,Last Recognized Date,Status\n`;
+    studentBreakdown.forEach(s => {
+      const lastDate = s.lastAwardedMs ? new Date(s.lastAwardedMs).toLocaleDateString() : 'None in Period';
+      const status = s.total > 0 ? 'Recognized' : 'Needs Recognition';
+      csv += `${escapeCsv(s.name)},${escapeCsv(s.studentId)},${escapeCsv(s.grade)},${escapeCsv(s.homeroom)},${s.total},${s.Respectful},${s.Responsible},${s.Determined},${escapeCsv(lastDate)},${escapeCsv(status)}\n`;
+    });
+    csv += `\n`;
+
+    csv += `=== 3. DAILY ACTIVITY TIMELINE ===\n`;
+    csv += `Date,Total Behavior Tickets,Unique Students,Respectful,Responsible,Determined,Golden Tickets\n`;
+    [...dailyTimelineSeries].reverse().forEach(d => {
+      csv += `${escapeCsv(d.dayKey)},${d.total},${d.uniqueStudents},${d.Respectful},${d.Responsible},${d.Determined},${d.golden}\n`;
+    });
+    csv += `\n`;
+
+    csv += `=== 4. ITEMIZED TICKETS AWARDED IN TIMELINE ===\n`;
+    csv += `Date,Time,Teacher Name,Teacher Email,Recipient,Recipient Type,Student ID,Grade,Homeroom,PBIS Reason\n`;
+    combinedLogEntries.forEach(t => {
+      const d = t.timestampMs ? new Date(t.timestampMs) : new Date();
+      const dText = isNaN(d.getTime()) ? '' : d.toLocaleDateString();
+      const tText = isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      csv += `${escapeCsv(dText)},${escapeCsv(tText)},${escapeCsv(t.teacherName)},${escapeCsv(t.teacherEmail)},${escapeCsv(t.recipient)},${escapeCsv(t.recipientType)},${escapeCsv(t.studentId)},${escapeCsv(t.grade)},${escapeCsv(t.homeroom)},${escapeCsv(t.reason)}\n`;
+    });
+
+    downloadCsvFile(`RRD_Full_Teacher_Ticket_Report_${timelinePreset}_${dateStr}.csv`, csv);
+  };
+
+  // Trigger Printable View
+  const handleOpenPrintableView = () => {
+    if (onPrintReport) {
+      onPrintReport({
+        scopeTitle: getScopeTitle(),
+        timelineLabel: timelineBounds.label,
+        homeroomLabel: homeroomFilter === 'all' ? 'All Classes' : homeroomFilter,
+        targetRosterLabel,
+        summaryStats,
+        studentBreakdown,
+        combinedLogEntries
+      });
+      setShowExportMenu(false);
+    } else {
+      window.print();
+    }
+  };
+
+  const paginatedLog = combinedLogEntries.slice(logPage * LOG_PAGE_SIZE, (logPage + 1) * LOG_PAGE_SIZE);
+  const totalLogPages = Math.ceil(combinedLogEntries.length / LOG_PAGE_SIZE);
+
+  const maxDailyCount = useMemo(() => {
+    return Math.max(1, ...dailyTimelineSeries.map(d => d.total + d.golden));
+  }, [dailyTimelineSeries]);
+
+  const presentUnrecognizedCount = summaryStats.unrecognizedStudents.filter(s => !absentStudents.has(s.name)).length;
+
+  const reportBody = (
+    <div className="space-y-6">
+      {/* Header Banner */}
+      <div className="bg-gradient-to-r from-emerald-900 via-emerald-800 to-teal-900 text-white p-5 sm:p-6 rounded-3xl shadow-md border border-emerald-700/60">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="p-2 bg-amber-400/20 border border-amber-300/40 rounded-xl text-amber-300">
+                <Calendar className="w-5 h-5" aria-hidden="true" />
+              </div>
+              <h2 className="text-xl sm:text-2xl font-black font-display tracking-tight text-white">
+                Awarded Tickets Timeline & Export
+              </h2>
+              <span className="bg-emerald-950/80 text-amber-300 border border-amber-300/40 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full">
+                {timelineBounds.label}
+              </span>
+            </div>
+            <p className="text-xs sm:text-sm text-emerald-100/90 max-w-2xl">
+              Review the tickets you have given within your chosen timeline, spot students who need recognition, and export or print reports for conferences and PBIS tracking.
+            </p>
+          </div>
+
+          {/* Export & Print Action Buttons */}
+          <div className="flex items-center gap-2 flex-wrap self-start lg:self-center">
+            <button
+              type="button"
+              onClick={handleExportFullReportCSV}
+              className="flex items-center gap-2 bg-amber-400 hover:bg-amber-300 text-emerald-950 font-black px-4 py-2.5 rounded-xl text-xs sm:text-sm shadow-md transition cursor-pointer min-h-[44px]"
+              title="Download comprehensive CSV report for the selected timeline"
+            >
+              <Download className="w-4 h-4" aria-hidden="true" />
+              <span>Export Timeline CSV</span>
+            </button>
+
+            {onPrintReport && (
+              <button
+                type="button"
+                onClick={handleOpenPrintableView}
+                className="flex items-center gap-1.5 bg-white/15 hover:bg-white/25 text-white border border-white/25 font-bold px-3.5 py-2.5 rounded-xl text-xs sm:text-sm transition cursor-pointer min-h-[44px]"
+                title="Open clean printable report view"
+              >
+                <Printer className="w-4 h-4 text-amber-300" aria-hidden="true" />
+                <span>Print / PDF</span>
+              </button>
+            )}
+
+            {/* Dropdown for specific CSV formats */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowExportMenu(prev => !prev)}
+                aria-label="More export options"
+                aria-expanded={showExportMenu}
+                className="flex items-center justify-center p-2.5 bg-emerald-950/70 hover:bg-emerald-950 text-amber-200 rounded-xl border border-emerald-600 transition cursor-pointer min-h-[44px] min-w-[44px]"
+              >
+                <ChevronDown className="w-4 h-4" />
+              </button>
+
+              {showExportMenu && (
+                <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-200 py-2 z-40 text-gray-800 text-xs animate-fade-in">
+                  <div className="px-3.5 py-1.5 font-extrabold uppercase text-[10px] text-gray-400 border-b border-gray-100">
+                    Export Current Timeline ({timelinePreset.toUpperCase()})
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleExportFullReportCSV}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50 text-emerald-950 font-bold flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+                    <div>
+                      <div>Full Timeline Report (CSV)</div>
+                      <div className="text-[10px] text-gray-400 font-normal">Summary + Student Roster + Daily + Log</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportStudentSummaryCSV}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 text-gray-800 font-bold flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <Users className="w-4 h-4 text-blue-600 flex-shrink-0" />
+                    <div>
+                      <div>Student Recognition Summary (CSV)</div>
+                      <div className="text-[10px] text-gray-400 font-normal">1 row per student with R/S/D counts</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportItemizedCSV}
+                    className="w-full text-left px-3.5 py-2.5 hover:bg-slate-50 text-gray-800 font-bold flex items-center gap-2.5 transition cursor-pointer"
+                  >
+                    <Clock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                    <div>
+                      <div>Itemized Ticket Log Only (CSV)</div>
+                      <div className="text-[10px] text-gray-400 font-normal">Every individual ticket in date range</div>
+                    </div>
+                  </button>
+                  {onPrintReport && (
+                    <button
+                      type="button"
+                      onClick={handleOpenPrintableView}
+                      className="w-full text-left px-3.5 py-2.5 hover:bg-amber-50 text-amber-950 font-bold flex items-center gap-2.5 transition border-t border-gray-100 cursor-pointer"
+                    >
+                      <Printer className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                      <div>
+                        <div>Printable Summary & Report</div>
+                        <div className="text-[10px] text-gray-400 font-normal">Print or save as PDF for conferences</div>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Timeline Selector Bar */}
+        <div className="mt-5 pt-4 border-t border-emerald-700/60 space-y-3">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Select Timeline Window">
+              <span className="text-xs font-extrabold uppercase tracking-wider text-emerald-200 mr-1 flex items-center gap-1">
+                <Clock className="w-3.5 h-3.5 text-amber-300" /> Timeline:
+              </span>
+              {[
+                { id: 'today', label: 'Today' },
+                { id: '7days', label: 'Last 7 Days' },
+                { id: '14days', label: 'Last 14 Days' },
+                { id: '30days', label: 'Last 30 Days' },
+                { id: '90days', label: 'Last 90 Days' },
+                { id: 'all', label: 'All Time' },
+                { id: 'custom', label: 'Custom Dates' }
+              ].map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setTimelinePreset(p.id)}
+                  aria-pressed={timelinePreset === p.id}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition cursor-pointer min-h-[36px] ${
+                    timelinePreset === p.id
+                      ? 'bg-amber-400 text-emerald-950 shadow-sm ring-2 ring-white/40'
+                      : 'bg-emerald-950/60 hover:bg-emerald-950 text-emerald-100 border border-emerald-700'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Teacher Scope Switcher (Co-Teachers or Admin Teacher Picker) */}
+            {isAdmin ? (
+              <div className="flex items-center gap-2 bg-emerald-950/80 border border-emerald-600 px-3 py-1.5 rounded-xl">
+                <label htmlFor="admin-teacher-scope" className="text-xs font-bold text-amber-300 whitespace-nowrap">
+                  Teacher:
+                </label>
+                <select
+                  id="admin-teacher-scope"
+                  value={teacherScope}
+                  onChange={e => setTeacherScope(e.target.value)}
+                  className="text-xs font-extrabold text-white bg-transparent outline-none cursor-pointer"
+                >
+                  <option value="me" className="bg-gray-900">My Awarded Tickets ({profile?.name})</option>
+                  <option value="all" className="bg-gray-900">All Teachers (School-Wide)</option>
+                  {teacherOptions.map(t => (
+                    <option key={t.key} value={t.key} className="bg-gray-900">
+                      {t.name} ({t.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : hasCoTeachers ? (
+              <div className="flex items-center gap-1 bg-emerald-950/70 p-1 rounded-xl border border-emerald-700 self-start">
+                <button
+                  type="button"
+                  onClick={() => setTeacherScope('me')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${teacherScope === 'me' ? 'bg-amber-400 text-emerald-950 font-black' : 'text-emerald-100 hover:text-white'}`}
+                >
+                  Just Me ({profile?.name})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTeacherScope('team')}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${teacherScope === 'team' ? 'bg-amber-400 text-emerald-950 font-black' : 'text-emerald-100 hover:text-white'}`}
+                >
+                  Me & Co-Teachers
+                </button>
+              </div>
+            ) : null}
+          </div>
+
+          {/* Custom Date Range Pickers */}
+          {timelinePreset === 'custom' && (
+            <div className="flex flex-wrap items-center gap-3 bg-emerald-950/80 p-3.5 rounded-2xl border border-amber-300/40 animate-fade-in">
+              <div className="flex items-center gap-2">
+                <label htmlFor="timeline-start-date" className="text-xs font-bold text-amber-200">From:</label>
+                <input
+                  id="timeline-start-date"
+                  type="date"
+                  value={customStartDate}
+                  onChange={e => setCustomStartDate(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl bg-white text-navy-950 text-xs font-bold border border-emerald-400 outline-none"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="timeline-end-date" className="text-xs font-bold text-amber-200">To:</label>
+                <input
+                  id="timeline-end-date"
+                  type="date"
+                  value={customEndDate}
+                  onChange={e => setCustomEndDate(e.target.value)}
+                  className="px-3 py-1.5 rounded-xl bg-white text-navy-950 text-xs font-bold border border-emerald-400 outline-none"
+                />
+              </div>
+              <span className="text-xs text-emerald-200 font-medium">
+                ({timelineBounds.daysCount} day{timelineBounds.daysCount !== 1 ? 's' : ''} selected)
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Secondary Filter Bar (Class, PBIS Value, Student Search) */}
+      <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-2xs flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Class / Homeroom Filter */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-gray-200 rounded-xl px-3 py-2">
+            <Users className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+            <label htmlFor="timeline-homeroom-filter" className="text-xs font-bold text-gray-500">Student Class:</label>
+            <select
+              id="timeline-homeroom-filter"
+              value={homeroomFilter}
+              onChange={e => setHomeroomFilter(e.target.value)}
+              className="text-xs font-extrabold text-navy-950 bg-transparent outline-none cursor-pointer"
+            >
+              <option value="all">All Classes (Every Student Awarded)</option>
+              {availableHomerooms.map(h => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* PBIS Value Filter */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-gray-200 rounded-xl px-3 py-2">
+            <Filter className="w-4 h-4 text-emerald-700" aria-hidden="true" />
+            <label htmlFor="timeline-reason-filter" className="text-xs font-bold text-gray-500">PBIS Value:</label>
+            <select
+              id="timeline-reason-filter"
+              value={reasonFilter}
+              onChange={e => setReasonFilter(e.target.value)}
+              className="text-xs font-extrabold text-navy-950 bg-transparent outline-none cursor-pointer"
+            >
+              <option value="all">All Ticket Types</option>
+              <option value="Respectful">🤝 Respectful</option>
+              <option value="Responsible">📋 Responsible</option>
+              <option value="Determined">🔥 Determined</option>
+              <option value="golden">⭐ Golden Tickets</option>
+            </select>
+          </div>
+
+          {selectedDayKey && (
+            <button
+              type="button"
+              onClick={() => setSelectedDayKey(null)}
+              className="flex items-center gap-1.5 bg-amber-100 text-amber-900 border border-amber-300 px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer hover:bg-amber-200 transition"
+            >
+              <span>Date: {selectedDayKey}</span>
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+
+        {/* Search Input */}
+        <div className="relative flex-1 max-w-sm">
+          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" aria-hidden="true" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="Search student name, ID, or class..."
+            aria-label="Search tickets by student name, ID, or class"
+            className="w-full pl-9 pr-8 py-2 text-xs bg-slate-50 border border-gray-200 rounded-xl outline-none focus:bg-white focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              aria-label="Clear search"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Helpful notice if 0 tickets in current preset but teacher has older tickets */}
+      {summaryStats.totalRegular === 0 && summaryStats.totalGolden === 0 && timelinePreset !== 'all' && scopedTickets.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Info className="w-5 h-5 text-amber-600 flex-shrink-0" />
+            <div className="text-xs text-amber-900">
+              <span className="font-black">No tickets found in {timelineBounds.label}.</span> You have <span className="font-bold">{scopedTickets.length} total ticket{scopedTickets.length !== 1 ? 's' : ''}</span> recorded across all time.
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setTimelinePreset('all')}
+            className="px-3.5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-black rounded-xl text-xs transition cursor-pointer flex-shrink-0"
+          >
+            View All Time ({scopedTickets.length})
+          </button>
+        </div>
+      )}
+
+      {/* 4 Accessible KPI Spotlight Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Total Tickets Given */}
+        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">Tickets Given</span>
+            <span className="p-2 bg-emerald-100 text-emerald-800 rounded-xl"><Ticket className="w-4 h-4" /></span>
+          </div>
+          <div className="flex items-baseline gap-2 my-1">
+            <span className="text-3xl font-black text-navy-950">{summaryStats.totalRegular}</span>
+            {summaryStats.totalGolden > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-black bg-amber-100 text-amber-900 border border-amber-300">
+                <Star className="w-3 h-3 fill-amber-400 text-amber-600" />
+                +{summaryStats.totalGolden} Golden
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-gray-500 font-medium">
+            {summaryStats.activeDaysCount > 0
+              ? `${summaryStats.avgPerActiveDay.toFixed(1)} avg/day across ${summaryStats.activeDaysCount} active day${summaryStats.activeDaysCount !== 1 ? 's' : ''}`
+              : 'No ticket activity in this window'}
+          </div>
+        </div>
+
+        {/* Card 2: Students Recognized & Roster Coverage */}
+        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">Students Recognized</span>
+            <span className="p-2 bg-blue-100 text-blue-800 rounded-xl"><Users className="w-4 h-4" /></span>
+          </div>
+          <div className="flex items-baseline gap-2 my-1 flex-wrap">
+            <span className="text-3xl font-black text-navy-950">{summaryStats.uniqueStudentsCount}</span>
+            {summaryStats.uniqueClassesCount > 0 && (
+              <span className="text-xs font-extrabold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200">
+                Across {summaryStats.uniqueClassesCount} class{summaryStats.uniqueClassesCount !== 1 ? 'es' : ''}
+              </span>
+            )}
+          </div>
+          {summaryStats.rosterTotal > 0 ? (
+            <div className="space-y-1">
+              <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-emerald-500 h-full rounded-full transition-all duration-500"
+                  style={{ width: `${Math.min(100, summaryStats.coveragePct)}%` }}
+                />
+              </div>
+              <div className="text-[11px] text-gray-500 font-medium">
+                {summaryStats.recognizedInRoster} of {summaryStats.rosterTotal} in {targetRosterLabel} ({summaryStats.coveragePct}%)
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-gray-500 font-medium">Unique student recipients across all classes</div>
+          )}
+        </div>
+
+        {/* Card 3: PBIS Value Breakdown */}
+        <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-2xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-extrabold text-gray-500 uppercase tracking-wider">PBIS Value Balance</span>
+            <span className="p-2 bg-purple-100 text-purple-800 rounded-xl"><PieChart className="w-4 h-4" /></span>
+          </div>
+          {summaryStats.totalRegular > 0 ? (
+            <>
+              <div className="flex rounded-full overflow-hidden h-3.5 bg-gray-100 my-2" role="img" aria-label={`Respectful ${summaryStats.counts.Respectful}, Responsible ${summaryStats.counts.Responsible}, Determined ${summaryStats.counts.Determined}`}>
+                {summaryStats.counts.Respectful > 0 && (
+                  <div className="bg-blue-500 transition-all" style={{ width: `${(summaryStats.counts.Respectful / summaryStats.totalRegular) * 100}%` }} title={`Respectful: ${summaryStats.counts.Respectful}`} />
+                )}
+                {summaryStats.counts.Responsible > 0 && (
+                  <div className="bg-amber-500 transition-all" style={{ width: `${(summaryStats.counts.Responsible / summaryStats.totalRegular) * 100}%` }} title={`Responsible: ${summaryStats.counts.Responsible}`} />
+                )}
+                {summaryStats.counts.Determined > 0 && (
+                  <div className="bg-purple-500 transition-all" style={{ width: `${(summaryStats.counts.Determined / summaryStats.totalRegular) * 100}%` }} title={`Determined: ${summaryStats.counts.Determined}`} />
+                )}
+              </div>
+              <div className="flex items-center justify-between gap-1 text-[11px] font-bold">
+                <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200" title="Respectful">
+                  🤝 R: {summaryStats.counts.Respectful} ({summaryStats.traitEntries[0].pct}%)
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200" title="Responsible">
+                  📋 S: {summaryStats.counts.Responsible} ({summaryStats.traitEntries[1].pct}%)
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200" title="Determined">
+                  🔥 D: {summaryStats.counts.Determined} ({summaryStats.traitEntries[2].pct}%)
+                </span>
+              </div>
+            </>
+          ) : (
+            <div className="text-xs text-gray-400 italic py-3">Award tickets to see your R/S/D balance.</div>
+          )}
+        </div>
+
+        {/* Card 4: Actionable Insight / Focus Tip */}
+        <div className="bg-gradient-to-br from-amber-50 to-emerald-50 p-4 rounded-2xl border border-emerald-200 shadow-2xs flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[11px] font-extrabold text-emerald-900 uppercase tracking-wider">Actionable Insight</span>
+            <span className="p-2 bg-white text-emerald-700 rounded-xl shadow-2xs"><Sparkles className="w-4 h-4" /></span>
+          </div>
+          {summaryStats.totalRegular > 0 ? (
+            <div className="space-y-1.5">
+              <div className="text-xs font-extrabold text-navy-950">
+                {summaryStats.leastTrait.icon} Focus Opportunity: <span className="underline decoration-amber-500">{summaryStats.leastTrait.key}</span> ({summaryStats.leastTrait.pct}%)
+              </div>
+              <p className="text-[11px] text-gray-600 leading-snug">
+                {summaryStats.unrecognizedStudents.length > 0
+                  ? `${summaryStats.unrecognizedStudents.length} student${summaryStats.unrecognizedStudents.length !== 1 ? 's' : ''} in ${targetRosterLabel} haven't received a ticket in this timeline yet.`
+                  : `Awesome! Every student in ${targetRosterLabel} has been recognized in this timeline!`}
+              </p>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-600 leading-snug my-auto">
+              Use the quick-award buttons below to recognize students for being Respectful, Responsible, or Determined!
+            </p>
+          )}
+        </div>
+      </div>
+
+      {/* Actionable Panel: "Who Needs Recognition?" Roster Equity Bar */}
+      {targetRosterStudents.length > 0 && targetRosterStudents.length <= 60 && (
+        <div className={`rounded-2xl p-4 sm:p-5 border transition ${
+          summaryStats.unrecognizedStudents.length === 0
+            ? 'bg-emerald-50/80 border-emerald-200'
+            : 'bg-white border-amber-200 shadow-2xs'
+        }`}>
+          {summaryStats.unrecognizedStudents.length === 0 ? (
+            <div className="flex items-center gap-3 text-emerald-900">
+              <CheckCircle2 className="w-6 h-6 text-emerald-600 flex-shrink-0" />
+              <div>
+                <h3 className="text-sm font-black">100% Class Recognition Achieved in {timelineBounds.label}!</h3>
+                <p className="text-xs text-emerald-700">Every student in {targetRosterLabel} ({summaryStats.rosterTotal} students) has earned at least one ticket during this timeline.</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300">
+                      Actionable Equity Check
+                    </span>
+                    <h3 className="text-sm font-black text-navy-950">
+                      Students Not Yet Recognized in This Timeline ({summaryStats.unrecognizedStudents.length})
+                    </h3>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Tap <strong className="text-blue-700">+R</strong> (Respectful), <strong className="text-amber-700">+S</strong> (Responsible), or <strong className="text-purple-700">+D</strong> (Determined) to recognize a student right now, or batch-award all present unrecognized students.
+                  </p>
+                </div>
+
+                {/* Batch Award Unrecognized Controls */}
+                {presentUnrecognizedCount > 0 && (
+                  <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
+                    <select
+                      value={batchAwardReason}
+                      onChange={e => setBatchAwardReason(e.target.value)}
+                      aria-label="Select PBIS reason for batch award"
+                      className="text-xs font-bold border border-gray-300 rounded-xl px-2.5 py-2 bg-slate-50 text-navy-950 outline-none"
+                    >
+                      <option value="Respectful">🤝 Respectful</option>
+                      <option value="Responsible">📋 Responsible</option>
+                      <option value="Determined">🔥 Determined</option>
+                    </select>
+                    <button
+                      type="button"
+                      disabled={isBatchAwarding}
+                      onClick={handleBatchAwardUnrecognized}
+                      className="flex items-center gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-black px-3.5 py-2 rounded-xl text-xs shadow-xs transition cursor-pointer disabled:opacity-50 min-h-[38px]"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                      <span>
+                        {isBatchAwarding
+                          ? 'Awarding...'
+                          : `Award All ${presentUnrecognizedCount} Unrecognized`}
+                      </span>
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Chips Grid for Unrecognized Students */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5">
+                {(showAllUnrecognized ? summaryStats.unrecognizedStudents : summaryStats.unrecognizedStudents.slice(0, 8)).map(st => {
+                  const isAbsent = absentStudents.has(st.name);
+                  return (
+                    <div
+                      key={st.id || st.name}
+                      className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border ${
+                        isAbsent ? 'bg-red-50/40 border-red-200 opacity-60' : 'bg-slate-50/80 border-slate-200 hover:border-emerald-300'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-extrabold text-navy-950 truncate" title={st.name}>
+                          {st.name}
+                        </div>
+                        <div className="text-[10px] text-gray-400 truncate">
+                          {st.homeroom} {isAbsent ? '• Absent' : ''}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          type="button"
+                          disabled={isAbsent || submittingStudent === `${st.name}_Respectful`}
+                          onClick={() => handleQuickAward(st.name, 'Respectful')}
+                          title={`Award Respectful ticket to ${st.name}`}
+                          aria-label={`Award Respectful ticket to ${st.name}`}
+                          className="px-2 py-1 rounded-lg bg-blue-100 hover:bg-blue-600 text-blue-800 hover:text-white font-black text-[10px] transition cursor-pointer disabled:opacity-40"
+                        >
+                          +R
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isAbsent || submittingStudent === `${st.name}_Responsible`}
+                          onClick={() => handleQuickAward(st.name, 'Responsible')}
+                          title={`Award Responsible ticket to ${st.name}`}
+                          aria-label={`Award Responsible ticket to ${st.name}`}
+                          className="px-2 py-1 rounded-lg bg-amber-100 hover:bg-amber-500 text-amber-900 hover:text-white font-black text-[10px] transition cursor-pointer disabled:opacity-40"
+                        >
+                          +S
+                        </button>
+                        <button
+                          type="button"
+                          disabled={isAbsent || submittingStudent === `${st.name}_Determined`}
+                          onClick={() => handleQuickAward(st.name, 'Determined')}
+                          title={`Award Determined ticket to ${st.name}`}
+                          aria-label={`Award Determined ticket to ${st.name}`}
+                          className="px-2 py-1 rounded-lg bg-purple-100 hover:bg-purple-600 text-purple-800 hover:text-white font-black text-[10px] transition cursor-pointer disabled:opacity-40"
+                        >
+                          +D
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {summaryStats.unrecognizedStudents.length > 8 && (
+                <div className="text-center pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllUnrecognized(prev => !prev)}
+                    className="text-xs font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer"
+                  >
+                    {showAllUnrecognized
+                      ? 'Show Fewer'
+                      : `Show All ${summaryStats.unrecognizedStudents.length} Unrecognized Students`}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Interactive View Tabs */}
+      <div className="flex flex-wrap border-b border-gray-200 gap-1" role="tablist" aria-label="Ticket Timeline Views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'students'}
+          onClick={() => setActiveTab('students')}
+          className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'students'
+              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/50 rounded-t-xl'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Student Breakdown & Quick Award ({studentBreakdown.length})</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'timeline'}
+          onClick={() => setActiveTab('timeline')}
+          className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'timeline'
+              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/50 rounded-t-xl'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          <BarChart3 className="w-4 h-4" />
+          <span>Daily Visual Timeline ({dailyTimelineSeries.filter(d => d.total + d.golden > 0).length} active days)</span>
+        </button>
+
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'log'}
+          onClick={() => setActiveTab('log')}
+          className={`px-4 py-2.5 text-xs sm:text-sm font-extrabold border-b-2 transition flex items-center gap-2 cursor-pointer ${
+            activeTab === 'log'
+              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/50 rounded-t-xl'
+              : 'border-transparent text-gray-500 hover:text-gray-800'
+          }`}
+        >
+          <History className="w-4 h-4" />
+          <span>Itemized Ticket Log & Undo ({combinedLogEntries.length})</span>
+        </button>
+      </div>
+
+      {/* TAB 1: Student Breakdown & Quick Award */}
+      {activeTab === 'students' && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+          <div className="p-4 bg-slate-50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-black text-navy-950">Student Recognition Breakdown ({timelineBounds.label})</h3>
+              <p className="text-xs text-gray-500">
+                See how many Respectful, Responsible, and Determined tickets each student received in this period and award directly.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <label className="flex items-center gap-1.5 text-xs font-bold text-gray-700 bg-white px-3 py-1.5 rounded-xl border border-gray-200 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeZeroStudents}
+                  onChange={e => setIncludeZeroStudents(e.target.checked)}
+                  className="rounded text-emerald-600 focus:ring-emerald-500"
+                />
+                <span>Include 0-Ticket Roster Students</span>
+              </label>
+
+              <select
+                value={studentSort}
+                onChange={e => setStudentSort(e.target.value)}
+                aria-label="Sort student breakdown"
+                className="text-xs font-bold bg-white border border-gray-200 rounded-xl px-3 py-1.5 text-navy-950 outline-none cursor-pointer"
+              >
+                <option value="most">Sort: Most Tickets in Period</option>
+                <option value="least">Sort: Needs Recognition First (0 → High)</option>
+                <option value="name">Sort: Last Name (A–Z)</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={handleExportStudentSummaryCSV}
+                className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl transition cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export Student CSV</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto max-h-[480px] overflow-y-auto">
+            <table className="w-full text-left text-xs text-gray-700">
+              <thead className="bg-slate-100/90 text-[10px] font-extrabold uppercase text-slate-600 border-b sticky top-0 z-10">
+                <tr>
+                  <th className="px-4 py-3">Student</th>
+                  <th className="px-4 py-3">Class / Grade</th>
+                  <th className="px-4 py-3 text-center">Tickets in Timeline</th>
+                  <th className="px-4 py-3">PBIS Breakdown (R / S / D)</th>
+                  <th className="px-4 py-3">Last Recognized</th>
+                  <th className="px-4 py-3 text-right">Quick Award Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {studentBreakdown.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="p-8 text-center text-gray-400 italic">
+                      No students match the selected timeline and filters.
+                    </td>
+                  </tr>
+                ) : (
+                  studentBreakdown.map(s => {
+                    const isAbsent = absentStudents.has(s.name);
+                    return (
+                      <tr key={s.name} className={`hover:bg-slate-50/80 transition ${s.total === 0 ? 'bg-amber-50/20' : ''}`}>
+                        <td className="px-4 py-3 font-extrabold text-navy-950">
+                          <div>{s.name}</div>
+                          {s.studentId && <div className="text-[10px] text-gray-400 font-normal">ID: {s.studentId}</div>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-600">
+                          <div className="font-bold text-gray-800">{s.homeroom}</div>
+                          <div className="text-[10px] text-gray-400">{s.grade}</div>
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`inline-flex items-center justify-center min-w-[32px] px-2.5 py-1 rounded-full font-black text-xs ${
+                            s.total > 0
+                              ? 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                              : 'bg-amber-100 text-amber-900 border border-amber-300'
+                          }`}>
+                            {s.total}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 border border-blue-200 font-bold text-[11px]">
+                              🤝 R: {s.Respectful}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-amber-50 text-amber-800 border border-amber-200 font-bold text-[11px]">
+                              📋 S: {s.Responsible}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 border border-purple-200 font-bold text-[11px]">
+                              🔥 D: {s.Determined}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          {s.lastAwardedMs > 0 ? (
+                            <span className="text-gray-600 font-medium">
+                              {new Date(s.lastAwardedMs).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
+                              Needs Recognition
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={isAbsent || submittingStudent === `${s.name}_Respectful`}
+                              onClick={() => handleQuickAward(s.name, 'Respectful')}
+                              className="px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-600 text-blue-800 hover:text-white border border-blue-200 font-black text-[10px] transition cursor-pointer disabled:opacity-40"
+                              title={`Award Respectful ticket to ${s.name}`}
+                            >
+                              +Respectful
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isAbsent || submittingStudent === `${s.name}_Responsible`}
+                              onClick={() => handleQuickAward(s.name, 'Responsible')}
+                              className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-500 text-amber-900 hover:text-white border border-amber-200 font-black text-[10px] transition cursor-pointer disabled:opacity-40"
+                              title={`Award Responsible ticket to ${s.name}`}
+                            >
+                              +Responsible
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isAbsent || submittingStudent === `${s.name}_Determined`}
+                              onClick={() => handleQuickAward(s.name, 'Determined')}
+                              className="px-2 py-1 rounded-lg bg-purple-50 hover:bg-purple-600 text-purple-800 hover:text-white border border-purple-200 font-black text-[10px] transition cursor-pointer disabled:opacity-40"
+                              title={`Award Determined ticket to ${s.name}`}
+                            >
+                              +Determined
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 2: Daily Visual Timeline & Trend */}
+      {activeTab === 'timeline' && (
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-black text-navy-950 flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-emerald-600" />
+                  <span>Day-by-Day Ticket Activity Chart</span>
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Click any day&apos;s bar to filter the report to that specific date. Stacked by Respectful (Blue), Responsible (Amber), and Determined (Purple).
+                </p>
+              </div>
+              <div className="flex items-center gap-3 text-xs font-bold">
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Respectful</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> Responsible</span>
+                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-purple-500" /> Determined</span>
+              </div>
+            </div>
+
+            {dailyTimelineSeries.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 italic text-xs">No daily activity in this timeline yet.</div>
+            ) : (
+              <div className="overflow-x-auto pb-2">
+                <div className="flex items-end gap-2 min-h-[180px] pt-6 px-2" style={{ minWidth: `${Math.max(100, dailyTimelineSeries.length * 42)}px` }}>
+                  {dailyTimelineSeries.map(d => {
+                    const totalForDay = d.total + d.golden;
+                    const heightPct = totalForDay > 0 ? Math.max(12, Math.round((totalForDay / maxDailyCount) * 130)) : 4;
+                    const isSelected = selectedDayKey === d.dayKey;
+                    const shortDate = d.dateObj.toLocaleDateString([], { month: 'numeric', day: 'numeric' });
+                    const weekday = d.dateObj.toLocaleDateString([], { weekday: 'short' });
+                    return (
+                      <button
+                        key={d.dayKey}
+                        type="button"
+                        onClick={() => setSelectedDayKey(isSelected ? null : d.dayKey)}
+                        title={`${d.dayKey}: ${d.total} tickets (R:${d.Respectful}, S:${d.Responsible}, D:${d.Determined}${d.golden ? `, Golden:${d.golden}` : ''})`}
+                        className={`flex-1 min-w-[34px] flex flex-col items-center group cursor-pointer focus:outline-none ${
+                          isSelected ? 'ring-2 ring-emerald-600 rounded-xl p-1 bg-emerald-50' : ''
+                        }`}
+                      >
+                        <span className={`text-[10px] font-black mb-1 ${totalForDay > 0 ? 'text-navy-950' : 'text-gray-300'}`}>
+                          {totalForDay}
+                        </span>
+                        <div
+                          className={`w-full max-w-[28px] rounded-t-lg overflow-hidden flex flex-col-reverse transition-all ${
+                            totalForDay === 0 ? 'bg-gray-100' : 'shadow-2xs group-hover:opacity-90'
+                          }`}
+                          style={{ height: `${heightPct}px` }}
+                        >
+                          {d.Respectful > 0 && (
+                            <div className="bg-blue-500 w-full" style={{ height: `${(d.Respectful / totalForDay) * 100}%` }} />
+                          )}
+                          {d.Responsible > 0 && (
+                            <div className="bg-amber-500 w-full" style={{ height: `${(d.Responsible / totalForDay) * 100}%` }} />
+                          )}
+                          {d.Determined > 0 && (
+                            <div className="bg-purple-500 w-full" style={{ height: `${(d.Determined / totalForDay) * 100}%` }} />
+                          )}
+                          {d.golden > 0 && (
+                            <div className="bg-yellow-300 w-full" style={{ height: `${(d.golden / totalForDay) * 100}%` }} />
+                          )}
+                        </div>
+                        <div className="mt-1.5 text-[10px] font-bold text-gray-600 leading-tight">{shortDate}</div>
+                        <div className="text-[9px] text-gray-400">{weekday}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Daily Breakdown Table */}
+          <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+            <div className="p-4 bg-slate-50 border-b border-gray-200">
+              <h3 className="text-sm font-black text-navy-950">Daily Summary Table</h3>
+            </div>
+            <div className="overflow-x-auto max-h-[360px] overflow-y-auto">
+              <table className="w-full text-left text-xs text-gray-700">
+                <thead className="bg-slate-100/90 text-[10px] font-extrabold uppercase text-slate-600 border-b sticky top-0">
+                  <tr>
+                    <th className="px-4 py-3">Date</th>
+                    <th className="px-4 py-3 text-center">Total Tickets</th>
+                    <th className="px-4 py-3 text-center">Students Recognized</th>
+                    <th className="px-4 py-3 text-center">🤝 Respectful</th>
+                    <th className="px-4 py-3 text-center">📋 Responsible</th>
+                    <th className="px-4 py-3 text-center">🔥 Determined</th>
+                    <th className="px-4 py-3 text-center">⭐ Golden</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {[...dailyTimelineSeries].reverse().filter(d => d.total + d.golden > 0).length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="p-8 text-center text-gray-400 italic">No active days in this timeline.</td>
+                    </tr>
+                  ) : (
+                    [...dailyTimelineSeries]
+                      .reverse()
+                      .filter(d => d.total + d.golden > 0)
+                      .map(d => (
+                        <tr
+                          key={d.dayKey}
+                          onClick={() => setSelectedDayKey(selectedDayKey === d.dayKey ? null : d.dayKey)}
+                          className={`hover:bg-slate-50 transition cursor-pointer ${selectedDayKey === d.dayKey ? 'bg-emerald-50 font-bold' : ''}`}
+                        >
+                          <td className="px-4 py-2.5 font-extrabold text-navy-950">
+                            {d.dateObj.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                          </td>
+                          <td className="px-4 py-2.5 text-center font-black text-emerald-700">{d.total}</td>
+                          <td className="px-4 py-2.5 text-center font-bold text-gray-700">{d.uniqueStudents}</td>
+                          <td className="px-4 py-2.5 text-center text-blue-700 font-bold">{d.Respectful}</td>
+                          <td className="px-4 py-2.5 text-center text-amber-700 font-bold">{d.Responsible}</td>
+                          <td className="px-4 py-2.5 text-center text-purple-700 font-bold">{d.Determined}</td>
+                          <td className="px-4 py-2.5 text-center text-amber-600 font-bold">{d.golden}</td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB 3: Itemized Ticket Log & Undo */}
+      {activeTab === 'log' && (
+        <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden shadow-2xs">
+          <div className="p-4 bg-slate-50 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="text-sm font-black text-navy-950">Itemized Tickets Given ({combinedLogEntries.length})</h3>
+              <p className="text-xs text-gray-500">Every individual ticket awarded in the selected timeline. Click the trash icon to undo an entry.</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleExportItemizedCSV}
+              className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 px-3 py-1.5 rounded-xl transition cursor-pointer self-start sm:self-auto"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Export Log CSV</span>
+            </button>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs text-gray-700">
+              <thead className="bg-slate-100/90 text-[10px] font-extrabold uppercase text-slate-600 border-b">
+                <tr>
+                  <th className="px-4 py-3">Date & Time</th>
+                  <th className="px-4 py-3">Recipient</th>
+                  <th className="px-4 py-3">Class / Grade</th>
+                  <th className="px-4 py-3">PBIS Value</th>
+                  <th className="px-4 py-3">Awarded By</th>
+                  <th className="px-4 py-3 text-right">Undo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {combinedLogEntries.length === 0 ? (
+                  <tr>
+                    <td colSpan="6" className="p-8 text-center text-gray-400 italic">
+                      No tickets match the selected timeline and filters.
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedLog.map(entry => {
+                    const d = entry.timestampMs ? new Date(entry.timestampMs) : null;
+                    const dateStr = d && !isNaN(d.getTime())
+                      ? `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                      : 'Recent';
+                    const badgeClass =
+                      entry.entryType === 'golden'
+                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                        : entry.reason === 'Respectful'
+                        ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                        : entry.reason === 'Responsible'
+                        ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                        : 'bg-purple-100 text-purple-800 border border-purple-200';
+                    return (
+                      <tr key={`${entry.entryType}_${entry.id}`} className="hover:bg-slate-50 transition">
+                        <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">{dateStr}</td>
+                        <td className="px-4 py-2.5 font-extrabold text-navy-950">
+                          {entry.recipient}
+                          {entry.studentId && <span className="ml-1 text-[10px] text-gray-400 font-normal">({entry.studentId})</span>}
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-600">
+                          {entry.homeroom}
+                          {entry.grade && entry.grade !== 'Unassigned' && <span className="text-[10px] text-gray-400 ml-1">• {entry.grade}</span>}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${badgeClass}`}>
+                            {entry.entryType === 'golden' ? '⭐ Golden Ticket' : entry.reason}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-600">{entry.teacherName}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteEntry(entry)}
+                            aria-label={`Remove ticket for ${entry.recipient}`}
+                            title="Undo / Remove ticket"
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {totalLogPages > 1 && (
+            <div className="p-3 bg-slate-50 border-t border-gray-200 flex items-center justify-between text-xs">
+              <span className="text-gray-500">
+                Showing {logPage * LOG_PAGE_SIZE + 1}–{Math.min((logPage + 1) * LOG_PAGE_SIZE, combinedLogEntries.length)} of {combinedLogEntries.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={logPage === 0}
+                  onClick={() => setLogPage(p => Math.max(0, p - 1))}
+                  className="px-2.5 py-1 border rounded-lg bg-white font-bold disabled:opacity-40 cursor-pointer"
+                >
+                  Prev
+                </button>
+                <span className="px-2 font-bold text-gray-700">
+                  Page {logPage + 1} of {totalLogPages}
+                </span>
+                <button
+                  type="button"
+                  disabled={logPage >= totalLogPages - 1}
+                  onClick={() => setLogPage(p => Math.min(totalLogPages - 1, p + 1))}
+                  className="px-2.5 py-1 border rounded-lg bg-white font-bold disabled:opacity-40 cursor-pointer"
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
+  if (isModal) {
+    return (
+      <div
+        className="fixed inset-0 bg-navy-950/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 animate-fade-in"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Teacher Ticket Timeline and Export Report"
+        onKeyDown={e => { if (e.key === 'Escape') onClose(); }}
+      >
+        <div className="bg-gray-50 rounded-3xl p-4 sm:p-6 max-w-6xl w-full border border-gray-200 shadow-2xl space-y-4 max-h-[92vh] flex flex-col">
+          <div className="flex items-center justify-between border-b border-gray-200 pb-3 bg-white px-4 py-3 rounded-2xl">
+            <div className="flex items-center gap-2.5">
+              <Calendar className="w-5 h-5 text-emerald-700" />
+              <h2 className="text-base sm:text-lg font-black font-display text-navy-950">
+                My Awarded Tickets Timeline & Export
+              </h2>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-700 p-1.5 rounded-xl hover:bg-gray-100 transition cursor-pointer min-h-[40px] min-w-[40px] flex items-center justify-center"
+              aria-label="Close Timeline Report Modal"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          <div className="overflow-y-auto flex-1 pr-1">
+            {reportBody}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return reportBody;
+}
+
+// --- Printable Teacher Ticket Timeline Report Overlay ---
+function PrintableTimelineReport({ data, onClose }) {
+  if (!data) return null;
+  const {
+    scopeTitle,
+    timelineLabel,
+    homeroomLabel,
+    targetRosterLabel,
+    summaryStats,
+    studentBreakdown = [],
+    combinedLogEntries = []
+  } = data;
+
+  return (
+    <div className="printable-cards-wrapper fixed inset-0 bg-white z-[9999] overflow-y-auto p-6 sm:p-8 font-sans text-gray-900">
+      <div className="max-w-5xl mx-auto print:max-w-full space-y-6">
+        {/* Screen-only toolbar */}
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b pb-4 print:hidden">
+          <div>
+            <h2 className="text-xl font-black text-navy-950">Printable Ticket Timeline Report Preview</h2>
+            <p className="text-xs text-gray-500">Formatted for printing or saving as PDF for parent-teacher conferences and PBIS records.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="flex items-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-black py-2.5 px-6 rounded-xl shadow-sm transition text-sm cursor-pointer"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print / Save as PDF</span>
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold py-2.5 px-5 rounded-xl transition text-sm cursor-pointer"
+            >
+              Close Preview
+            </button>
+          </div>
+        </div>
+
+        <style dangerouslySetInnerHTML={{ __html: `
+          @media print {
+            #root > div > header,
+            #root > div > nav,
+            #root > div > main,
+            #root > div > footer,
+            .print\\:hidden {
+              display: none !important;
+            }
+            .printable-cards-wrapper {
+              position: static !important;
+              inset: auto !important;
+              width: 100% !important;
+              height: auto !important;
+              overflow: visible !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              background: transparent !important;
+            }
+          }
+        `}} />
+
+        {/* Printable Report Header */}
+        <div className="border-b-2 border-emerald-800 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <div className="text-xs font-extrabold uppercase tracking-widest text-emerald-700">Rolling Ridge Elementary • PBIS Roadrunner Tickets</div>
+            <h1 className="text-2xl font-black text-gray-900 mt-0.5">Teacher Ticket Timeline Report</h1>
+            <div className="text-xs text-gray-600 mt-1">
+              <strong>Teacher Scope:</strong> {scopeTitle} &nbsp;|&nbsp; <strong>Class Filter:</strong> {homeroomLabel}
+            </div>
+          </div>
+          <div className="text-left sm:text-right text-xs text-gray-600">
+            <div className="font-black text-sm text-emerald-900">{timelineLabel}</div>
+            <div>Generated: {new Date().toLocaleDateString()}</div>
+          </div>
+        </div>
+
+        {/* Summary KPI Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="border border-gray-300 rounded-xl p-3">
+            <div className="text-[10px] font-bold uppercase text-gray-500">Tickets Given</div>
+            <div className="text-2xl font-black text-gray-900">{summaryStats.totalRegular}</div>
+            {summaryStats.totalGolden > 0 && <div className="text-[11px] text-amber-800 font-bold">+{summaryStats.totalGolden} Golden Tickets</div>}
+          </div>
+          <div className="border border-gray-300 rounded-xl p-3">
+            <div className="text-[10px] font-bold uppercase text-gray-500">Students Recognized</div>
+            <div className="text-2xl font-black text-gray-900">{summaryStats.uniqueStudentsCount}</div>
+            {summaryStats.rosterTotal > 0 && (
+              <div className="text-[11px] text-gray-600">{summaryStats.recognizedInRoster}/{summaryStats.rosterTotal} ({summaryStats.coveragePct}%) of {targetRosterLabel}</div>
+            )}
+          </div>
+          <div className="border border-gray-300 rounded-xl p-3">
+            <div className="text-[10px] font-bold uppercase text-gray-500">PBIS Value Breakdown</div>
+            <div className="text-xs font-bold text-gray-800 mt-1">
+              Respectful: {summaryStats.counts.Respectful} ({summaryStats.traitEntries[0].pct}%)<br />
+              Responsible: {summaryStats.counts.Responsible} ({summaryStats.traitEntries[1].pct}%)<br />
+              Determined: {summaryStats.counts.Determined} ({summaryStats.traitEntries[2].pct}%)
+            </div>
+          </div>
+          <div className="border border-gray-300 rounded-xl p-3">
+            <div className="text-[10px] font-bold uppercase text-gray-500">Recognition Pace</div>
+            <div className="text-2xl font-black text-gray-900">{summaryStats.avgPerActiveDay.toFixed(1)}</div>
+            <div className="text-[11px] text-gray-600">avg tickets / active day ({summaryStats.activeDaysCount} days)</div>
+          </div>
+        </div>
+
+        {/* Student Summary Table */}
+        <div>
+          <h3 className="text-sm font-black uppercase tracking-wider text-gray-800 mb-2">
+            Student Recognition Summary ({studentBreakdown.length} Students)
+          </h3>
+          <table className="w-full text-left text-xs border border-gray-300 border-collapse">
+            <thead className="bg-gray-100 text-[10px] font-extrabold uppercase text-gray-700">
+              <tr>
+                <th className="border border-gray-300 px-3 py-2">Student Name</th>
+                <th className="border border-gray-300 px-3 py-2">Homeroom / Grade</th>
+                <th className="border border-gray-300 px-3 py-2 text-center">Total in Period</th>
+                <th className="border border-gray-300 px-3 py-2 text-center">Respectful</th>
+                <th className="border border-gray-300 px-3 py-2 text-center">Responsible</th>
+                <th className="border border-gray-300 px-3 py-2 text-center">Determined</th>
+                <th className="border border-gray-300 px-3 py-2">Last Recognized</th>
+              </tr>
+            </thead>
+            <tbody>
+              {studentBreakdown.map(s => (
+                <tr key={s.name}>
+                  <td className="border border-gray-300 px-3 py-1.5 font-bold">{s.name}</td>
+                  <td className="border border-gray-300 px-3 py-1.5">{s.homeroom} ({s.grade})</td>
+                  <td className="border border-gray-300 px-3 py-1.5 text-center font-black">{s.total}</td>
+                  <td className="border border-gray-300 px-3 py-1.5 text-center">{s.Respectful}</td>
+                  <td className="border border-gray-300 px-3 py-1.5 text-center">{s.Responsible}</td>
+                  <td className="border border-gray-300 px-3 py-1.5 text-center">{s.Determined}</td>
+                  <td className="border border-gray-300 px-3 py-1.5">
+                    {s.lastAwardedMs > 0 ? new Date(s.lastAwardedMs).toLocaleDateString() : 'Not yet in period'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Itemized Log (up to 150 entries for print) */}
+        {combinedLogEntries.length > 0 && (
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-wider text-gray-800 mb-2">
+              Itemized Ticket Log ({combinedLogEntries.length} Entries)
+            </h3>
+            <table className="w-full text-left text-xs border border-gray-300 border-collapse">
+              <thead className="bg-gray-100 text-[10px] font-extrabold uppercase text-gray-700">
+                <tr>
+                  <th className="border border-gray-300 px-3 py-2">Date & Time</th>
+                  <th className="border border-gray-300 px-3 py-2">Recipient</th>
+                  <th className="border border-gray-300 px-3 py-2">Homeroom</th>
+                  <th className="border border-gray-300 px-3 py-2">PBIS Reason</th>
+                  <th className="border border-gray-300 px-3 py-2">Teacher</th>
+                </tr>
+              </thead>
+              <tbody>
+                {combinedLogEntries.slice(0, 200).map(e => {
+                  const d = e.timestampMs ? new Date(e.timestampMs) : null;
+                  return (
+                    <tr key={`${e.entryType}_${e.id}`}>
+                      <td className="border border-gray-300 px-3 py-1.5">
+                        {d && !isNaN(d.getTime()) ? `${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}
+                      </td>
+                      <td className="border border-gray-300 px-3 py-1.5 font-bold">{e.recipient}</td>
+                      <td className="border border-gray-300 px-3 py-1.5">{e.homeroom}</td>
+                      <td className="border border-gray-300 px-3 py-1.5">{e.reason}</td>
+                      <td className="border border-gray-300 px-3 py-1.5">{e.teacherName}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Edit Student Modal ---
 function EditStudentModal({ student, onClose, showToast }) {
   const [studentId, setStudentId] = useState(student.id);
@@ -5138,7 +7168,7 @@ function AppFooter({ onOpenAccessibility, onOpenInstall, isStandalone }) {
 }
 
 // --- Components ---
-function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword, onOpenAccessibility, onOpenInstall, isStandalone, onOpenSpendingReport }) {
+function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword, onOpenAccessibility, onOpenInstall, isStandalone, onOpenSpendingReport, onOpenTeacherTimeline }) {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showAdminExportDropdown, setShowAdminExportDropdown] = useState(false);
 
@@ -5264,19 +7294,19 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
                 </button>
 
                 {showAdminExportDropdown && (
-                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-2xl border border-gray-150 py-2 z-50 text-gray-800 text-xs animate-fade-in">
+                  <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-gray-150 py-2 z-50 text-gray-800 text-xs animate-fade-in">
                     <div className="px-3 py-1 font-extrabold uppercase text-[10px] text-gray-400 border-b border-gray-100">
-                      Admin Export Center
+                      Admin Export & Timeline Center
                     </div>
                     <button
                       onClick={() => {
                         setShowAdminExportDropdown(false);
-                        handleExport();
+                        if (onOpenTeacherTimeline) onOpenTeacherTimeline();
                       }}
-                      className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50 text-gray-700 hover:text-emerald-950 font-bold flex items-center gap-2 transition cursor-pointer"
+                      className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50 text-emerald-900 font-bold flex items-center gap-2 transition cursor-pointer"
                     >
-                      <Ticket className="w-4 h-4 text-emerald-600" />
-                      <span>Export Awarded Tickets (CSV)</span>
+                      <Calendar className="w-4 h-4 text-emerald-600" />
+                      <span>Teacher Timeline & Export Report</span>
                     </button>
                     <button
                       onClick={() => {
@@ -5288,12 +7318,29 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
                       <ShoppingBag className="w-4 h-4 text-emerald-600" />
                       <span>Spending Report & Export (CSV)</span>
                     </button>
+                    <button
+                      onClick={() => {
+                        setShowAdminExportDropdown(false);
+                        handleExport();
+                      }}
+                      className="w-full text-left px-3.5 py-2.5 hover:bg-emerald-50 text-gray-700 hover:text-emerald-950 font-bold flex items-center gap-2 transition cursor-pointer border-t border-gray-100"
+                    >
+                      <Ticket className="w-4 h-4 text-emerald-600" />
+                      <span>Quick Export All Tickets (CSV)</span>
+                    </button>
                   </div>
                 )}
               </div>
             ) : (
-              <button onClick={handleExport} aria-label="Export Ticket Data as CSV" className="hidden lg:flex items-center gap-1 hover:bg-emerald-700 px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px]">
-                <Download className="w-4 h-4" aria-hidden="true" /> <span className="hidden xl:inline">Export</span>
+              <button
+                onClick={() => onOpenTeacherTimeline ? onOpenTeacherTimeline() : handleExport()}
+                aria-label="View and Export Awarded Tickets by Timeline"
+                title="View and Export Awarded Tickets by Timeline"
+                className="hidden lg:flex items-center gap-1.5 bg-emerald-900/70 hover:bg-emerald-700 border border-amber-300/40 text-amber-200 px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] cursor-pointer"
+              >
+                <Calendar className="w-4 h-4 text-amber-300" aria-hidden="true" />
+                <span className="hidden xl:inline">My Tickets &amp; Export</span>
+                <span className="xl:hidden">Export</span>
               </button>
             )}
 
@@ -5357,14 +7404,22 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
                 <span>Help Guide</span>
               </button>
 
-              {profile.role === 'admin' ? (
+              <button
+                onClick={() => { setShowMobileMenu(false); if (onOpenTeacherTimeline) onOpenTeacherTimeline(); }}
+                className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
+              >
+                <Calendar className="w-4 h-4 text-amber-300" />
+                <span>Tickets Timeline</span>
+              </button>
+
+              {profile.role === 'admin' && (
                 <>
                   <button
                     onClick={() => { setShowMobileMenu(false); handleExport(); }}
                     className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
                   >
                     <Ticket className="w-4 h-4 text-emerald-300" />
-                    <span>Export Tickets</span>
+                    <span>Export All CSV</span>
                   </button>
                   <button
                     onClick={() => { setShowMobileMenu(false); if (onOpenSpendingReport) onOpenSpendingReport(); }}
@@ -5374,14 +7429,6 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
                     <span>Spending Report</span>
                   </button>
                 </>
-              ) : (
-                <button
-                  onClick={() => { setShowMobileMenu(false); handleExport(); }}
-                  className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-white p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
-                >
-                  <Download className="w-4 h-4 text-emerald-300" />
-                  <span>Export CSV</span>
-                </button>
               )}
 
               <button
@@ -7328,7 +9375,7 @@ function AwardGoldenTicketModal({ isOpen, onClose, defaultClass, classes = [], o
 }
 
 // --- Homeroom Dashboard ---
-function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch }) {
+function HomeroomDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, classGoals, setClassGoals, spending, balances, absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport }) {
   const [modalData, setModalData] = useState(null);
   const [showGoldenModal, setShowGoldenModal] = useState(false);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
@@ -7578,8 +9625,19 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
   }, [students, myStudents]);
 
   const myTickets = useMemo(() => {
-    return tickets.filter(t => myUids.has(t.teacherEmail));
-  }, [tickets, myUids]);
+    const myEmail = (profile?.email || '').trim().toLowerCase();
+    const myName = (profile?.name || '').trim().toLowerCase();
+    const lowerUids = new Set(Array.from(myUids || []).map(u => String(u || '').trim().toLowerCase()));
+    if (myEmail) lowerUids.add(myEmail);
+    return tickets.filter(t => {
+      const tEmail = (t.teacherEmail || '').trim().toLowerCase();
+      const tId = (t.teacherId || '').trim().toLowerCase();
+      const tName = (t.teacherName || '').trim().toLowerCase();
+      return (tEmail && lowerUids.has(tEmail)) ||
+        (tId && (myUids.has(t.teacherId) || lowerUids.has(tId))) ||
+        (myName && tName === myName);
+    });
+  }, [tickets, myUids, profile]);
 
   const ticketCounts = {};
   myStudents.forEach(s => ticketCounts[s] = 0);
@@ -7866,10 +9924,19 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
           </button>
 
           {/* Metrics Column */}
-          <div className="bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl text-center">
-            <div className="text-xxs font-bold text-gray-400 uppercase tracking-wider">Tickets Given</div>
-            <div className="text-xl font-black text-brand-600">{myTickets.length}</div>
-          </div>
+          <button
+            type="button"
+            onClick={() => onOpenTeacherTimeline && onOpenTeacherTimeline()}
+            title="Click to view & export your tickets by timeline"
+            className="bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-4 py-2 rounded-xl text-center transition cursor-pointer group"
+          >
+            <div className="text-xxs font-bold text-emerald-700 uppercase tracking-wider flex items-center justify-center gap-1">
+              <span>Tickets Given</span>
+              <Calendar className="w-3 h-3 text-emerald-600 group-hover:scale-110 transition" />
+            </div>
+            <div className="text-xl font-black text-brand-600 leading-tight">{myTickets.length}</div>
+            <div className="text-[9px] font-bold text-emerald-700 underline">Timeline & Export</div>
+          </button>
 
           <div className="bg-gray-50 border border-gray-100 px-4 py-2.5 rounded-xl text-center">
             <div className="text-xxs font-bold text-gray-400 uppercase tracking-wider">Tickets Spent</div>
@@ -8166,8 +10233,21 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 
       <div className="mt-8 border-t pt-8 space-y-6">
         <StudentSearch students={students} onSelect={setModalData} />
-        {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
-        <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
+        <TeacherTicketTimelineReport
+          tickets={tickets}
+          goldenTickets={goldenTickets}
+          students={students}
+          profile={profile}
+          profiles={profiles}
+          myUids={myUids}
+          user={user}
+          effectiveUid={effectiveUid}
+          absentStudents={absentStudents}
+          showToast={showToast}
+          isModal={false}
+          defaultHomeroom="all"
+          onPrintReport={onPrintTimelineReport}
+        />
       </div>
 
       {modalData && <GiveTicketModal data={modalData} onClose={() => setModalData(null)} onSelect={handleGiveTicket} isSubmitting={isSubmitting} />}
@@ -8231,7 +10311,7 @@ function HomeroomDashboard({ profile, students, tickets, showToast, user, effect
 }
 
 // --- Specialist Dashboard (Nested View) ---
-function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
+function SpecialistDashboard({ profile, students, tickets, showToast, user, effectiveUid, goldenTickets, goldenSpending = [], myUids, balances, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, profiles = [], onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport }) {
   const [selectedClass, setSelectedClass] = useState(null);
   const [modalData, setModalData] = useState(null);
   const [spendData, setSpendData] = useState(null);
@@ -8398,13 +10478,23 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
 
       {!selectedClass ? (
         <>
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">School Classes</h1>
-            <p className="text-gray-500">Select a class to award a whole-class ticket or individual students.</p>
+          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">School Classes</h1>
+              <p className="text-gray-500">Select a class to award a whole-class ticket or individual students.</p>
+            </div>
+            {onOpenTeacherTimeline && (
+              <button
+                type="button"
+                onClick={() => onOpenTeacherTimeline()}
+                className="flex items-center justify-center gap-2 bg-emerald-700 hover:bg-emerald-800 text-white font-bold px-4 py-2.5 rounded-xl shadow-xs border border-emerald-800 transition text-sm cursor-pointer min-h-[44px]"
+              >
+                <Calendar className="w-4 h-4 text-amber-300" />
+                <span>My Tickets & Export ({myTickets.length})</span>
+              </button>
+            )}
           </div>
           <StudentSearch students={students} onSelect={setModalData} />
-          {myTickets.length > 0 && <TicketBreakdownBar tickets={myTickets} />}
-          <RecentTicketsList ticketList={myTickets} onRemove={handleRemoveTicket} />
           {classes.length === 0 ? (
             <div className="bg-white p-8 text-center rounded-xl border text-gray-500">No classes found in the central roster. Admin needs to upload CSV.</div>
           ) : (
@@ -8438,6 +10528,24 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
               })}
             </div>
           )}
+
+          <div className="mt-8 border-t pt-8">
+            <TeacherTicketTimelineReport
+              tickets={tickets}
+              goldenTickets={goldenTickets}
+              students={students}
+              profile={profile}
+              profiles={profiles}
+              myUids={myUids}
+              user={user}
+              effectiveUid={effectiveUid}
+              absentStudents={absentStudents}
+              showToast={showToast}
+              isModal={false}
+              defaultHomeroom="all"
+              onPrintReport={onPrintTimelineReport}
+            />
+          </div>
         </>
       ) : (
         <>
@@ -8525,6 +10633,24 @@ function SpecialistDashboard({ profile, students, tickets, showToast, user, effe
               ))}
             </div>
           )}
+
+          <div className="mt-8 border-t pt-8">
+            <TeacherTicketTimelineReport
+              tickets={tickets}
+              goldenTickets={goldenTickets}
+              students={students}
+              profile={profile}
+              profiles={profiles}
+              myUids={myUids}
+              user={user}
+              effectiveUid={effectiveUid}
+              absentStudents={absentStudents}
+              showToast={showToast}
+              isModal={false}
+              defaultHomeroom="all"
+              onPrintReport={onPrintTimelineReport}
+            />
+          </div>
         </>
       )}
 
@@ -8807,7 +10933,7 @@ function AdminManageCoTeachersModal({ isOpen, onClose, targetProfile, profiles =
 }
 
 // --- Admin Dashboard (Includes CSV Upload + Give Tickets) ---
-function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, goldenSpending = [], myUids, balances, spending = [], gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch }) {
+function AdminDashboard({ tickets, students, profiles, showToast, user, effectiveUid, profile, goldenTickets, goldenSpending = [], myUids, balances, spending = [], gradeGoals, classGoals = [], absentStudents, onToggleAbsent, onEditStudent, onPrintLoginCards, onRoleSwitch, onOpenTeacherTimeline, onPrintTimelineReport }) {
   const [activeTab, setActiveTab] = useState('overview');
   const [csvText, setCsvText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -9330,6 +11456,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
         <h1 className="text-3xl font-bold text-gray-900">Admin Controls</h1>
         <div className="flex flex-wrap bg-gray-200 p-1 rounded-lg gap-0.5">
           <button onClick={() => setActiveTab('overview')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'overview' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Overview</button>
+          <button onClick={() => setActiveTab('teacherTimeline')} className={`px-4 py-2 rounded-md font-medium text-sm transition flex items-center gap-1.5 ${activeTab === 'teacherTimeline' ? 'bg-white shadow text-emerald-900 font-bold' : 'text-gray-600 hover:text-gray-900'}`}><Calendar className="w-3.5 h-3.5 text-emerald-600" /> Tickets Timeline</button>
           <button onClick={() => setActiveTab('spending')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'spending' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Spending Report</button>
           <button onClick={() => setActiveTab('tickets')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'tickets' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Give Tickets</button>
           <button onClick={() => setActiveTab('merge')} className={`px-4 py-2 rounded-md font-medium text-sm transition ${activeTab === 'merge' ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'}`}>Merge Students</button>
@@ -9951,17 +12078,27 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-150 space-y-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="font-black text-gray-800 text-sm flex items-center gap-2"><TrendingUp className="w-4 h-4 text-green-500" /> Tickets by Teacher</h3>
-                <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-bold">
-                  <span className="text-gray-400">Show:</span>
-                  {['5', '10', '25', 'all'].map(lim => (
-                    <button
-                      key={lim}
-                      onClick={() => setTeacherLimit(lim)}
-                      className={`px-1.5 py-0.5 rounded transition cursor-pointer ${teacherLimit === lim ? 'bg-green-600 text-white font-black' : 'text-gray-600 hover:bg-slate-200'}`}
-                    >
-                      {lim === 'all' ? 'All' : lim}
-                    </button>
-                  ))}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('teacherTimeline')}
+                    className="text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-0.5 rounded-lg transition flex items-center gap-1 cursor-pointer"
+                  >
+                    <Calendar className="w-3 h-3 text-emerald-600" />
+                    <span>Timeline & Export</span>
+                  </button>
+                  <div className="flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg text-[10px] font-bold">
+                    <span className="text-gray-400">Show:</span>
+                    {['5', '10', '25', 'all'].map(lim => (
+                      <button
+                        key={lim}
+                        onClick={() => setTeacherLimit(lim)}
+                        className={`px-1.5 py-0.5 rounded transition cursor-pointer ${teacherLimit === lim ? 'bg-green-600 text-white font-black' : 'text-gray-600 hover:bg-slate-200'}`}
+                      >
+                        {lim === 'all' ? 'All' : lim}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -10012,12 +12149,24 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                 return (
                   <div className="space-y-2 max-h-[260px] overflow-y-auto pr-1">
                     {limited.map(({ name, count }) => (
-                      <div key={name} className="flex items-center gap-3">
+                      <div key={name} className="flex items-center gap-3 group">
                         <div className="w-7 h-7 rounded-full bg-green-100 text-green-700 flex items-center justify-center text-xs font-bold flex-shrink-0">{name.charAt(0).toUpperCase()}</div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center justify-between mb-0.5">
                             <span className="text-xs font-bold text-gray-800 truncate">{name}</span>
-                            <span className="text-xs font-black text-green-700 ml-2">{count}</span>
+                            <div className="flex items-center gap-2">
+                              {onOpenTeacherTimeline && (
+                                <button
+                                  type="button"
+                                  onClick={() => onOpenTeacherTimeline(name)}
+                                  className="text-[10px] font-bold text-emerald-700 hover:text-emerald-950 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded transition cursor-pointer"
+                                  title={`View & export ${name}'s tickets by timeline`}
+                                >
+                                  Timeline
+                                </button>
+                              )}
+                              <span className="text-xs font-black text-green-700">{count}</span>
+                            </div>
                           </div>
                           <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
                             <div className="h-full rounded-full bg-green-500 transition-all duration-500" style={{ width: `${(count / maxCount) * 100}%` }} />
@@ -10296,6 +12445,23 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
             </div>
           </div>
         </>
+      ) : activeTab === 'teacherTimeline' ? (
+        <TeacherTicketTimelineReport
+          tickets={tickets}
+          goldenTickets={goldenTickets}
+          students={students}
+          profile={profile}
+          profiles={profiles}
+          myUids={myUids}
+          user={user}
+          effectiveUid={effectiveUid}
+          absentStudents={absentStudents}
+          showToast={showToast}
+          isModal={false}
+          defaultHomeroom="all"
+          defaultTeacherFilter="all"
+          onPrintReport={onPrintTimelineReport}
+        />
       ) : activeTab === 'spending' ? (
         <AdminSpendingReport
           spending={spending}
@@ -10464,7 +12630,7 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                 )).length;
 
                 return (
-                  <div key={p.email || p.id || p.name} className="flex items-center justify-between px-3 py-3.5 hover:bg-gray-50 transition rounded-xl">
+                  <div key={p.email || p.id || p.name} className="flex items-center justify-between px-3 py-3.5 hover:bg-gray-50 transition rounded-xl flex-wrap gap-2">
                     <div className="flex items-center gap-3">
                       <div className={`w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-black ${count === 0 ? 'bg-gray-100 text-gray-400' : 'bg-green-100 text-green-700'}`}>
                         {p.name?.charAt(0)?.toUpperCase() || '?'}
@@ -10478,9 +12644,20 @@ function AdminDashboard({ tickets, students, profiles, showToast, user, effectiv
                         <div className="text-xs text-gray-500 capitalize">{p.role}{linkedCount > 0 ? ` · ${linkedCount} linked device${linkedCount > 1 ? 's' : ''}` : ''}</div>
                       </div>
                     </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`text-xs font-black ${count === 0 ? 'text-gray-400' : 'text-green-700'}`}>{count} ticket{count !== 1 ? 's' : ''}</span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-xs font-black mr-1 ${count === 0 ? 'text-gray-400' : 'text-green-700'}`}>{count} ticket{count !== 1 ? 's' : ''}</span>
                       
+                      {onOpenTeacherTimeline && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenTeacherTimeline(p.name)}
+                          className="text-xs bg-teal-50 hover:bg-teal-100 text-teal-800 border border-teal-200 font-bold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 cursor-pointer min-h-[34px]"
+                          title={`View & export ${p.name}'s tickets by timeline`}
+                        >
+                          <Calendar className="w-3.5 h-3.5 text-teal-700" /> Timeline & Export
+                        </button>
+                      )}
+
                       <button
                         onClick={() => setManageCoTeacherTarget(p)}
                         className="text-xs bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold px-2.5 py-1.5 rounded-xl transition flex items-center gap-1 cursor-pointer min-h-[34px]"
