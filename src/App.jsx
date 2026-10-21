@@ -26,7 +26,7 @@ const api = {
     if (token) localStorage.setItem('token', token);
     else localStorage.removeItem('token');
   },
-  async fetch(endpoint, options = {}, retries = 2) {
+  async fetch(endpoint, options = {}, retries = 3) {
     const headers = {
       'Content-Type': 'application/json',
       ...options.headers
@@ -45,7 +45,8 @@ const api = {
         break;
       } catch (netErr) {
         if (attempt < retries) {
-          await new Promise(r => setTimeout(r, 400 * Math.pow(2, attempt)));
+          // Exponential backoff: 500ms, 1000ms, 2000ms - allows iPad Wi-Fi to reconnect after sleep
+          await new Promise(r => setTimeout(r, Math.min(3000, 500 * Math.pow(2, attempt))));
           continue;
         }
         const error = new Error('Unable to connect to the server. Please check your internet connection.');
@@ -388,9 +389,22 @@ const formatTicket = (t) => {
 
 // --- Main App Component ---
 export default function App() {
-  const [profile, setProfile] = useState(null);
-  const [role, setRole] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState(() => {
+    try {
+      const saved = localStorage.getItem('rrd_profile');
+      return saved ? JSON.parse(saved) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [role, setRole] = useState(() => {
+    try {
+      return localStorage.getItem('rrd_role') || null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [loading, setLoading] = useState(!api.token);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   // Teacher Data State
@@ -536,6 +550,11 @@ export default function App() {
         const data = await api.fetch('/api/initial-data');
         setProfile(data.profile);
         setRole(data.role);
+        try {
+          localStorage.setItem('rrd_profile', JSON.stringify(data.profile));
+          localStorage.setItem('rrd_role', data.role);
+          if (data.profile?.email) localStorage.setItem('user_email', data.profile.email);
+        } catch (err) {}
         setInitialError(null);
         if (data.role === 'student') {
           setStudentData(data);
@@ -554,18 +573,21 @@ export default function App() {
         }
       } catch (e) {
         console.error("Session check/data load error:", e);
-        const isAuthError = e.status === 401 || e.status === 403;
-        const isUserMissing = e.status === 404 && (!profile || (e.message && e.message.toLowerCase().includes('not found')));
+        // Only clear session if server explicitly returns 401 Unauthorized (expired/invalid JWT)
+        const isAuthError = e.status === 401;
 
-        // Only clear authentication if it is an explicit auth error or non-existent profile
-        if (isAuthError || isUserMissing) {
+        if (isAuthError) {
           api.setToken(null);
+          try {
+            localStorage.removeItem('rrd_profile');
+            localStorage.removeItem('rrd_role');
+          } catch (err) {}
           setProfile(null);
           setRole(null);
           setStudentData(null);
           showToast(e.message || "Your session has expired. Please log in again.");
         } else {
-          // Network hiccup, 500, 502/504 gateway timeout, or Google Sheets API rate limit
+          // Network hiccup, 500, 502/504 gateway timeout, or temporary Wi-Fi reconnect lag after sleep
           if (!profile) {
             setInitialError(e.message || "Unable to connect to the server. Please check your internet connection.");
           } else {
@@ -577,6 +599,15 @@ export default function App() {
       }
     };
     loadInitialData();
+
+    // Automatically re-sync when iPad reconnects to school Wi-Fi after waking up
+    const handleOnline = () => {
+      if (api.token) {
+        setRefreshTrigger(prev => prev + 1);
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
   }, [refreshTrigger]);
 
   // Calculate myUids for ticket filter mapping (includes linked devices and bidirectional co-teachers)
@@ -638,6 +669,10 @@ export default function App() {
 
   const handleSignOut = () => {
     api.setToken(null);
+    try {
+      localStorage.removeItem('rrd_profile');
+      localStorage.removeItem('rrd_role');
+    } catch (e) {}
     setProfile(null);
     setRole(null);
     setStudentData(null);
@@ -694,6 +729,11 @@ export default function App() {
         <Login 
           onLoginSuccess={(prof, token) => {
             api.setToken(token);
+            try {
+              localStorage.setItem('rrd_profile', JSON.stringify(prof));
+              localStorage.setItem('rrd_role', prof.role);
+              if (prof.email) localStorage.setItem('user_email', prof.email);
+            } catch (err) {}
             setProfile(prof);
             setRole(prof.role);
             setRefreshTrigger(prev => prev + 1);
@@ -7473,7 +7513,14 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
 }
 
 function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, isStandalone }) {
-  const [activeTab, setActiveTab] = useState('student'); // 'student' or 'teacher'
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const savedTab = localStorage.getItem('rrd_last_login_tab');
+      if (savedTab === 'teacher' || savedTab === 'student') return savedTab;
+      if (localStorage.getItem('user_email')) return 'teacher';
+    } catch (e) {}
+    return 'student';
+  });
   const [teacherMode, setTeacherMode] = useState('login'); // 'login' | 'register' | 'forgot'
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -7481,12 +7528,26 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
   // Form Fields
   const [studentId, setStudentId] = useState('');
   const [pinCode, setPinCode] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(() => {
+    try {
+      return localStorage.getItem('user_email') || '';
+    } catch (e) {
+      return '';
+    }
+  });
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('homeroom');
   const [adminPassword, setAdminPassword] = useState('');
+
+  const handleTabChange = (tab) => {
+    setActiveTab(tab);
+    setError('');
+    try {
+      localStorage.setItem('rrd_last_login_tab', tab);
+    } catch (e) {}
+  };
 
   const handleStudentSubmit = async (e) => {
     e.preventDefault();
@@ -7497,6 +7558,9 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
         method: 'POST',
         body: JSON.stringify({ studentId, pinCode })
       });
+      try {
+        localStorage.setItem('rrd_last_login_tab', 'student');
+      } catch (err) {}
       showToast(`Welcome back, ${data.profile.name}!`);
       onLoginSuccess(data.profile, data.token);
     } catch (err) {
@@ -7514,16 +7578,34 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
       if (teacherMode === 'register') {
         await api.fetch('/api/auth/teacher/register', {
           method: 'POST',
-          body: JSON.stringify({ email, password, name, role, adminPassword: role === 'admin' ? adminPassword : undefined })
+          body: JSON.stringify({ email: email.trim(), password, name, role, adminPassword: role === 'admin' ? adminPassword : undefined })
         });
         showToast("Registration successful! Logging in...");
       }
       
       const data = await api.fetch('/api/auth/teacher', {
         method: 'POST',
-        body: JSON.stringify({ email, password })
+        body: JSON.stringify({ email: email.trim(), password })
       });
       showToast(`Logged in as ${data.profile.name}`);
+
+      try {
+        localStorage.setItem('user_email', email.trim().toLowerCase());
+        localStorage.setItem('rrd_last_login_tab', 'teacher');
+      } catch (err) {}
+
+      // Register with browser Password Manager / AutoFill API (Chrome & Safari WebKit)
+      if (window.PasswordCredential && navigator.credentials?.store) {
+        try {
+          const cred = new window.PasswordCredential({
+            id: email.trim().toLowerCase(),
+            password: password,
+            name: data.profile.name || email.trim()
+          });
+          navigator.credentials.store(cred).catch(() => {});
+        } catch (credErr) {}
+      }
+
       onLoginSuccess(data.profile, data.token);
     } catch (err) {
       setError(err.message || 'Authentication failed');
@@ -7607,7 +7689,7 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
             type="button"
             role="tab"
             aria-selected={activeTab === 'student'}
-            onClick={() => { setActiveTab('student'); setError(''); }}
+            onClick={() => handleTabChange('student')}
             className={`flex-1 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all min-h-[44px] ${activeTab === 'student' ? 'bg-emerald-700 text-white shadow-md' : 'text-emerald-900 hover:text-emerald-950'}`}
           >
             Student Portal
@@ -7616,7 +7698,7 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
             type="button"
             role="tab"
             aria-selected={activeTab === 'teacher'}
-            onClick={() => { setActiveTab('teacher'); setError(''); }}
+            onClick={() => handleTabChange('teacher')}
             className={`flex-1 py-2.5 text-xs sm:text-sm font-extrabold rounded-xl transition-all min-h-[44px] ${activeTab === 'teacher' ? 'bg-emerald-700 text-white shadow-md' : 'text-emerald-900 hover:text-emerald-950'}`}
           >
             Teacher Access
@@ -7636,8 +7718,9 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
           </div>
         )}
 
-        {activeTab === 'student' ? (
-          <form key="student-portal-form" className="mt-4 space-y-4" onSubmit={handleStudentSubmit} autoComplete="on">
+        {/* Student Portal Form */}
+        <div className={activeTab === 'student' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'student'}>
+          <form key="student-portal-form" method="post" action="#" className="mt-4 space-y-4" onSubmit={handleStudentSubmit} autoComplete="on">
             <div>
               <label htmlFor="student-id" className="block text-xs font-bold text-gray-700 mb-1">Student ID Number</label>
               <input
@@ -7646,7 +7729,7 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
                 type="text"
                 autoComplete="username"
                 inputMode="numeric"
-                required
+                required={activeTab === 'student'}
                 value={studentId}
                 onChange={e => setStudentId(e.target.value)}
                 className="w-full p-3.5 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-center text-lg font-bold tracking-widest min-h-[44px]"
@@ -7661,7 +7744,7 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
                 type="password"
                 autoComplete="current-password"
                 maxLength={4}
-                required
+                required={activeTab === 'student'}
                 value={pinCode}
                 onChange={e => setPinCode(e.target.value)}
                 className="w-full p-3.5 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition tracking-widest text-center text-lg font-bold min-h-[44px]"
@@ -7676,184 +7759,202 @@ function Login({ onLoginSuccess, showToast, onOpenAccessibility, onOpenInstall, 
               {loading ? 'Logging in...' : 'Log In to Student Portal'}
             </button>
           </form>
-        ) : teacherMode === 'forgot' ? (
-          <form key="teacher-forgot-form" className="mt-4 space-y-4" onSubmit={handleForgotSubmit} autoComplete="on">
-            <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 text-xs text-emerald-900 font-medium">
-              Enter your school email address and your desired new password below to reset your credentials.
-            </div>
-            <div>
-              <label htmlFor="forgot-teacher-email" className="block text-xs font-bold text-gray-700 mb-1">School Email Address</label>
-              <input
-                id="forgot-teacher-email"
-                name="username"
-                type="email"
-                autoComplete="username email"
-                required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
-                placeholder="teacher@lcps.org"
-              />
-            </div>
-            <div>
-              <label htmlFor="forgot-teacher-password" className="block text-xs font-bold text-gray-700 mb-1">New Password</label>
-              <input
-                id="forgot-teacher-password"
-                name="new-password"
-                type="password"
-                autoComplete="new-password"
-                required
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
-                placeholder="Minimum 4 characters"
-              />
-            </div>
-            <div>
-              <label htmlFor="forgot-teacher-confirm" className="block text-xs font-bold text-gray-700 mb-1">Confirm New Password</label>
-              <input
-                id="forgot-teacher-confirm"
-                name="confirm-new-password"
-                type="password"
-                autoComplete="new-password"
-                required
-                value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
-                placeholder="Re-type new password"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-base font-extrabold rounded-2xl text-white bg-emerald-700 hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition shadow-lg disabled:opacity-50 mt-6 min-h-[44px]"
-            >
-              {loading ? 'Resetting Password...' : 'Reset Password & Log In'}
-            </button>
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 text-xs">
+        </div>
+
+        {/* Teacher Access Form */}
+        <div className={activeTab === 'teacher' ? 'block' : 'hidden'} aria-hidden={activeTab !== 'teacher'}>
+          {teacherMode === 'forgot' ? (
+            <form key="teacher-forgot-form" method="post" action="#" className="mt-4 space-y-4" onSubmit={handleForgotSubmit} autoComplete="on">
+              <div className="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 text-xs text-emerald-900 font-medium">
+                Enter your school email address and your desired new password below to reset your credentials.
+              </div>
+              <div>
+                <label htmlFor="forgot-teacher-email" className="block text-xs font-bold text-gray-700 mb-1">School Email Address</label>
+                <input
+                  id="forgot-teacher-email"
+                  name="username"
+                  type="email"
+                  autoComplete="username"
+                  required={activeTab === 'teacher' && teacherMode === 'forgot'}
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                  placeholder="teacher@lcps.org"
+                />
+              </div>
+              <div>
+                <label htmlFor="forgot-teacher-password" className="block text-xs font-bold text-gray-700 mb-1">New Password</label>
+                <input
+                  id="forgot-teacher-password"
+                  name="new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  required={activeTab === 'teacher' && teacherMode === 'forgot'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                  placeholder="Minimum 4 characters"
+                />
+              </div>
+              <div>
+                <label htmlFor="forgot-teacher-confirm" className="block text-xs font-bold text-gray-700 mb-1">Confirm New Password</label>
+                <input
+                  id="forgot-teacher-confirm"
+                  name="confirm-new-password"
+                  type="password"
+                  autoComplete="new-password"
+                  required={activeTab === 'teacher' && teacherMode === 'forgot'}
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                  placeholder="Re-type new password"
+                />
+              </div>
               <button
-                type="button"
-                onClick={() => { setTeacherMode('login'); setError(''); }}
-                className="text-emerald-700 hover:underline font-bold py-1.5 px-2"
+                type="submit"
+                disabled={loading}
+                className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-base font-extrabold rounded-2xl text-white bg-emerald-700 hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition shadow-lg disabled:opacity-50 mt-6 min-h-[44px]"
               >
-                ← Back to Login
+                {loading ? 'Resetting Password...' : 'Reset Password & Log In'}
               </button>
-              <button
-                type="button"
-                onClick={() => { setTeacherMode('register'); setError(''); }}
-                className="text-emerald-700 hover:underline font-bold py-1.5 px-2"
-              >
-                Register New Account
-              </button>
-            </div>
-          </form>
-        ) : (
-          <form key={teacherMode === 'register' ? "teacher-register-form" : "teacher-login-form"} className="mt-4 space-y-4" onSubmit={handleTeacherSubmit} autoComplete="on">
-            {teacherMode === 'register' && (
-              <>
-                <div>
-                  <label htmlFor="teacher-name" className="block text-xs font-bold text-gray-700 mb-1">Last Name</label>
-                  <input
-                    id="teacher-name"
-                    name="name"
-                    type="text"
-                    autoComplete="name"
-                    required
-                    value={name}
-                    onChange={e => setName(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
-                    placeholder="e.g. Smith"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="teacher-role" className="block text-xs font-bold text-gray-700 mb-1">Role</label>
-                  <select
-                    id="teacher-role"
-                    name="role"
-                    value={role}
-                    onChange={e => setRole(e.target.value)}
-                    className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition bg-white text-sm font-semibold min-h-[44px]"
-                  >
-                    <option value="homeroom">Homeroom Teacher</option>
-                    <option value="specialist">Specialist</option>
-                    <option value="admin">Administrator</option>
-                  </select>
-                </div>
-                {role === 'admin' && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 mt-4 text-xs">
+                <button
+                  type="button"
+                  onClick={() => { setTeacherMode('login'); setError(''); }}
+                  className="text-emerald-700 hover:underline font-bold py-1.5 px-2"
+                >
+                  ← Back to Login
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setTeacherMode('register'); setError(''); }}
+                  className="text-emerald-700 hover:underline font-bold py-1.5 px-2"
+                >
+                  Register New Account
+                </button>
+              </div>
+            </form>
+          ) : (
+            <form key={teacherMode === 'register' ? "teacher-register-form" : "teacher-login-form"} method="post" action="#" className="mt-4 space-y-4" onSubmit={handleTeacherSubmit} autoComplete="on">
+              {teacherMode === 'register' && (
+                <>
                   <div>
-                    <label htmlFor="admin-password" className="block text-xs font-bold text-gray-700 mb-1">Admin Password</label>
+                    <label htmlFor="teacher-name" className="block text-xs font-bold text-gray-700 mb-1">Last Name</label>
                     <input
-                      id="admin-password"
-                      name="admin-password"
-                      type="password"
-                      autoComplete="new-password"
-                      required
-                      value={adminPassword}
-                      onChange={e => setAdminPassword(e.target.value)}
+                      id="teacher-name"
+                      name="name"
+                      type="text"
+                      autoComplete="name"
+                      required={activeTab === 'teacher' && teacherMode === 'register'}
+                      value={name}
+                      onChange={e => setName(e.target.value)}
                       className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
-                      placeholder="Enter admin password"
+                      placeholder="e.g. Smith"
                     />
                   </div>
-                )}
-              </>
-            )}
-            <div>
-              <label htmlFor="teacher-email" className="block text-xs font-bold text-gray-700 mb-1">School Email Address</label>
-              <input
-                id="teacher-email"
-                name="username"
-                type="email"
-                autoComplete="username email"
-                required
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
-                placeholder="teacher@lcps.org"
-              />
-            </div>
-            <div>
-              <div className="flex justify-between items-center mb-1">
-                <label htmlFor="teacher-password" className="block text-xs font-bold text-gray-700">Password</label>
-                {teacherMode === 'login' && (
-                  <button
-                    type="button"
-                    onClick={() => { setTeacherMode('forgot'); setError(''); }}
-                    className="text-xs text-emerald-700 hover:underline font-bold"
-                  >
-                    Forgot password?
-                  </button>
-                )}
+                  <div>
+                    <label htmlFor="teacher-role" className="block text-xs font-bold text-gray-700 mb-1">Role</label>
+                    <select
+                      id="teacher-role"
+                      name="role"
+                      value={role}
+                      onChange={e => setRole(e.target.value)}
+                      className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition bg-white text-sm font-semibold min-h-[44px]"
+                    >
+                      <option value="homeroom">Homeroom Teacher</option>
+                      <option value="specialist">Specialist</option>
+                      <option value="admin">Administrator</option>
+                    </select>
+                  </div>
+                  {role === 'admin' && (
+                    <div>
+                      <label htmlFor="admin-password" className="block text-xs font-bold text-gray-700 mb-1">Admin Password</label>
+                      <input
+                        id="admin-password"
+                        name="admin-password"
+                        type="password"
+                        autoComplete="new-password"
+                        required={activeTab === 'teacher' && teacherMode === 'register' && role === 'admin'}
+                        value={adminPassword}
+                        onChange={e => setAdminPassword(e.target.value)}
+                        className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                        placeholder="Enter admin password"
+                      />
+                    </div>
+                  )}
+                </>
+              )}
+              <div>
+                <label htmlFor="teacher-email" className="block text-xs font-bold text-gray-700 mb-1">School Email Address</label>
+                <input
+                  id="teacher-email"
+                  name="username"
+                  type="email"
+                  autoComplete="username"
+                  required={activeTab === 'teacher' && teacherMode !== 'forgot'}
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                  placeholder="teacher@lcps.org"
+                />
               </div>
-              <input
-                id="teacher-password"
-                name="password"
-                type="password"
-                autoComplete={teacherMode === 'register' ? "new-password" : "current-password"}
-                required
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
-                placeholder="••••••••"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-base font-extrabold rounded-2xl text-white bg-emerald-700 hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition shadow-lg disabled:opacity-50 mt-6 min-h-[44px]"
-            >
-              {loading ? 'Processing...' : teacherMode === 'register' ? 'Register & Log In' : 'Log In to Teacher Portal'}
-            </button>
-            <div className="text-center mt-4">
+              <div>
+                <div className="flex justify-between items-center mb-1">
+                  <label htmlFor="teacher-password" className="block text-xs font-bold text-gray-700">Password</label>
+                  {teacherMode === 'login' && (
+                    <button
+                      type="button"
+                      onClick={() => { setTeacherMode('forgot'); setError(''); }}
+                      className="text-xs text-emerald-700 hover:underline font-bold"
+                    >
+                      Forgot password?
+                    </button>
+                  )}
+                </div>
+                <input
+                  id="teacher-password"
+                  name="password"
+                  type="password"
+                  autoComplete={teacherMode === 'register' ? "new-password" : "current-password"}
+                  required={activeTab === 'teacher' && teacherMode !== 'forgot'}
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl focus:ring-4 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition text-sm font-semibold min-h-[44px]"
+                  placeholder="••••••••"
+                />
+              </div>
+
+              {isStandalone && (
+                <div className="bg-emerald-50/80 border border-emerald-200/80 rounded-xl p-3 text-xs text-emerald-900 flex items-start gap-2.5">
+                  <Info className="w-4 h-4 text-emerald-700 flex-shrink-0 mt-0.5" aria-hidden="true" />
+                  <div className="space-y-0.5">
+                    <p className="font-bold text-[12px]">iPad Web App Autofill Tip</p>
+                    <p className="text-[11px] text-emerald-800 leading-relaxed">
+                      To autofill with Chrome or iCloud on this iPad, turn on AutoFill in: <span className="font-semibold">Settings → Passwords → Password Options → AutoFill from Chrome / Passwords</span>.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <button
-                type="button"
-                onClick={() => { setTeacherMode(teacherMode === 'register' ? 'login' : 'register'); setError(''); }}
-                className="text-xs text-emerald-700 hover:underline font-bold py-2 px-3 rounded-lg"
+                type="submit"
+                disabled={loading}
+                className="w-full flex justify-center items-center py-3.5 px-4 border border-transparent text-base font-extrabold rounded-2xl text-white bg-emerald-700 hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-500 transition shadow-lg disabled:opacity-50 mt-6 min-h-[44px]"
               >
-                {teacherMode === 'register' ? 'Already have an account? Log in instead' : 'Need a teacher account? Register here'}
+                {loading ? 'Processing...' : teacherMode === 'register' ? 'Register & Log In' : 'Log In to Teacher Portal'}
               </button>
-            </div>
-          </form>
-        )}
+              <div className="text-center mt-4">
+                <button
+                  type="button"
+                  onClick={() => { setTeacherMode(teacherMode === 'register' ? 'login' : 'register'); setError(''); }}
+                  className="text-xs text-emerald-700 hover:underline font-bold py-2 px-3 rounded-lg"
+                >
+                  {teacherMode === 'register' ? 'Already have an account? Log in instead' : 'Need a teacher account? Register here'}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
 
       <div className="mt-8 text-center text-xs text-emerald-200/90 font-medium max-w-sm">
