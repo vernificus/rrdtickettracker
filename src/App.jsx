@@ -406,6 +406,15 @@ export default function App() {
   });
   const [loading, setLoading] = useState(!api.token);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [appUpdateAvailable, setAppUpdateAvailable] = useState(false);
+
+  // Listen for PWA / Service Worker new version updates
+  useEffect(() => {
+    const handleUpdate = () => setAppUpdateAvailable(true);
+    window.addEventListener('app-update-available', handleUpdate);
+    return () => window.removeEventListener('app-update-available', handleUpdate);
+  }, []);
 
   // Teacher Data State
   const [tickets, setTickets] = useState([]);
@@ -544,6 +553,7 @@ export default function App() {
         return;
       }
       try {
+        setIsSyncing(true);
         if (!profile) {
           setLoading(true);
         }
@@ -596,6 +606,7 @@ export default function App() {
         }
       } finally {
         setLoading(false);
+        setIsSyncing(false);
       }
     };
     loadInitialData();
@@ -609,6 +620,33 @@ export default function App() {
     window.addEventListener('online', handleOnline);
     return () => window.removeEventListener('online', handleOnline);
   }, [refreshTrigger]);
+
+  // Automatic Live Data Sync (Visibility wake-up & 60-second periodic background poll)
+  useEffect(() => {
+    if (!api.token) return;
+
+    // 1. Sync immediately when teacher wakes iPad or switches back to app
+    const handleWake = () => {
+      if (document.visibilityState === 'visible' && api.token) {
+        setRefreshTrigger(prev => prev + 1);
+      }
+    };
+    document.addEventListener('visibilitychange', handleWake);
+    window.addEventListener('focus', handleWake);
+
+    // 2. Quiet periodic poll every 60 seconds while app is active
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible' && api.token) {
+        setRefreshTrigger(prev => prev + 1);
+      }
+    }, 60000);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleWake);
+      window.removeEventListener('focus', handleWake);
+      clearInterval(pollInterval);
+    };
+  }, []);
 
   // Calculate myUids for ticket filter mapping (includes linked devices and bidirectional co-teachers)
   const myUids = useMemo(() => {
@@ -722,6 +760,27 @@ export default function App() {
   if (!profile) {
     return (
       <>
+        {appUpdateAvailable && (
+          <div 
+            role="alert" 
+            aria-live="assertive"
+            className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] bg-gradient-to-r from-amber-400 via-amber-300 to-amber-400 text-emerald-950 px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-emerald-950 flex items-center gap-3 animate-bounce"
+          >
+            <Sparkles className="w-5 h-5 text-emerald-950 shrink-0" aria-hidden="true" />
+            <span className="text-xs sm:text-sm font-black tracking-tight">App update ready!</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window.applyAppUpdate === 'function') window.applyAppUpdate();
+                else window.location.reload();
+              }}
+              className="bg-emerald-950 hover:bg-emerald-900 text-white font-extrabold text-xs px-3 py-1.5 rounded-xl shadow transition cursor-pointer min-h-[32px] flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
+              <span>Update Now</span>
+            </button>
+          </div>
+        )}
         <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-3 focus:bg-emerald-800 focus:text-amber-300 focus:font-bold focus:rounded-xl focus:shadow-2xl focus:ring-4 focus:ring-amber-300 focus:outline-none">
           Skip to Main Content
         </a>
@@ -769,6 +828,27 @@ export default function App() {
   if (role === 'student' && studentData) {
     return (
       <>
+        {appUpdateAvailable && (
+          <div 
+            role="alert" 
+            aria-live="assertive"
+            className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] bg-gradient-to-r from-amber-400 via-amber-300 to-amber-400 text-emerald-950 px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-emerald-950 flex items-center gap-3 animate-bounce"
+          >
+            <Sparkles className="w-5 h-5 text-emerald-950 shrink-0" aria-hidden="true" />
+            <span className="text-xs sm:text-sm font-black tracking-tight">App update ready!</span>
+            <button
+              type="button"
+              onClick={() => {
+                if (typeof window.applyAppUpdate === 'function') window.applyAppUpdate();
+                else window.location.reload();
+              }}
+              className="bg-emerald-950 hover:bg-emerald-900 text-white font-extrabold text-xs px-3 py-1.5 rounded-xl shadow transition cursor-pointer min-h-[32px] flex items-center gap-1.5"
+            >
+              <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
+              <span>Update Now</span>
+            </button>
+          </div>
+        )}
         <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-3 focus:bg-emerald-800 focus:text-amber-300 focus:font-bold focus:rounded-xl focus:shadow-2xl focus:ring-4 focus:ring-amber-300 focus:outline-none">
           Skip to Main Content
         </a>
@@ -779,6 +859,8 @@ export default function App() {
           onOpenAccessibility={() => setShowAccessibilityModal(true)}
           onOpenInstall={() => setShowInstallModal(true)}
           isStandalone={isStandalone}
+          onSync={() => setRefreshTrigger(prev => prev + 1)}
+          isSyncing={isSyncing}
         />
         <AppFooter 
           onOpenAccessibility={() => setShowAccessibilityModal(true)}
@@ -842,6 +924,28 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans text-gray-800">
+      {appUpdateAvailable && (
+        <div 
+          role="alert" 
+          aria-live="assertive"
+          className="fixed top-3 left-1/2 -translate-x-1/2 z-[9999] bg-gradient-to-r from-amber-400 via-amber-300 to-amber-400 text-emerald-950 px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-emerald-950 flex items-center gap-3 animate-bounce"
+        >
+          <Sparkles className="w-5 h-5 text-emerald-950 shrink-0" aria-hidden="true" />
+          <span className="text-xs sm:text-sm font-black tracking-tight">App update ready!</span>
+          <button
+            type="button"
+            onClick={() => {
+              if (typeof window.applyAppUpdate === 'function') window.applyAppUpdate();
+              else window.location.reload();
+            }}
+            className="bg-emerald-950 hover:bg-emerald-900 text-white font-extrabold text-xs px-3 py-1.5 rounded-xl shadow transition cursor-pointer min-h-[32px] flex items-center gap-1.5"
+          >
+            <RefreshCw className="w-3.5 h-3.5 text-amber-300" />
+            <span>Update Now</span>
+          </button>
+        </div>
+      )}
+
       <a href="#main-content" className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-3 focus:bg-emerald-800 focus:text-amber-300 focus:font-bold focus:rounded-xl focus:shadow-2xl focus:ring-4 focus:ring-amber-300 focus:outline-none">
         Skip to Main Content
       </a>
@@ -862,6 +966,8 @@ export default function App() {
         isStandalone={isStandalone}
         onOpenSpendingReport={() => setShowSpendingReportModal(true)}
         onOpenTeacherTimeline={() => handleOpenTeacherTimeline(null)}
+        onSync={() => setRefreshTrigger(prev => prev + 1)}
+        isSyncing={isSyncing}
       />
 
       <main id="main-content" tabIndex="-1" role="main" aria-label="Main Application Content" className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
@@ -7216,7 +7322,7 @@ function AppFooter({ onOpenAccessibility, onOpenInstall, isStandalone }) {
 }
 
 // --- Components ---
-function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword, onOpenAccessibility, onOpenInstall, isStandalone, onOpenSpendingReport, onOpenTeacherTimeline }) {
+function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView, setActiveView, onChangePassword, onOpenAccessibility, onOpenInstall, isStandalone, onOpenSpendingReport, onOpenTeacherTimeline, onSync, isSyncing }) {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [showAdminExportDropdown, setShowAdminExportDropdown] = useState(false);
 
@@ -7277,6 +7383,18 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
               className={`flex items-center gap-1 sm:gap-1.5 hover:bg-emerald-700 px-2.5 sm:px-3 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] ${activeView === 'raffle' ? 'bg-emerald-950 text-amber-300 border border-amber-300/40 shadow-inner' : ''}`}
             >
               <span className="hidden sm:inline">Weekly </span>Raffle
+            </button>
+
+            {/* Sync Data Button */}
+            <button 
+              onClick={onSync} 
+              disabled={isSyncing}
+              aria-label={isSyncing ? "Syncing tickets and balances..." : "Sync latest data"}
+              title="Sync latest tickets and balances with server"
+              className="flex items-center gap-1 hover:bg-emerald-700 bg-emerald-900/60 lg:bg-transparent border border-amber-300/30 lg:border-none px-2 sm:px-2.5 py-2 rounded-xl transition text-xs sm:text-sm font-bold min-h-[44px] text-amber-200 lg:text-white disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 text-amber-300 ${isSyncing ? 'animate-spin' : ''}`} aria-hidden="true" />
+              <span className="hidden xl:inline">{isSyncing ? 'Syncing...' : 'Sync'}</span>
             </button>
 
             {/* Role Button - accessible on all screen sizes */}
@@ -7428,6 +7546,15 @@ function Navbar({ profile, tickets, onSignOut, onRoleSwitch, onHelp, activeView,
             </div>
 
             <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { setShowMobileMenu(false); if (onSync) onSync(); }}
+                disabled={isSyncing}
+                className="flex items-center justify-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 p-2.5 rounded-xl font-bold text-xs transition min-h-[44px] col-span-2 disabled:opacity-50"
+              >
+                <RefreshCw className={`w-4 h-4 text-amber-300 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Syncing Latest Data...' : 'Sync Latest Data Now'}</span>
+              </button>
+
               <button
                 onClick={() => { setShowMobileMenu(false); onRoleSwitch(); }}
                 className="flex items-center gap-2 bg-emerald-800 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 p-2.5 rounded-xl font-bold text-xs transition min-h-[44px]"
@@ -8096,7 +8223,7 @@ function MathSprintGame() {
   );
 }
 
-function StudentDashboard({ studentData, onSignOut, onOpenAccessibility, onOpenInstall, isStandalone }) {
+function StudentDashboard({ studentData, onSignOut, onOpenAccessibility, onOpenInstall, isStandalone, onSync, isSyncing }) {
   const { profile, tickets, spending, classGoal, gradeGoal, wallet, goldenCount, classTicketsEarned, gradeGoldenEarned } = studentData;
   const [avatar, setAvatar] = useState(() => {
     return localStorage.getItem(`avatar_${profile.name}`) || '🐼';
@@ -8148,6 +8275,18 @@ function StudentDashboard({ studentData, onSignOut, onOpenAccessibility, onOpenI
               <div className="flex items-center gap-2 sm:gap-3">
                 <span className="text-xs sm:text-sm font-semibold text-emerald-100 hidden md:inline">Hello, {profile.name}</span>
                 
+                <button
+                  type="button"
+                  onClick={onSync}
+                  disabled={isSyncing}
+                  aria-label={isSyncing ? "Syncing tickets..." : "Sync latest tickets"}
+                  title="Sync latest tickets and balances with server"
+                  className="flex items-center gap-1 bg-emerald-900/70 hover:bg-emerald-700 text-amber-200 border border-amber-300/30 px-2.5 py-2 rounded-xl text-xs font-bold transition min-h-[44px] disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 text-amber-300 ${isSyncing ? 'animate-spin' : ''}`} aria-hidden="true" />
+                  <span className="hidden sm:inline">{isSyncing ? 'Syncing...' : 'Sync'}</span>
+                </button>
+
                 <button
                   type="button"
                   onClick={onOpenAccessibility}

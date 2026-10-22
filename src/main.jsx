@@ -64,10 +64,64 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>,
 );
 
+// Helper to manually or automatically activate pending updates
+window.applyAppUpdate = () => {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.getRegistration().then((reg) => {
+      if (reg && reg.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      } else {
+        window.location.reload();
+      }
+    });
+  } else {
+    window.location.reload();
+  }
+};
+
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js').catch((err) => {
+    navigator.serviceWorker.register('/sw.js').then((registration) => {
+      // 1. Check for SW updates periodically (every 15 mins)
+      setInterval(() => {
+        registration.update().catch(() => {});
+      }, 15 * 60 * 1000);
+
+      // 2. Check for SW updates whenever the teacher opens/focuses the iPad app
+      const checkUpdate = () => {
+        if (document.visibilityState === 'visible') {
+          registration.update().catch(() => {});
+        }
+      };
+      document.addEventListener('visibilitychange', checkUpdate);
+      window.addEventListener('focus', checkUpdate);
+
+      // 3. If a new worker is waiting, notify the app
+      if (registration.waiting) {
+        window.dispatchEvent(new CustomEvent('app-update-available'));
+      }
+
+      registration.addEventListener('updatefound', () => {
+        const newWorker = registration.installing;
+        if (!newWorker) return;
+        newWorker.addEventListener('statechange', () => {
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+            // New version installed in background! Notify app to show update pill
+            window.dispatchEvent(new CustomEvent('app-update-available'));
+          }
+        });
+      });
+    }).catch((err) => {
       console.log('Service Worker registration failed:', err);
+    });
+
+    // 4. When the new Service Worker activates, reload cleanly with session intact
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        window.location.reload();
+      }
     });
   });
 }
